@@ -1,4 +1,4 @@
-# PCDViewer
+# Batch 3D Viewer
 
 批量本地/远程点云查看器
 

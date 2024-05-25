@@ -275,6 +275,7 @@ class App(QMainWindow):
         self.configPath = './user.config'
         self.loadSettings()
         # self.changeTheme(self.tgtTheme)
+        self.changeTXTTheme(self.tgtTheme)
         
         self.setUpWatchForThemeChange()
         
@@ -689,7 +690,13 @@ class App(QMainWindow):
     def openRemoteUI(self, ):
         if sys.platform == 'win32':
             try:
-                ApplyMica(self.remoteUI.winId(), MicaTheme.AUTO, MicaStyle.DEFAULT)
+                m = {
+                    Theme.LIGHT:MicaTheme.LIGHT,
+                    Theme.DARK:MicaTheme.DARK,
+                    Theme.AUTO:MicaTheme.AUTO
+                }
+
+                ApplyMica(self.remoteUI.winId(), m[self.tgtTheme], MicaStyle.DEFAULT)
             except:
                 ...
         self.remoteUI.show()
@@ -720,9 +727,39 @@ class App(QMainWindow):
             
             setTheme(CURRENT_THEME)
             
+    def changeTXTTheme(self, theme):
+        global CURRENT_THEME
+        if theme == Theme.LIGHT:
+            label_info_color = '#202020'
+        elif theme == Theme.DARK:
+            label_info_color = '#E0E0E0'
+        else:
+            if CURRENT_THEME == Theme.LIGHT:
+                label_info_color = '#202020'
+            else:
+                label_info_color = '#E0E0E0'
+        
+        
+        self.ui.label_info.setStyleSheet(
+            '''
+            QTextBrowser
+                {{
+                    background-color: #05DDDDDD;
+                    
+                    border-radius: 6px;
+                    border: 0px;
+                    font: 1000 8pt;
+                    
+                    color: {0};
+                }}
+            '''.format(label_info_color)
+        )
+            
     def changeTheme(self, theme):
         global CURRENT_THEME
         self.tgtTheme = theme
+        
+        self.changeTXTTheme(theme)
         
         # print('changeTheme', 'CURRENT_THEME', CURRENT_THEME, 'qconfig.theme', qconfig.theme, 'tgtTheme', self.tgtTheme, 'theme', theme,)
         

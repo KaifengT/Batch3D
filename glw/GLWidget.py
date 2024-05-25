@@ -405,9 +405,9 @@ class GLWidget(QOpenGLWidget):
                 if len(name) == 6 or len(name) == 8:
                     return name
                 else:
-                    return 'FFFFFF'
+                    return '808080'
             else:
-                return 'FFFFFF'
+                return '808080'
 
         
         def HEXRGBA2QTHEX(hex:str):
@@ -416,7 +416,7 @@ class GLWidget(QOpenGLWidget):
             elif len(hex) == 8:
                 return '#' + hex[-2:] + hex[:-2]
             else:
-                return '#FFFFFF'
+                return '#808080'
             
         def getColor(name):
             return HEXRGBA2QTHEX(_isHexColorinName(name))

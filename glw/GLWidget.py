@@ -78,9 +78,9 @@ class GLCamera(QObject):
     def __init__(self) -> None:
         super().__init__()
             
-        self.azimuth=0
-        self.elevation=0
-        self.viewPortDistance = 10
+        self.azimuth=135
+        self.elevation=-60
+        self.viewPortDistance = 30
         self.CameraTransformMat = np.identity(4)
         self.lookatPoint = np.array([0., 0., 0.,])
         self.fy = 1
@@ -91,8 +91,13 @@ class GLCamera(QObject):
         self.far = 4000.0
         
         
+        
         self.filterAEV = kalmanFilter(3)
         self.filterlookatPoint = kalmanFilter(3)
+        
+        self.filterAEV.stable(np.array([self.azimuth, self.elevation, self.viewPortDistance]))
+        self.updateTransform(False, False)
+        
         self.timer = QTimer()
         self.timer.timeout.connect(self.updateTransform)
         self.timer.setSingleShot(False)

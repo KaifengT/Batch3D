@@ -279,8 +279,11 @@ class App(QMainWindow):
         
         self.setUpWatchForThemeChange()
         
-    def openFolder(self, ):
-        self.currentPath = QFileDialog.getExistingDirectory(self,"选取文件夹",self.currentPath) # 起始路径
+    def openFolder(self, path=None):
+        if path is not None:
+            self.currentPath = path
+        else:
+            self.currentPath = QFileDialog.getExistingDirectory(self,"选取文件夹",self.currentPath) # 起始路径
         
         # print(self.currentPath)
         if len(self.currentPath) and os.path.exists(self.currentPath):
@@ -821,6 +824,23 @@ class App(QMainWindow):
                 json.dump(settings, f, indent=4)
         except:
             ...
+
+
+    def dragEnterEvent(self, event):
+        
+        event.accept()
+        
+    def dropEvent(self, event):
+        
+        file = event.mimeData().urls()[0].toLocalFile()
+        if os.path.isfile(file):
+            folderPath = os.path.dirname(file)
+            self.openFolder(folderPath)
+            self.loadObj(file)
+        else:
+            self.openFolder(file)
+        
+
 
 style = """
 QMainWindow {

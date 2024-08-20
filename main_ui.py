@@ -280,10 +280,14 @@ class App(QMainWindow):
         self.setUpWatchForThemeChange()
         
     def openFolder(self, path=None):
-        if path is not None:
+        
+        if path is not None and isinstance(path, str):
             self.currentPath = path
         else:
-            self.currentPath = QFileDialog.getExistingDirectory(self,"选取文件夹",self.currentPath) # 起始路径
+            if os.path.exists(self.currentPath) and os.path.isdir(self.currentPath):
+                self.currentPath = QFileDialog.getExistingDirectory(self,"选取文件夹",self.currentPath) # 起始路径
+            else:
+                self.currentPath = QFileDialog.getExistingDirectory(self,"选取文件夹",'./') # 起始路径
         
         # print(self.currentPath)
         if len(self.currentPath) and os.path.exists(self.currentPath):

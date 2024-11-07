@@ -34,6 +34,9 @@ class BaseObject:
         }
         self._vboMap = {}
         
+        self.isDefaultColor = True
+        self.meanColor = None
+        
     def load(self, ):
         pass
     
@@ -69,16 +72,23 @@ class BaseObject:
                 glDrawArrays(self.renderType, 0, self.l)
             self._vboid.unbind()
             
-    def renderinShader(self, ratio=1., locMap:dict={}, render_mode=0):
+    def renderinShader(self, ratio=1., locMap:dict={}, render_mode=0, size=None):
         
         if hasattr(self, '_vboid') and self.isShow:
             self._vboid.bind()
             
-            if ratio > 3: ratio = 3
-            if self.pointSize:
-                glPointSize(self.pointSize * ratio)
-            elif self.lineWidth:
-                glLineWidth(self.lineWidth * ratio)
+            if size:
+                if self.pointSize:
+                    glPointSize(size)
+                elif self.lineWidth:
+                    glLineWidth(size)
+
+            else:
+                if ratio > 3: ratio = 3
+                if self.pointSize:
+                    glPointSize(self.pointSize * ratio)
+                elif self.lineWidth:
+                    glLineWidth(self.lineWidth * ratio)
 
             
             for attr, args in self._vboMap.items():
@@ -172,7 +182,9 @@ class BaseObject:
             elif len(color)==3:
                 colorArray = np.array([[*color, 1.]]).repeat(vertex.shape[0], 0)
             else:
-                raise ValueError('color shape error')
+                print('color:', color)
+                # raise ValueError('color shape error')
+                colorArray = np.array([0.8,0.8,0.8, 1.]).repeat(vertex.shape[0], 0)
         
         vboArray = np.concatenate((colorArray, normArray, vertex), axis=1, dtype=np.float32)
                 
@@ -324,9 +336,9 @@ class UnionObject(BaseObject):
         for obj in self.objs:
             obj.load()
         
-    def renderinShader(self, ratio=1., locMap:dict={}, render_mode=0):
+    def renderinShader(self, **kwargs):
         for obj in self.objs:
-            obj.renderinShader(ratio, locMap, render_mode)
+            obj.renderinShader(**kwargs)
 
 class PointCloud(BaseObject):
     def __init__(self, vertex:np.ndarray, color=[1., 0., 0.], norm=None, size=3) -> None:
@@ -424,7 +436,7 @@ class Arrow(BaseObject):
         
         self.pointSize = size
 
-class Grid(BaseObject):
+class Grid_old(BaseObject):
     def __init__(self) -> None:
         super().__init__()
         z = 0
@@ -446,7 +458,7 @@ class Grid(BaseObject):
         
         line = np.concatenate((lineX, lineY), 0)
         
-        color = [0.3, 0.3, 0.3, 1.]
+        color = [0.2, 0.2, 0.2, .5]
         
         self.reset()
         
@@ -458,31 +470,107 @@ class Grid(BaseObject):
 
         self.lineWidth = 2
         self.renderType = GL_LINES
-    
-class Axis(BaseObject):
+
+class Grid(BaseObject):
     def __init__(self) -> None:
         super().__init__()
-        length = 1
+        z = 0
+        N = 51
+
+
+        x = np.linspace(-N, N, 2*N+1)
+        y = np.linspace(-N, N, 2*N+1)
+
+        xv, yv = np.meshgrid(x, y)
+
+        lineX = np.array(
+            [[[0, 0, z, 0, 0, z]]]
+        ).repeat(2*N+1, 1).repeat(2*N+1, axis=0)
+
+        # lineX = lineX[None, :, :]
+
+        lineX[:, :, 0] = yv 
+        lineX[:, :, 3] = yv                                             
+        lineX[:, :, 1] = xv
+        lineX[:, :, 4] = xv + 1        
+        
+
+        lineY = np.array(
+            [[[0, 0, z, 0, 0, z]]]
+        ).repeat(2*N+1, 1).repeat(2*N+1, axis=0)
+
+        # lineX = lineX[None, :, :]
+
+        lineY[:, :, 0] = xv 
+        lineY[:, :, 3] = xv + 1                                             
+        lineY[:, :, 1] = yv
+        lineY[:, :, 4] = yv     
+
+
+        lineX = lineX.reshape(-1, 3)
+        lineY = lineY.reshape(-1, 3)
+        
+        line = np.concatenate((lineX, lineY), 0)
+        
+        color = [0.2, 0.2, 0.2, .7]
+        
+        self.reset()
+        
+        # t = time.time()
+        
+        self._vboid, vboArray, self._vboInfo, self._vboMap, self._indid, self._texid = BaseObject.buildVBO(line, color)
+        
+        # print('build vbo time:', time.time()-t)
+
+        self.lineWidth = 2
+        self.renderType = GL_LINES
+
+
+
+    
+class Axis(BaseObject):
+    def __init__(self, R=None, T=None, length = 1) -> None:
+        super().__init__()
+        
+        
         line = np.array(
             [
-                [0,0,0.001],
-                [length,0,0.001],
-                [0,0,0.001],
-                [0,length, 0.001],
+                [0.001,0,0],
+                [length,0,0],
+                [0,0.001,0],
+                [0,length, 0],
                 [0,0,0.001],
                 [0,0,length],
             ]
         )
+        
+        
+        
+        if isinstance(R, np.ndarray):
+            assert R.shape == (3, 3), 'R shape error'
+            
+            line[1, :] = R[:, 0] * length
+            line[3, :] = R[:, 1] * length
+            line[5, :] = R[:, 2] * length
+            
+        if isinstance(T, np.ndarray):
+            
+            
+            line[:, 0] += T[0]
+            line[:, 1] += T[1]
+            line[:, 2] += T[2]
+            
+            
         color = np.array(
             [
-                [1,0,0, 0.7],
-                [1,0,0, 0.7],
-                [0,1,0, 0.7],
-                [0,1,0, 0.7],
-                [0,0,1, 0.7],
-                [0,0,1, 0.7],
+                [176, 48, 82, 200],
+                [176, 48, 82, 200],
+                [136, 194, 115, 200],
+                [136, 194, 115, 200],
+                [2, 76, 170, 200],
+                [2, 76, 170, 200],
             ]
-        )
+        ) / 255.
         # vboArray = np.concatenate((color, line), axis=1, dtype=np.float32)
         
         self.reset()
@@ -511,7 +599,7 @@ class Lines(BaseObject):
 
         self.reset()
         
-        assert hasattr(vertex, 'shape') and len(vertex.shape)==3 and vertex.shape[1]==2 and vertex.shape[2]==3, 'line vertex format error, must be (n, 2, 3)'
+        # assert hasattr(vertex, 'shape') and len(vertex.shape)==3 and vertex.shape[1]==2 and vertex.shape[2]==3, 'line vertex format error, must be (n, 2, 3)'
         vertex = vertex.reshape(-1, 3)
         # vboArray, self.vbotype, self.l = BaseObject.buildVBO(vertex, color, norm)
         self._vboid, vboArray, self._vboInfo, self._vboMap, self._indid, self._texid = BaseObject.buildVBO(vertex, color, norm)

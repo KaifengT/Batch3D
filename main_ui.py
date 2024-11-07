@@ -359,9 +359,9 @@ class App(QMainWindow):
             if len(name) == 6 or len(name) == 8:
                 return name
             else:
-                return 'FFFFFF'
+                return None
         else:
-            return 'FFFFFF'
+            return None
         
     def _isSizeinName(self, name) -> float:
         if '&' in name:
@@ -432,11 +432,15 @@ class App(QMainWindow):
             v = _rmnan(v)
             v = np.float32(v)
             
+            n_color = self._isHexColorinName(k)
+            user_color = n_color if n_color is not None else self.ui.openGLWidget.chooseColor()
+            
+            
             # -------- pointcloud
             if len(v.shape) == 2 and v.shape[1] == 3: # (N, 3)
                 
-                obj = PointCloud(vertex=v, color=self._isHexColorinName(k), size=self._isSizeinName(k))
-                self.ui.openGLWidget.updateObject(ID=k, obj=obj)
+                obj = PointCloud(vertex=v, color=user_color, size=self._isSizeinName(k))
+                self.ui.openGLWidget.updateObject(ID=k, obj=obj, labelColor=user_color)
                 # self.ui.openGLWidget.updateObject(ID=k, vertex=v, color=self._isHexColorinName(k), size=self._isSizeinName(k), type='pointcloud')
                 _getCenter(v)
                     
@@ -453,7 +457,7 @@ class App(QMainWindow):
             # --------- lines with arrows
             elif len(v.shape) == 3 and v.shape[1] == 2 and v.shape[2] == 3: # (N, 2, 3)
                 
-                lines = Lines(vertex=v, color=self._isHexColorinName(k))
+                lines = Lines(vertex=v, color=user_color)
                 
                 #-----# Arrow
                 if self.ui.checkBox_arrow.isChecked():
@@ -483,24 +487,56 @@ class App(QMainWindow):
                     vertex = temp.transpose(0, 2, 1).reshape(-1, 3)
                     vertex = vertex + T
                     
-                    arrow = Arrow(vertex=vertex, color=self._isHexColorinName(k))
+                    arrow = Arrow(vertex=vertex, color=user_color)
                     
                     obj = UnionObject()
                     obj.add(arrow)
                     obj.add(lines)
                     
-                    self.ui.openGLWidget.updateObject(ID=k, obj=obj)
+                    self.ui.openGLWidget.updateObject(ID=k, obj=obj, labelColor=user_color)
                 else:
-                    self.ui.openGLWidget.updateObject(ID=k, obj=lines)
+                    self.ui.openGLWidget.updateObject(ID=k, obj=lines, labelColor=user_color)
                 
                 
                 
                 
         
             elif len(v.shape) == 3 and v.shape[1] == 8 and v.shape[2] == 3: # (N, 8, 3)
-                obj = BoundingBox(vertex=v, color=self._isHexColorinName(k))
-                self.ui.openGLWidget.updateObject(ID=k, obj=obj)
+                obj = BoundingBox(vertex=v, color=user_color)
+                self.ui.openGLWidget.updateObject(ID=k, obj=obj, labelColor=user_color)
                 # self.ui.openGLWidget.updateObject(ID=k, vertex=v, color=self._isHexColorinName(k), type='boundingbox')
+                
+            elif len(v.shape) == 3 and v.shape[1] == 4 and v.shape[2] == 4: # (N, 4, 4)
+                B = len(v)
+                length = 0.3
+                mat = v.repeat(3, axis=0)
+                line_base = np.array([[length, 0, 0], 
+                        [0, length, 0],
+                        [0, 0, length],
+                        ], dtype=np.float32) # (3, 3)
+                line_base = np.tile(line_base, (B, 1))[..., None] # (3, 3) -> (N3, 3, 1)
+                # print(line_base.shape)
+                # print(v.shape)
+                line_trans = np.einsum('bij,bjk->bik', mat[:, :3, :3], line_base)[..., 0] # B 3
+                # line_trans += mat[:, :3, 3]
+                line_trans = np.concatenate((np.zeros_like(line_trans) + mat[:, :3, 3], line_trans + mat[:, :3, 3]), axis=1)
+
+                color = np.array(
+                    [
+                        [176, 48, 82, 200],
+                        [176, 48, 82, 200],
+                        [136, 194, 115, 200],
+                        [136, 194, 115, 200],
+                        [2, 76, 170, 200],
+                        [2, 76, 170, 200],
+                    ]
+                ) / 255.
+
+                color = np.tile(color, (B, 1)).reshape(-1, 4)
+                line_trans = line_trans.reshape(-1, 3)
+                obj = Lines(vertex=line_trans, color=color)
+                
+                self.ui.openGLWidget.updateObject(ID=k, obj=obj)
 
         def _dealDict(v:dict):
             assert 'vertex' in v.keys(), '网格缺少顶点(vertex)'
@@ -553,6 +589,9 @@ class App(QMainWindow):
                             
                     elif isinstance(v, dict):
                         _dealDict(v)
+                        
+                    elif isinstance(v, (trimesh.parent.Geometry3D)):
+                        self.ui.openGLWidget.updateTrimeshObject(ID=k, obj=v)
 
                     
                 if self.isTrackObject and self.center_all is not None:
@@ -751,7 +790,7 @@ class App(QMainWindow):
             '''
             QTextBrowser
                 {{
-                    background-color: #05DDDDDD;
+                    background-color: #00000000;
                     
                     border-radius: 6px;
                     border: 0px;

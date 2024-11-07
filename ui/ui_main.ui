@@ -327,7 +327,7 @@
               <double>0.000000000000000</double>
              </property>
              <property name="value">
-              <double>10.000000000000000</double>
+              <double>1.000000000000000</double>
              </property>
             </widget>
            </item>
@@ -473,7 +473,7 @@ font: 9pt;</string>
            <property name="styleSheet">
             <string notr="true">QTextBrowser
 {
-    background-color: #05DDDDDD;
+    background-color: #00000000;
     
     border-radius: 6px;
     border: 0px;
@@ -490,7 +490,7 @@ border-radius:6px;
 }
 QScrollBar::handle:vertical 
 {
-    background-color: #22AAAAAA; 
+    background-color: #00000000; 
     width: 12px;
     border-radius:6px;
 }
@@ -522,7 +522,7 @@ border-radius:6px;
 
 QScrollBar::handle:horizontal 
 {
-    background-color: #AAAAAA; 
+    background-color: #00000000; 
     width: 12px;
     border-radius:6px;
 }
@@ -543,6 +543,12 @@ QScrollBar::sub-page:horizontal
 {
     background-color: #00000000;
 }</string>
+           </property>
+           <property name="verticalScrollBarPolicy">
+            <enum>Qt::ScrollBarAlwaysOff</enum>
+           </property>
+           <property name="horizontalScrollBarPolicy">
+            <enum>Qt::ScrollBarAlwaysOff</enum>
            </property>
            <property name="lineWrapMode">
             <enum>QTextEdit::NoWrap</enum>

@@ -29,7 +29,7 @@ import trimesh
 
 # from memory_profiler import profile
 
-from qfluentwidgets import CheckBox, setCustomStyleSheet, ComboBox
+from qfluentwidgets import CheckBox, setCustomStyleSheet, ComboBox, Slider
 
 _AmbientLight  = [0.8, 0.8, 0.8, 1.0]
 _DiffuseLight  = [0.5, 0.5, 0.5, 1.0]
@@ -37,24 +37,46 @@ _SpecularLight = [0.4, 0.4, 0.4, 1.0]
 _PositionLight = [20.0, 20.0, 20.0, 0.0]
 
 def_color =  np.array([    
-        
-        [65 , 157, 129],
+        [217, 217, 217],
         [233, 119, 119],
-        
-        # [25 , 137, 125],
-
+        [65 , 157, 129],
         [156, 201, 226],
+        [228, 177, 240],
+        [252, 205, 42 ],
+        [240, 90 , 126],
+        [33 , 155, 157],
+        [114, 191, 120],
+        [199, 91 , 122],
         [129, 180, 227],
         [115, 154, 228],
-        
-        
-
+        [119, 228, 200],
         [243, 231, 155],
         [248, 160, 126],
         [206, 102, 147],
-
         
         ]) / 255.
+
+# rgb(217, 217, 217),  
+# rgb(233, 119, 119),        
+# rgb(65 , 157, 129),
+# rgb(156, 201, 226),
+# rgb(228, 177, 240),
+# rgb(252, 205, 42 ),
+# rgb(240, 90 , 126),
+# rgb(33 , 155, 157),
+# rgb(114, 191, 120),
+# rgb(199, 91 , 122),
+# rgb(129, 180, 227),
+# rgb(115, 154, 228),
+# rgb(119, 228, 200),
+# rgb(243, 231, 155),
+# rgb(248, 160, 126),
+# rgb(206, 102, 147),
+
+
+
+
+
 
 checkboxStyle = '''
 CheckBox{{
@@ -294,7 +316,7 @@ class GLWidget(QOpenGLWidget):
         
         self.filter = kalmanFilter(7)
         
-        self.scale = 10.0
+        self.scale = 1.0
                 
         self.tempMat = np.identity(4, dtype=np.float32)
         
@@ -359,6 +381,25 @@ class GLWidget(QOpenGLWidget):
         self.gl_render_mode_combobox.setCurrentIndex(self.gl_render_mode)
         self.gl_render_mode_combobox.currentIndexChanged.connect(self.changeRenderMode)
         
+        self.point_line_size = 3
+        
+        self.gl_slider = Slider(Qt.Orientation.Vertical, parent=self)
+        self.gl_slider.setFixedHeight(200)
+        self.gl_slider.setFixedWidth(20)
+        self.gl_slider.setMaximum(10)
+        self.gl_slider.setMinimum(1)
+        self.gl_slider.setValue(self.point_line_size)
+        self.gl_slider.valueChanged.connect(self.setGlobalSize)
+        
+    def setGlobalSize(self, size):
+        self.point_line_size = size
+        self.update()
+        
+    def chooseColor(self):
+        id = len(self.objectList.keys())
+        lc = len(def_color)
+        id = id % lc
+        return def_color[id]
 
     def trigger_flush(self):
         pass
@@ -400,7 +441,7 @@ class GLWidget(QOpenGLWidget):
                 
         
         
-    def addSwitchLabel(self, name):
+    def addSwitchLabel(self, name, color=None):
         
         # print(color)
         def _isHexColorinName(name) -> str:
@@ -423,8 +464,16 @@ class GLWidget(QOpenGLWidget):
             else:
                 return '#808080'
             
+        def RGBA2HEXRGBA(rgb):
+            if len(rgb) == 3:
+                return '%02x%02x%02xff' % (int(rgb[0]*255), int(rgb[1]*255), int(rgb[2]*255))
+            elif len(rgb) == 4:
+                return '%02x%02x%02x%02x' % (int(rgb[0]*255), int(rgb[1]*255), int(rgb[2]*255), int(rgb[3]*255))
+            else:
+                return '808080'
+            
         def getColor(name):
-            return HEXRGBA2QTHEX(_isHexColorinName(name))
+            return HEXRGBA2QTHEX(_isHexColorinName(name)) if color is None else HEXRGBA2QTHEX(RGBA2HEXRGBA(color))
             
         # print(HEXRGBA2QTHEX(color))
         
@@ -500,12 +549,12 @@ class GLWidget(QOpenGLWidget):
         self.update()
 
 
-    def updateObject(self, ID=1, obj:BaseObject=None) -> None:
+    def updateObject(self, ID=1, obj:BaseObject=None, labelColor=None) -> None:
         _ID = str(ID)
         if obj is not None:
             self.objectList.update({_ID:obj})
             
-            self.addSwitchLabel(_ID)
+            self.addSwitchLabel(_ID, labelColor)
         else:
             if _ID in self.objectList.keys():
                 self.objectList.pop(_ID)
@@ -604,6 +653,11 @@ class GLWidget(QOpenGLWidget):
     def initializeGL(self):
 
         glEnable(GL_DEPTH_TEST)
+        
+        glEnable(GL_POINT_SMOOTH)
+        glHint(GL_POINT_SMOOTH_HINT, GL_NICEST)
+
+        
         glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
         glEnable(GL_BLEND)
 
@@ -618,16 +672,19 @@ class GLWidget(QOpenGLWidget):
         # glEnable(GL_LIGHTING)
         # glEnable(GL_LIGHT0)
         # glEnable(GL_LIGHT1)
-        
+        glPointSize(3)
         glEnable(GL_NORMALIZE)
         glEnable(GL_LINE_SMOOTH)
-        glEnable(GL_MULTISAMPLE)
-        # glEnable(GL_SAMPLER_2D_SHADOW)
         
+        # glEnable(GL_SAMPLER_2D_SHADOW)
+        # glEnable(GL_POINT_SMOOTH)
+        # glHint(GL_POINT_SMOOTH_HINT, GL_NICEST)
+        
+        glEnable(GL_MULTISAMPLE)
         glShadeModel(GL_SMOOTH)
         
 
-        glEnable(GL_POINT_SMOOTH)
+        # glEnable(GL_POINT_SMOOTH)
         glClearColor(*self.bg_color)
         glEnable(GL_COLOR_MATERIAL)
         # glColorMaterial(GL_FRONT, GL_AMBIENT_AND_DIFFUSE)
@@ -646,6 +703,14 @@ class GLWidget(QOpenGLWidget):
         vshader = shaders.compileShader(vshader_src, GL_VERTEX_SHADER)
         fshader = shaders.compileShader(fshader_src, GL_FRAGMENT_SHADER)
         self.program = shaders.compileProgram(vshader, fshader)
+
+
+        splat_vshader_src = open('./glw/splat_vshader.glsl', encoding='utf-8').read()
+        splat_fshader_src = open('./glw/splat_fshader.glsl', encoding='utf-8').read()
+        
+        splat_vshader = shaders.compileShader(splat_vshader_src, GL_VERTEX_SHADER)
+        splat_fshader = shaders.compileShader(splat_fshader_src, GL_FRAGMENT_SHADER)
+        self.splat_program = shaders.compileProgram(splat_vshader, splat_fshader)
 
         self.shaderAttribList = ['a_Position', 'a_Color', 'a_Normal', 'a_Texcoord']
         self.shaderUniformList = ['u_ProjMatrix', 'u_ViewMatrix', 'u_ModelMatrix', 'u_CamPos', \
@@ -682,7 +747,7 @@ class GLWidget(QOpenGLWidget):
         loc = self.shaderLocMap.get('u_ViewMatrix')
         camtrans = self.camera.updateTransform(isEmit=False)
         campos = np.linalg.inv(camtrans)[:3,3]
-        glUniform3f(self.shaderLocMap.get('u_CamPos'), *campos)
+        glUniform3f(self.shaderLocMap.get('u_CamPos'), *self.camera.lookatPoint[:3])
         glUniformMatrix4fv(loc, 1, GL_FALSE, camtrans.T, None)
 
         loc = self.shaderLocMap.get('u_ModelMatrix')
@@ -746,7 +811,7 @@ class GLWidget(QOpenGLWidget):
         
         for k, v in self.objectList.items():
             if hasattr(v, 'renderinShader'):
-                v.renderinShader(ratio=10./self.camera.viewPortDistance, locMap=self.shaderLocMap, render_mode=self.gl_render_mode)
+                v.renderinShader(ratio=10./self.camera.viewPortDistance, locMap=self.shaderLocMap, render_mode=self.gl_render_mode, size=self.point_line_size)
 
 
 
@@ -783,6 +848,7 @@ class GLWidget(QOpenGLWidget):
         self.statusbar.resize(w, h)
 
         self.gl_render_mode_combobox.move(self.window_w - self.gl_render_mode_combobox.width() - 15, 15)
+        self.gl_slider.move(self.window_w - self.gl_slider.width() - 15, 75)
 
         return super().resizeGL(w, h)
 

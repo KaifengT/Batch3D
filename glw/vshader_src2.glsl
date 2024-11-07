@@ -1,4 +1,4 @@
-#version 330 core
+#version 430 core
 
 in vec4 a_Position;
 in vec3 a_Normal;
@@ -35,7 +35,7 @@ void main() {
 
         if (u_farPlane == 1) {
             vec3 vertex_distance = vec3(u_ModelMatrix * a_Position) - u_CamPos;
-            v_Color = a_Color - vec4(0.0, 0.0, 0.0, 1.0) * length(vertex_distance)* 0.0005;
+            v_Color = a_Color - (vec4(0.0, 0.0, 0.0, 1.0) * length(vertex_distance)* 0.02);
         }
     }
     else {

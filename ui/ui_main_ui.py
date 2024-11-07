@@ -176,7 +176,7 @@ class Ui_MainWindow(object):
         self.doubleSpinBox.setObjectName(u"doubleSpinBox")
         self.doubleSpinBox.setDecimals(1)
         self.doubleSpinBox.setMinimum(0.000000000000000)
-        self.doubleSpinBox.setValue(10.000000000000000)
+        self.doubleSpinBox.setValue(1.000000000000000)
 
         self.horizontalLayout_2.addWidget(self.doubleSpinBox)
 
@@ -253,7 +253,7 @@ class Ui_MainWindow(object):
         self.label_info.setObjectName(u"label_info")
         self.label_info.setStyleSheet(u"QTextBrowser\n"
 "{\n"
-"    background-color: #05DDDDDD;\n"
+"    background-color: #00000000;\n"
 "    \n"
 "    border-radius: 6px;\n"
 "    border: 0px;\n"
@@ -270,7 +270,7 @@ class Ui_MainWindow(object):
 "}\n"
 "QScrollBar::handle:vertical \n"
 "{\n"
-"    background-color: #22AAAAAA; \n"
+"    background-color: #00000000; \n"
 "    width: 12px;\n"
 "    border-radius:6px;\n"
 "}\n"
@@ -302,13 +302,13 @@ class Ui_MainWindow(object):
 "\n"
 "QScrollBar::handle:horizontal \n"
 "{\n"
-"    background-color: #AAAAAA; \n"
+"    background-color: #00000000; \n"
 "    width: 12px;\n"
 "    border-radius:6px;\n"
 "}\n"
 "\n"
-"QScrol"
-                        "lBar::add-line:horizontal\n"
+"QScr"
+                        "ollBar::add-line:horizontal\n"
 "{\n"
 "    width: 0px;\n"
 "}\n"
@@ -324,6 +324,8 @@ class Ui_MainWindow(object):
 "{\n"
 "    background-color: #00000000;\n"
 "}")
+        self.label_info.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.label_info.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.label_info.setLineWrapMode(QTextEdit.NoWrap)
 
         self.verticalLayout.addWidget(self.label_info)

@@ -694,7 +694,7 @@ class App(QMainWindow):
                 # getattr(self.ui.openGLWidget, func)(**kwargs)
 
     def runScriptStateChangeRunning(self, ):
-        # self.ui.pushButton_runscript.setText('终止')
+        self.ui.pushButton_runscript.setText('终止脚本')
         # self.ui.pushButton_runscript.applyStyleSheet(**Button_Style_R)
         self.ui.pushButton_runscript.setIcon(FIF.CANCEL)
         self.ui.pushButton_runscript.disconnect(self)
@@ -703,7 +703,7 @@ class App(QMainWindow):
         
     def runScriptStateChangeFinish(self, ):
         # print('nb')
-        # self.ui.pushButton_runscript.setText('运行')
+        self.ui.pushButton_runscript.setText('运行脚本')
         self.ui.pushButton_runscript.setIcon(FIF.SEND)
         # self.ui.pushButton_runscript.applyStyleSheet(**Button_Style_G)
         self.ui.pushButton_runscript.disconnect(self)

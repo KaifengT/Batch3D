@@ -37,8 +37,18 @@ class BaseObject:
         self.isDefaultColor = True
         self.meanColor = None
         
+        self.transform = np.eye(4, dtype=np.float32)
+        
+        # self.transform[:3, 3] = np.array([1., 10., 0.], dtype=np.float32)
+        
     def load(self, ):
         pass
+    
+    def setTransform(self, transform:np.ndarray):
+        if transform is None:
+            return
+        assert transform.shape == (4, 4), 'transform shape error'
+        self.transform = transform
     
     def reset(self, ):
         if hasattr(self, '_vboid'):
@@ -341,12 +351,13 @@ class UnionObject(BaseObject):
             obj.renderinShader(**kwargs)
 
 class PointCloud(BaseObject):
-    def __init__(self, vertex:np.ndarray, color=[1., 0., 0.], norm=None, size=3) -> None:
+    def __init__(self, vertex:np.ndarray, color=[1., 0., 0.], norm=None, size=3, transform=None) -> None:
         super().__init__()
         
                 
         self.reset()
         
+        self.setTransform(transform)
         # vboArray, self.vbotype, self.l = BaseObject.buildVBO(vertex, color, norm)
         self._vboid, vboArray, self._vboInfo, self._vboMap, self._indid, self._texid = BaseObject.buildVBO(vertex, color, norm)
     
@@ -357,9 +368,9 @@ class PointCloud(BaseObject):
         # self.color = color
 
 class Arrow(BaseObject):
-    def __init__(self, vertex:np.ndarray=None, color=[1., 0., 0.], size=3) -> None:
+    def __init__(self, vertex:np.ndarray=None, color=[1., 0., 0.], size=3, transform=None) -> None:
         super().__init__()
-        self.load(vertex, color, size)
+        self.load(vertex, color, size, transform)
         self.color = color
         self.renderType = GL_TRIANGLES
         
@@ -398,7 +409,7 @@ class Arrow(BaseObject):
         return vertex
         
         
-    def load(self, vertex:np.ndarray, color=[1., 0., 0.], size=3):
+    def load(self, vertex:np.ndarray, color=[1., 0., 0.], size=3, transform=None):
         
         # vertex = np.array([
         #     [0, 0, 1],
@@ -422,6 +433,9 @@ class Arrow(BaseObject):
         # vertex = vertex.T + transform[:3,3]
         # pcd = pcd.T
         self.reset()
+        
+        self.setTransform(transform)
+        
         self._vboid, vboArray, self._vboInfo, self._vboMap, self._indid, self._texid = BaseObject.buildVBO(vertex, color)
         
         # if hasattr(color, 'shape') and color.shape==vertex.shape:
@@ -529,7 +543,7 @@ class Grid(BaseObject):
 
     
 class Axis(BaseObject):
-    def __init__(self, R=None, T=None, length = 1) -> None:
+    def __init__(self, R=None, T=None, length = 1, transform=None) -> None:
         super().__init__()
         
         
@@ -574,6 +588,9 @@ class Axis(BaseObject):
         # vboArray = np.concatenate((color, line), axis=1, dtype=np.float32)
         
         self.reset()
+        
+        self.setTransform(transform)
+        
         self._vboid, vboArray, self._vboInfo, self._vboMap, self._indid, self._texid = BaseObject.buildVBO(line, color, )
         
         self.renderType = GL_LINES
@@ -581,24 +598,27 @@ class Axis(BaseObject):
         self.lineWidth = 8
 
 class BoundingBox(BaseObject):
-    def __init__(self, vertex:np.ndarray, color=[1., 0., 0.], norm=None, size=3) -> None:
+    def __init__(self, vertex:np.ndarray, color=[1., 0., 0.], norm=None, size=3, transform=None) -> None:
         super().__init__()
 
         lineIndex = [0,1, 1,2, 2,3, 3,0, 4,5, 5,6, 6,7, 7,4, 0,4, 1,5, 2,6, 3,7]
 
         lineArray = vertex[lineIndex]
         self.reset()
+        
+        self.setTransform(transform)
+        
         self._vboid, vboArray, self._vboInfo, self._vboMap, self._indid, self._texid = BaseObject.buildVBO(lineArray, color, norm)
         
         self.renderType = GL_LINES
         self.lineWidth = size
 
 class Lines(BaseObject):
-    def __init__(self, vertex:np.ndarray, color=[1., 0., 0.], norm=None, size=3) -> None:
+    def __init__(self, vertex:np.ndarray, color=[1., 0., 0.], norm=None, size=3, transform=None) -> None:
         super().__init__()
 
         self.reset()
-        
+        self.setTransform(transform)
         # assert hasattr(vertex, 'shape') and len(vertex.shape)==3 and vertex.shape[1]==2 and vertex.shape[2]==3, 'line vertex format error, must be (n, 2, 3)'
         vertex = vertex.reshape(-1, 3)
         # vboArray, self.vbotype, self.l = BaseObject.buildVBO(vertex, color, norm)
@@ -611,12 +631,12 @@ class Lines(BaseObject):
 
 class Mesh(BaseObject):
 
-    def __init__(self, vertex:np.ndarray, indices=None, color=[0.6, 0.6, 0.6], norm=None, texture=None, texcoord=None, faceNorm=False) -> None:
+    def __init__(self, vertex:np.ndarray, indices=None, color=[0.6, 0.6, 0.6], norm=None, texture=None, texcoord=None, faceNorm=False, transform=None) -> None:
         super().__init__()
 
         self.reset()
         
-        
+        self.setTransform(transform)
         # print(normal.shape, vs.shape, indices.shape)
     
         # # 生成纹理坐标

@@ -540,11 +540,20 @@ class GLWidget(QOpenGLWidget):
             self.addSwitchLabel(_ID)
         elif objType == 'trimesh':
             self.updateTrimeshObject(ID, **kwargs)
+            
+        elif objType == 'clean':
+            keys = list(self.objectList.keys())
+            for id in keys:
+                self.objectList.pop(id)
+                self.removeSwitchLabel(id)
         else:
             if _ID in self.objectList.keys():
-                self.objectList.pop(_ID)
                 
-                self.removeSwitchLabel(_ID)
+                if 'transform' in kwargs.keys():
+                    self.objectList[_ID].setTransform(kwargs['transform'])
+                else:
+                    self.objectList.pop(_ID)
+                    self.removeSwitchLabel(_ID)
                 
         self.update()
 
@@ -811,6 +820,9 @@ class GLWidget(QOpenGLWidget):
         
         for k, v in self.objectList.items():
             if hasattr(v, 'renderinShader'):
+                
+                glUniformMatrix4fv(self.shaderLocMap.get('u_ModelMatrix'), 1, GL_FALSE, v.transform.T, None)
+                
                 v.renderinShader(ratio=10./self.camera.viewPortDistance, locMap=self.shaderLocMap, render_mode=self.gl_render_mode, size=self.point_line_size)
 
 

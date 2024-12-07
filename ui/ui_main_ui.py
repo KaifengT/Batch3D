@@ -20,7 +20,7 @@ from PySide6.QtWidgets import (QAbstractItemView, QApplication, QHBoxLayout, QHe
     QTextBrowser, QTextEdit, QVBoxLayout, QWidget)
 
 from glw.GLWidget import GLWidget
-from qfluentwidgets import (DoubleSpinBox, DropDownToolButton, PushButton, StrongBodyLabel,
+from qfluentwidgets import (DropDownToolButton, PushButton, SpinBox, StrongBodyLabel,
     SwitchButton, TableWidget)
 from ui.addon import GLAddon_circling
 
@@ -29,6 +29,7 @@ class Ui_MainWindow(object):
         if not MainWindow.objectName():
             MainWindow.setObjectName(u"MainWindow")
         MainWindow.resize(795, 463)
+        MainWindow.setMinimumSize(QSize(200, 200))
         MainWindow.setStyleSheet(u"")
         self.centralwidget = QWidget(MainWindow)
         self.centralwidget.setObjectName(u"centralwidget")
@@ -48,10 +49,12 @@ class Ui_MainWindow(object):
         sizePolicy.setHeightForWidth(self.tool.sizePolicy().hasHeightForWidth())
         self.tool.setSizePolicy(sizePolicy)
         self.tool.setMaximumSize(QSize(370, 16777215))
+        self.tool.setStyleSheet(u"\n"
+"background-color: rgb(32, 30, 28);\n"
+"border-radius:10px;\n"
+"")
         self.verticalLayout = QVBoxLayout(self.tool)
-        self.verticalLayout.setSpacing(6)
         self.verticalLayout.setObjectName(u"verticalLayout")
-        self.verticalLayout.setContentsMargins(12, 12, 12, 12)
         self.horizontalLayout = QHBoxLayout()
         self.horizontalLayout.setObjectName(u"horizontalLayout")
         self.horizontalLayout.setContentsMargins(0, 0, 0, 0)
@@ -62,7 +65,7 @@ class Ui_MainWindow(object):
         sizePolicy1.setVerticalStretch(0)
         sizePolicy1.setHeightForWidth(self.pushButton_openfolder.sizePolicy().hasHeightForWidth())
         self.pushButton_openfolder.setSizePolicy(sizePolicy1)
-        self.pushButton_openfolder.setMinimumSize(QSize(100, 0))
+        self.pushButton_openfolder.setMinimumSize(QSize(20, 0))
 
         self.horizontalLayout.addWidget(self.pushButton_openfolder)
 
@@ -73,44 +76,18 @@ class Ui_MainWindow(object):
         self.pushButton_openremotefolder.setObjectName(u"pushButton_openremotefolder")
         sizePolicy1.setHeightForWidth(self.pushButton_openremotefolder.sizePolicy().hasHeightForWidth())
         self.pushButton_openremotefolder.setSizePolicy(sizePolicy1)
-        self.pushButton_openremotefolder.setMinimumSize(QSize(100, 0))
+        self.pushButton_openremotefolder.setMinimumSize(QSize(20, 0))
 
         self.verticalLayout.addWidget(self.pushButton_openremotefolder)
-
-        self.horizontalLayout_6 = QHBoxLayout()
-        self.horizontalLayout_6.setObjectName(u"horizontalLayout_6")
-        self.horizontalLayout_6.setContentsMargins(-1, 0, -1, -1)
-        self.label = StrongBodyLabel(self.tool)
-        self.label.setObjectName(u"label")
-        sizePolicy2 = QSizePolicy(QSizePolicy.Fixed, QSizePolicy.Preferred)
-        sizePolicy2.setHorizontalStretch(0)
-        sizePolicy2.setVerticalStretch(0)
-        sizePolicy2.setHeightForWidth(self.label.sizePolicy().hasHeightForWidth())
-        self.label.setSizePolicy(sizePolicy2)
-        self.label.setStyleSheet(u"color: rgb(238, 238, 238);")
-
-        self.horizontalLayout_6.addWidget(self.label)
-
-        self.horizontalSpacer_4 = QSpacerItem(40, 20, QSizePolicy.Expanding, QSizePolicy.Minimum)
-
-        self.horizontalLayout_6.addItem(self.horizontalSpacer_4)
-
-        self.checkBox = SwitchButton(self.tool)
-        self.checkBox.setObjectName(u"checkBox")
-        sizePolicy1.setHeightForWidth(self.checkBox.sizePolicy().hasHeightForWidth())
-        self.checkBox.setSizePolicy(sizePolicy1)
-        self.checkBox.setChecked(True)
-
-        self.horizontalLayout_6.addWidget(self.checkBox)
-
-
-        self.verticalLayout.addLayout(self.horizontalLayout_6)
 
         self.horizontalLayout_8 = QHBoxLayout()
         self.horizontalLayout_8.setObjectName(u"horizontalLayout_8")
         self.horizontalLayout_8.setContentsMargins(-1, 0, -1, -1)
         self.label_4 = StrongBodyLabel(self.tool)
         self.label_4.setObjectName(u"label_4")
+        sizePolicy2 = QSizePolicy(QSizePolicy.Fixed, QSizePolicy.Preferred)
+        sizePolicy2.setHorizontalStretch(0)
+        sizePolicy2.setVerticalStretch(0)
         sizePolicy2.setHeightForWidth(self.label_4.sizePolicy().hasHeightForWidth())
         self.label_4.setSizePolicy(sizePolicy2)
         self.label_4.setStyleSheet(u"color: rgb(238, 238, 238);")
@@ -158,30 +135,31 @@ class Ui_MainWindow(object):
 
         self.verticalLayout.addLayout(self.horizontalLayout_9)
 
-        self.horizontalLayout_2 = QHBoxLayout()
-        self.horizontalLayout_2.setObjectName(u"horizontalLayout_2")
-        self.label_2 = StrongBodyLabel(self.tool)
-        self.label_2.setObjectName(u"label_2")
-        sizePolicy2.setHeightForWidth(self.label_2.sizePolicy().hasHeightForWidth())
-        self.label_2.setSizePolicy(sizePolicy2)
-        self.label_2.setStyleSheet(u"color: rgb(238, 238, 238);")
+        self.horizontalLayout_10 = QHBoxLayout()
+        self.horizontalLayout_10.setObjectName(u"horizontalLayout_10")
+        self.label_3 = StrongBodyLabel(self.tool)
+        self.label_3.setObjectName(u"label_3")
+        sizePolicy2.setHeightForWidth(self.label_3.sizePolicy().hasHeightForWidth())
+        self.label_3.setSizePolicy(sizePolicy2)
+        self.label_3.setStyleSheet(u"color: rgb(238, 238, 238);")
 
-        self.horizontalLayout_2.addWidget(self.label_2)
+        self.horizontalLayout_10.addWidget(self.label_3)
 
-        self.horizontalSpacer = QSpacerItem(40, 20, QSizePolicy.Expanding, QSizePolicy.Minimum)
+        self.horizontalSpacer_8 = QSpacerItem(40, 20, QSizePolicy.Expanding, QSizePolicy.Minimum)
 
-        self.horizontalLayout_2.addItem(self.horizontalSpacer)
+        self.horizontalLayout_10.addItem(self.horizontalSpacer_8)
 
-        self.doubleSpinBox = DoubleSpinBox(self.tool)
-        self.doubleSpinBox.setObjectName(u"doubleSpinBox")
-        self.doubleSpinBox.setDecimals(1)
-        self.doubleSpinBox.setMinimum(0.000000000000000)
-        self.doubleSpinBox.setValue(1.000000000000000)
+        self.spinBox = SpinBox(self.tool)
+        self.spinBox.setObjectName(u"spinBox")
+        self.spinBox.setEnabled(False)
+        self.spinBox.setMinimum(-1)
+        self.spinBox.setMaximum(-1)
+        self.spinBox.setValue(-1)
 
-        self.horizontalLayout_2.addWidget(self.doubleSpinBox)
+        self.horizontalLayout_10.addWidget(self.spinBox)
 
 
-        self.verticalLayout.addLayout(self.horizontalLayout_2)
+        self.verticalLayout.addLayout(self.horizontalLayout_10)
 
         self.horizontalLayout_3 = QHBoxLayout()
         self.horizontalLayout_3.setObjectName(u"horizontalLayout_3")
@@ -248,6 +226,29 @@ class Ui_MainWindow(object):
         self.tableWidget.verticalHeader().setVisible(False)
 
         self.verticalLayout.addWidget(self.tableWidget)
+
+        self.tableWidget_obj = TableWidget(self.tool)
+        if (self.tableWidget_obj.columnCount() < 3):
+            self.tableWidget_obj.setColumnCount(3)
+        __qtablewidgetitem1 = QTableWidgetItem()
+        self.tableWidget_obj.setHorizontalHeaderItem(0, __qtablewidgetitem1)
+        __qtablewidgetitem2 = QTableWidgetItem()
+        self.tableWidget_obj.setHorizontalHeaderItem(1, __qtablewidgetitem2)
+        __qtablewidgetitem3 = QTableWidgetItem()
+        self.tableWidget_obj.setHorizontalHeaderItem(2, __qtablewidgetitem3)
+        self.tableWidget_obj.setObjectName(u"tableWidget_obj")
+        self.tableWidget_obj.setMaximumSize(QSize(16777215, 16777215))
+        self.tableWidget_obj.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        self.tableWidget_obj.setRowCount(0)
+        self.tableWidget_obj.setColumnCount(3)
+        self.tableWidget_obj.horizontalHeader().setVisible(True)
+        self.tableWidget_obj.horizontalHeader().setCascadingSectionResizes(True)
+        self.tableWidget_obj.horizontalHeader().setMinimumSectionSize(30)
+        self.tableWidget_obj.horizontalHeader().setDefaultSectionSize(30)
+        self.tableWidget_obj.horizontalHeader().setStretchLastSection(True)
+        self.tableWidget_obj.verticalHeader().setVisible(False)
+
+        self.verticalLayout.addWidget(self.tableWidget_obj)
 
         self.label_info = QTextBrowser(self.tool)
         self.label_info.setObjectName(u"label_info")
@@ -326,9 +327,18 @@ class Ui_MainWindow(object):
 "}")
         self.label_info.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.label_info.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.label_info.setAutoFormatting(QTextEdit.AutoAll)
         self.label_info.setLineWrapMode(QTextEdit.NoWrap)
 
         self.verticalLayout.addWidget(self.label_info)
+
+        self.pushButton_opendetail = PushButton(self.tool)
+        self.pushButton_opendetail.setObjectName(u"pushButton_opendetail")
+        sizePolicy1.setHeightForWidth(self.pushButton_opendetail.sizePolicy().hasHeightForWidth())
+        self.pushButton_opendetail.setSizePolicy(sizePolicy1)
+        self.pushButton_opendetail.setMinimumSize(QSize(20, 0))
+
+        self.verticalLayout.addWidget(self.pushButton_opendetail)
 
         self.horizontalLayout_7 = QHBoxLayout()
         self.horizontalLayout_7.setObjectName(u"horizontalLayout_7")
@@ -372,20 +382,23 @@ class Ui_MainWindow(object):
         MainWindow.setWindowTitle(QCoreApplication.translate("MainWindow", u"MainWindow", None))
         self.pushButton_openfolder.setText(QCoreApplication.translate("MainWindow", u"\u6253\u5f00\u672c\u5730\u6587\u4ef6\u5939", None))
         self.pushButton_openremotefolder.setText(QCoreApplication.translate("MainWindow", u"\u6253\u5f00\u8fdc\u7a0b\u6587\u4ef6\u5939", None))
-        self.label.setText(QCoreApplication.translate("MainWindow", u"\u8ddf\u968f\u7269\u4f53", None))
-        self.checkBox.setText(QCoreApplication.translate("MainWindow", u"CheckBox", None))
         self.label_4.setText(QCoreApplication.translate("MainWindow", u"\u7f51\u683c", None))
         self.checkBox_axis.setText(QCoreApplication.translate("MainWindow", u"CheckBox", None))
         self.label_5.setText(QCoreApplication.translate("MainWindow", u"\u7bad\u5934", None))
         self.checkBox_arrow.setText(QCoreApplication.translate("MainWindow", u"CheckBox", None))
-        self.label_2.setText(QCoreApplication.translate("MainWindow", u"\u5c3a\u5ea6", None))
-        self.doubleSpinBox.setPrefix(QCoreApplication.translate("MainWindow", u"\u653e\u5927", None))
-        self.doubleSpinBox.setSuffix(QCoreApplication.translate("MainWindow", u"\u500d", None))
+        self.label_3.setText(QCoreApplication.translate("MainWindow", u"\u5207\u7247", None))
         self.pushButton_openscript.setText(QCoreApplication.translate("MainWindow", u"\u6253\u5f00\u811a\u672c", None))
         self.label_script.setText(QCoreApplication.translate("MainWindow", u"...", None))
         self.pushButton_runscript.setText(QCoreApplication.translate("MainWindow", u"\u8fd0\u884c\u811a\u672c", None))
         ___qtablewidgetitem = self.tableWidget.horizontalHeaderItem(0)
         ___qtablewidgetitem.setText(QCoreApplication.translate("MainWindow", u"\u6587\u4ef6", None));
+        ___qtablewidgetitem1 = self.tableWidget_obj.horizontalHeaderItem(0)
+        ___qtablewidgetitem1.setText(QCoreApplication.translate("MainWindow", u"\u53ef\u89c1", None));
+        ___qtablewidgetitem2 = self.tableWidget_obj.horizontalHeaderItem(1)
+        ___qtablewidgetitem2.setText(QCoreApplication.translate("MainWindow", u"ID", None));
+        ___qtablewidgetitem3 = self.tableWidget_obj.horizontalHeaderItem(2)
+        ___qtablewidgetitem3.setText(QCoreApplication.translate("MainWindow", u"\u5c3a\u5bf8", None));
+        self.pushButton_opendetail.setText(QCoreApplication.translate("MainWindow", u"\u8be6\u7ec6\u4fe1\u606f", None))
         self.toolButton_theme.setText("")
     # retranslateUi
 

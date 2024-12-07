@@ -4,13 +4,13 @@ wdir = os.path.abspath(os.path.dirname(__file__))
 sys.path.append(wdir)
 import numpy as np
 import numpy.linalg as linalg
-from PySide6.QtWidgets import ( QApplication, QMainWindow, QTableWidgetItem, QWidget, QFileDialog, QDialog)
-from PySide6.QtCore import  QThread, Signal, Qt
-from PySide6.QtGui import QCloseEvent, QIcon, QFont, QAction
+from PySide6.QtWidgets import ( QApplication, QMainWindow, QTableWidgetItem, QWidget, QFileDialog, QDialog, QGraphicsOpacityEffect, QGraphicsDropShadowEffect, QFrame, QVBoxLayout)
+from PySide6.QtCore import  QThread, Signal, Qt, QPropertyAnimation, QEasingCurve, QPoint, QRect
+from PySide6.QtGui import QCloseEvent, QIcon, QFont, QAction, QColor
 from ui.PopMessageWidget import PopMessageWidget_fluent as PopMessageWidget
 import multiprocessing
 
-
+from ui.addon import GLAddon_ind
 from ui.ui_main_ui import Ui_MainWindow
 from ui.ui_remote_ui import Ui_RemoteWidget
 import pickle
@@ -32,7 +32,7 @@ except:
 
 
 
-from qfluentwidgets import (setTheme, Theme, setThemeColor, qconfig, RoundMenu)
+from qfluentwidgets import (setTheme, Theme, setThemeColor, qconfig, RoundMenu, widgets, ToggleToolButton, Slider, Action)
 from qfluentwidgets import FluentIcon as FIF
 
 
@@ -42,6 +42,13 @@ class cellWidget(QTableWidgetItem):
         self.fullpath = fullpath
         self.isRemote = isRemote
         return super().__init__(text,)
+
+class cellWidget_toggle(QTableWidgetItem):
+    def __init__(self, icon=None) -> None:
+        
+        self.button = ToggleToolButton(icon)
+        return super().__init__()
+
 
 class RemoteUI(QDialog):
     
@@ -121,9 +128,12 @@ class RemoteUI(QDialog):
         self.executeSignal.emit('sftpListDir', {'dir':fullpath, 'isSet':False, 'onlydir':True})
         
     def openFolder(self, ):
-        
         self.executeSignal.emit('sftpListDir', {'dir':self.ui.lineEdit_dir.text(), 'recursive':(False, True)[self.ui.comboBox.currentIndex()]})
         self.close()
+        
+    def openFolder_background(self, ):
+        print('openFolder_background')
+        self.executeSignal.emit('sftpListDir', {'dir':self.ui.lineEdit_dir.text(), 'recursive':(False, True)[self.ui.comboBox.currentIndex()]})
         
     def setFolderContents(self, filelist:list, dirname:str):
         self.ui.tableWidget.setRowCount(0)
@@ -155,6 +165,19 @@ class RemoteUI(QDialog):
         return super().showEvent(event)
         
 
+class fileDetailInfoUI(QDialog):
+    
+    def __init__(self, parent:QWidget=None) -> None:
+        super().__init__(parent,)
+        self.setAttribute(Qt.WA_TranslucentBackground)
+        self.resize(500, 700)
+        self.setWindowTitle('文件内容')
+        
+        self.verticalLayout = QVBoxLayout(self)
+
+
+DEFAULT_SIZE = 3
+
 class App(QMainWindow):
     # ----------------------------------------------------------------------
     sendCodeSignal = Signal(str, str)
@@ -167,6 +190,38 @@ class App(QMainWindow):
         
         self.ui = Ui_MainWindow()
         self.ui.setupUi(self)
+        self.tgtTheme = Theme.AUTO
+
+        # self.toolframe = QFrame(self.ui.openGLWidget)
+        # self.ui.tool.setFixedSize(200, 200)
+        
+        self.ui.tool.setFixedWidth(320)
+        self.ui.tool.setMinimumHeight(320)
+        self.ui.tool.setParent(self)
+        self.ui.tool.move(15, 10)
+        # add shadow
+        self.shadow = QGraphicsDropShadowEffect()
+        self.shadow.setBlurRadius(30)
+        self.shadow.setColor(QColor(30, 30, 30))
+        self.shadow.setOffset(0, 0)
+
+        self.ui.tool.setGraphicsEffect(self.shadow)
+        
+        
+        self.tool_anim = QPropertyAnimation(self.ui.tool, b"pos")
+        self.tool_anim.setDuration(200)
+        self.tool_anim.setEasingCurve(QEasingCurve.InOutQuart)
+
+        self.tool_anim_button = ToggleToolButton(FIF.PIN, self)
+        self.tool_anim_button.move(350, 15)
+        self.tool_anim_button.setFixedSize(30, 30)
+        self.tool_anim_button.toggle()
+        self.tool_anim_button.toggled.connect(self.moveToolWidget)
+
+        self.tool_b_anim = QPropertyAnimation(self.tool_anim_button, b"pos")
+        self.tool_b_anim.setDuration(200)
+        self.tool_b_anim.setEasingCurve(QEasingCurve.InOutQuart)
+        
         self.PopMessageWidgetObj = PopMessageWidget(self)
         self.windowBlocker = windowBlocker(self) 
         
@@ -178,6 +233,14 @@ class App(QMainWindow):
         self.isNolyBw = True
         
         self.currentScriptPath = ''
+        
+        self.workspace_obj = None
+        
+        self.obj_properties = {}
+
+        self.ui.tableWidget_obj.setColumnWidth(0, 40)
+        self.ui.tableWidget_obj.setColumnWidth(1, 140)
+        
 
         self.ui.pushButton_openfolder.clicked.connect(self.openFolder)
         self.ui.pushButton_openfolder.setIcon(FIF.FOLDER)
@@ -186,7 +249,7 @@ class App(QMainWindow):
         self.ui.tableWidget.cellDoubleClicked.connect(self.cellClickedCallback)
         # self.ui.checkBox.stateChanged.connect(self.switchExtCallback)
         # self.ui.checkBox_2.stateChanged.connect(self.switchOblyBwCallback)
-        self.ui.doubleSpinBox.valueChanged.connect(self.setGLScale)
+        # self.ui.doubleSpinBox.valueChanged.connect(self.setGLScale)
 
         self.ui.pushButton_openscript.clicked.connect(self.openScript)
         self.ui.pushButton_openscript.setIcon(FIF.CODE)
@@ -209,7 +272,12 @@ class App(QMainWindow):
         self.remoteUI = RemoteUI()
         self.remoteUI.executeSignal.connect(self.backendSFTP.run)
         self.sftpSignal.connect(self.backendSFTP.run)
-
+        
+        self.fileDetailUI = fileDetailInfoUI()
+        self.ui.label_info.setParent(self.fileDetailUI)
+        self.fileDetailUI.verticalLayout.addWidget(self.ui.label_info)
+        self.ui.pushButton_opendetail.clicked.connect(self.openDetailUI)
+        self.ui.pushButton_opendetail.setIcon(FIF.INFO)
 
         self.backendEngine.executeGLSignal.connect(self.backendExeGLCallback)
         self.backendEngine.executeUISignal.connect(self.backendExeUICallback)
@@ -228,11 +296,11 @@ class App(QMainWindow):
 
         # self.switchExtCallback()
 
-        self.isTrackObject = True
-        self.ui.checkBox.setChecked(self.isTrackObject)
-        self.ui.checkBox.setOnText('开')
-        self.ui.checkBox.setOffText('关')
-        self.ui.checkBox.checkedChanged.connect(self.setTrackObject)
+        self.isTrackObject = False
+        # self.ui.checkBox.setChecked(self.isTrackObject)
+        # self.ui.checkBox.setOnText('开')
+        # self.ui.checkBox.setOffText('关')
+        # self.ui.checkBox.checkedChanged.connect(self.setTrackObject)
         self.ui.checkBox_axis.checkedChanged.connect(self.setGLAxisVisable)
         self.ui.checkBox_axis.setOnText('开')
         self.ui.checkBox_axis.setOffText('关')
@@ -265,11 +333,21 @@ class App(QMainWindow):
         self.themeToolButtonMenu.addAction(self.themeAUTOAction)
         self.ui.toolButton_theme.setMenu(self.themeToolButtonMenu)
         self.ui.toolButton_theme.setIcon(FIF.PALETTE)
-        self.tgtTheme = Theme.AUTO
+        
         
         self.themeLIGHTAction.triggered.connect(lambda:self.changeTheme(Theme.LIGHT))
         self.themeDARKAction.triggered.connect(lambda:self.changeTheme(Theme.DARK))
         self.themeAUTOAction.triggered.connect(lambda:self.changeTheme(Theme.AUTO))
+        
+        self.ui.spinBox.valueChanged.connect(self.slicefromBatch)
+        
+        
+        
+        # self.ui.tableWidget.menu = RoundMenu(parent=self.ui.tableWidget)
+        # self.ui.tableWidget.menu.addAction(Action(FIF.SYNC, '刷新', triggered=lambda: self.remoteUI.openFolder_background()))
+        # self.ui.tableWidget.contextMenuEvent = lambda event: self.ui.tableWidget.menu.exec_(event.globalPos())
+
+
         
         
         self.configPath = './user.config'
@@ -278,6 +356,24 @@ class App(QMainWindow):
         self.changeTXTTheme(self.tgtTheme)
         
         self.setUpWatchForThemeChange()
+    
+        
+    def moveToolWidget(self, hide=True):
+        self.tool_anim.stop()
+        self.tool_b_anim.stop()
+        self.tool_anim.setStartValue(self.ui.tool.pos())
+        self.tool_b_anim.setStartValue(self.tool_anim_button.pos())
+        if not hide:
+            self.tool_anim.setEndValue(QPoint(-400, self.ui.tool.pos().y()))
+            self.tool_b_anim.setEndValue(QPoint(15, self.tool_anim_button.pos().y()))
+        else:
+            self.tool_anim.setEndValue(QPoint(20, self.ui.tool.pos().y()))
+            self.tool_b_anim.setEndValue(QPoint(350, self.tool_anim_button.pos().y()))
+        self.tool_anim.start()
+        self.tool_b_anim.start()
+        self.update()
+        
+        
         
     def openFolder(self, path=None):
         
@@ -319,38 +415,180 @@ class App(QMainWindow):
             self.ui.tableWidget.setItem(0, 0, event_widget)
 
 
-    def formatContentInfo(self, obj):
-        textInfo = ' FILE CONTENT: '.center(50, '-') + '\n\n'
+    def resetObjPropsTable(self, ):
+        row_count = self.ui.tableWidget_obj.rowCount()
+        for i in range(row_count):
+            item = self.ui.tableWidget_obj.item(i, 1)
+            item.needsRemove = True
+                
+    def clearObjPropsTable(self, ):
+        row_count = self.ui.tableWidget_obj.rowCount()
+        for i in range(row_count)[::-1]:
+            item = self.ui.tableWidget_obj.item(i, 1)
+            if item.needsRemove:
+                self.ui.tableWidget_obj.removeRow(i)
+
+    def changeObjectProps(self, ):
+        row_count = self.ui.tableWidget_obj.rowCount()
+        for i in range(row_count):
+            key = self.ui.tableWidget_obj.item(i, 1).text()
+            isShow = self.ui.tableWidget_obj.cellWidget(i, 0).isChecked()
+            if isShow:
+                self.ui.tableWidget_obj.cellWidget(i, 0).setIcon(FIF.VIEW)
+            else:
+                self.ui.tableWidget_obj.cellWidget(i, 0).setIcon(FIF.HIDE)
+            if self.ui.tableWidget_obj.cellWidget(i, 2) is not None:
+                size = self.ui.tableWidget_obj.cellWidget(i, 2).value()
+            else:
+                size = DEFAULT_SIZE
+            props = {
+                'isShow':isShow,
+                'size':size,
+            }
+            self.ui.openGLWidget.updateObjectProps(key, props)
+
+
+    def add2ObjPropsTable(self, obj, name:str, color=None, adjustable=False):
         
-        def fill_tab_before_return(text, tab=4):
-            ...
+        def add_slider(row_num):
+            sl = Slider(Qt.Orientation.Horizontal, None)
+            sl.setMaximumSize(96, 24)
+            sl.setMaximum(20)
+            sl.setSingleStep(2)
+            sl.setMinimum(1)
+            sl.setValue(DEFAULT_SIZE)
+            sl.valueChanged.connect(self.changeObjectProps)
+            self.ui.tableWidget_obj.setCellWidget(row_num, 2, sl)
+
+        if color is None:
+            color = (0.9, 0.9, 0.9)
+        elif isinstance(obj, str):
+            color = self._decode_HexColor_to_RGB(color)[:3]
+        elif isinstance(obj, (np.ndarray, list, tuple)):
+            color = color[:3]
+        color = [int(c*255) for c in color]
+        
+        
+        # print('add2ObjPropsTable:', name)
+        row_count = self.ui.tableWidget_obj.rowCount()
+        # print('row_count', row_count)
+        i = 0
+        for i in range(row_count):
+            item = self.ui.tableWidget_obj.item(i, 1)
+            if item.text() == name:
+                # print('find exist name:', name)
+                item.needsRemove = False
+                
+                if adjustable:
+                    if self.ui.tableWidget_obj.cellWidget(i, 2) is None:
+                        add_slider(i)
+                else:
+                    if self.ui.tableWidget_obj.cellWidget(i, 2) is not None:
+                        self.ui.tableWidget_obj.removeCellWidget(i, 2)
+                
+                return
+            
+        # print('i:', i)
+        
+        # print('add new name:', name)
+        self.ui.tableWidget_obj.insertRow(row_count)
+        tt = QTableWidgetItem(name)
+        tt.setForeground(QColor(*color))
+        tt.setFont(QFont([u'Cascadia Mono', u'Microsoft Yahei UI'], pointSize=10, weight= 500))
+        tt.needsRemove = False
+        self.ui.tableWidget_obj.setItem(row_count, 1, tt)
+        tb = ToggleToolButton(FIF.VIEW)
+        tb.setChecked(True)
+        tb.toggled.connect(self.changeObjectProps)
+        tb.setMaximumSize(24, 24)
+        self.ui.tableWidget_obj.setCellWidget(row_count, 0, tb)
+        
+        if adjustable:
+            add_slider(row_count)
+            
+        
+        
+        # if name in self.obj_properties.keys():
+        #     properties = self.obj_properties[name]
+        # else:
+        #     properties = {'isShow':True, 'size':3}
+        #     self.obj_properties[name] = properties
+        
+        # self.ui.tableWidget_obj.insertRow(0)
+        # self.ui.tableWidget_obj.removeRow()
+        
+        # self.ui.tableWidget_obj.item
+        
+        # tt = QTableWidgetItem(name)
+        # tt.setForeground(QColor(123, 231, 255))
+        
+        # self.ui.tableWidget_obj.setItem(0, 1, tt)
+        # # self.ui.tableWidget_obj.setItem(0, 0, cellWidget_toggle(FIF.PIN))
+        # tb = ToggleToolButton(FIF.PIN)
+        # tb.setMaximumSize(24, 24)
+
+        # self.ui.tableWidget_obj.setCellWidget(0, 0, tb)
+        
+
+
+
+    def formatContentInfo(self, obj):
+        # textInfo = ' FILE CONTENT: '.center(50, '-') + '\n\n'
+        textInfo = '### FILE CONTENT: ' + '\n\n --- \n\n'
+        
+            
+        def create_table_from_dict(d:dict):
+            try:
+                text = ''
+                text += '| | name | type | shape | type |\n'
+                text += '| --- | --- | --- | --- | --- |\n'
+                for i, (k, v) in enumerate(d.items()):
+                    if hasattr(v, 'shape'):
+                        text += f'| {i+1} | {k} | {v.__class__.__name__} | {v.shape} | {v.dtype} |\n'
+                    else:
+                        text += f'| {i+1} | {k} | {v.__class__.__name__} | | | |\n'
+                return text + '\n *** \n\n'
+            except:
+                return 'ERROR'      
+        
             
         try:
             if isinstance(obj, dict):
                 
-                for k, v in obj.items():
+                textInfo += create_table_from_dict(obj)
+                
+                for i, (k, v) in enumerate(obj.items()):
+                    textInfo += f'#### {i+1}. '
                     if isinstance(v, np.ndarray):
                         textInfo += f'{k} : ndarray{v.shape}\n\n'
-                        textInfo += str(v) + '\n'
+                        textInfo +='```\n'+repr(v) + '\n\n```\n\n'
                         
                     elif isinstance(v, (dict)):
-                        textInfo += f'{k} : {v.__class__}\n\n'
+                        textInfo += f'{k} : {v.__class__.__name__}\n\n'
                         for kk, vv in v.items():
-                            textInfo += f'\t|-{kk} : {vv.__class__}\n'
+                            textInfo += f'\t|-{kk} : {vv.__class__.__name__}\n'
                     
                     else:
-                        textInfo += f'{k} : {v.__class__}\n\n'
-                        textInfo += str(v) + '\n'
+                        textInfo += f'{k} : {v.__class__.__name__}\n\n'
+                        # textInfo +='      '+repr(v).replace('array([', '').replace('])', '') + '\n\n'
+                        textInfo +='```\n'+repr(v) + '\n\n```\n\n'
+                        
                         
                         
                     textInfo += '\n' + '-' * 50 + '\n\n'
                 
             else:
-                textInfo += 'unsupport object'
+                textInfo += obj.__class__.__name__ + '\n\n'
         except:
             textInfo += 'ERROR'
         finally:
+            
+            # with open('./test.md', 'w') as f:
+            #     f.write(textInfo)
+            
             return textInfo
+        
+        
 
     def _isHexColorinName(self, name) -> str:
         if '#' in name:
@@ -374,7 +612,13 @@ class App(QMainWindow):
         else:
             return 2
             
-            
+    def _decode_HexColor_to_RGB(self, hexcolor):
+        if len(hexcolor) == 6:
+            return tuple(int(hexcolor[i:i+2], 16) / 255. for i in (0, 2, 4))
+        elif len(hexcolor) == 8:
+            return tuple(int(hexcolor[i:i+2], 16) / 255. for i in (0, 2, 4, 6))
+        else:
+            return (0.9, 0.9, 0.9, 0.9)        
         
     def cellClickedCallback(self, row, col, prow=None, pcol=None):
         try:
@@ -389,6 +633,46 @@ class App(QMainWindow):
             
         else:
             self.loadObj(fullpath)
+
+    def setWorkspaceObj(self, obj):
+        self.workspace_obj = obj
+        maxBatch = 999999999
+        if isinstance(obj, dict):
+            for k, v in self.workspace_obj.items():
+                
+                if self.isSliceable(v):
+                    maxBatch = min(maxBatch, v.shape[0])
+        
+        self.ui.spinBox.setDisabled(maxBatch == 0)
+        self.ui.spinBox.setMaximum(maxBatch-1)
+            
+    def isSliceable(self, obj):
+        if hasattr(obj, 'shape') and len(obj.shape) > 2:
+            return True
+        else:
+            return False
+
+    def slicefromBatch(self, batch,):
+        
+        if self.workspace_obj is not None:
+            
+            if batch >= 0:
+                sliced = {}
+                
+                for k, v in self.workspace_obj.items():
+                    if self.isSliceable(v):
+                        sliced[k] = v[batch:batch+1]
+                    else:
+                        sliced[k] = v
+            
+                # print('Sliced:')
+                # for k, v in sliced.items():
+                #     print(k, ':', v.shape)
+            
+                self.loadObj(sliced)
+                
+            else:
+                self.loadObj(self.workspace_obj)
         
     def loadObj(self, fullpath:str, extName=''):
         
@@ -429,34 +713,22 @@ class App(QMainWindow):
             # print(self.center_all)
 
         def _dealArray(v:np.ndarray):
-            v = _rmnan(v)
+            
+            v = np.nan_to_num(v)
             v = np.float32(v)
+            
+            
+            
+            print(k, ':', v.nbytes, 'bytes')
+            assert v.nbytes < 1e8, '数组过大，须切片后显示'
             
             n_color = self._isHexColorinName(k)
             user_color = n_color if n_color is not None else self.ui.openGLWidget.chooseColor()
             
-            
-            # -------- pointcloud
-            if len(v.shape) == 2 and v.shape[1] == 3: # (N, 3)
+            # -------- lines with arrows
+            if (len(v.shape) >= 3 and v.shape[-2] == 2 and v.shape[-1] == 3): # (..., 2, 3)
                 
-                obj = PointCloud(vertex=v, color=user_color, size=self._isSizeinName(k))
-                self.ui.openGLWidget.updateObject(ID=k, obj=obj, labelColor=user_color)
-                # self.ui.openGLWidget.updateObject(ID=k, vertex=v, color=self._isHexColorinName(k), size=self._isSizeinName(k), type='pointcloud')
-                _getCenter(v)
-                    
-            # -------- pointcloud with point-wise color
-            elif len(v.shape) == 2 and v.shape[1] in [6, 7]: # (N, 6)
-                vertex = v[:, :3]
-                color = v[:, 3:]
-                obj = PointCloud(vertex=vertex, color=color, size=self._isSizeinName(k))
-                self.ui.openGLWidget.updateObject(ID=k, obj=obj)
-                # self.ui.openGLWidget.updateObject(ID=k, vertex=vertex, color=color, size=self._isSizeinName(k), type='pointcloud')
-                
-                _getCenter(vertex)
-            
-            # --------- lines with arrows
-            elif len(v.shape) == 3 and v.shape[1] == 2 and v.shape[2] == 3: # (N, 2, 3)
-                
+                v = v.reshape(-1, 2, 3)
                 lines = Lines(vertex=v, color=user_color)
                 
                 #-----# Arrow
@@ -496,17 +768,39 @@ class App(QMainWindow):
                     self.ui.openGLWidget.updateObject(ID=k, obj=obj, labelColor=user_color)
                 else:
                     self.ui.openGLWidget.updateObject(ID=k, obj=lines, labelColor=user_color)
+            
+            # -------- pointcloud
+            elif len(v.shape) >= 2 and v.shape[-1] == 3: # (..., 3)
+                v = v.reshape(-1, 3)
+                obj = PointCloud(vertex=v, color=user_color, size=self._isSizeinName(k))
+                self.ui.openGLWidget.updateObject(ID=k, obj=obj, labelColor=user_color)
+                # self.ui.openGLWidget.updateObject(ID=k, vertex=v, color=self._isHexColorinName(k), size=self._isSizeinName(k), type='pointcloud')
+                _getCenter(v)
+                    
+            # -------- pointcloud with point-wise color
+            elif len(v.shape) >= 2 and v.shape[-1] in [6, 7]: # (..., 6)
+                vertex = v[..., :3].reshape(-1, 3)
+                if v.shape[-1] == 6:
+                    color = v[..., 3:6].reshape(-1, 3)
+                else:
+                    color = v[..., 3:7].reshape(-1, 4)
+                    
+                obj = PointCloud(vertex=vertex, color=color, size=self._isSizeinName(k))
+                self.ui.openGLWidget.updateObject(ID=k, obj=obj)
+                # self.ui.openGLWidget.updateObject(ID=k, vertex=vertex, color=color, size=self._isSizeinName(k), type='pointcloud')
                 
-                
-                
-                
-        
-            elif len(v.shape) == 3 and v.shape[1] == 8 and v.shape[2] == 3: # (N, 8, 3)
+                _getCenter(vertex)
+            
+            # -------- bounding box
+            elif len(v.shape) >= 3 and v.shape[-2] == 8 and v.shape[-1] == 3: # (..., 8, 3)
+                v = v.reshape(-1, 8, 3)
                 obj = BoundingBox(vertex=v, color=user_color)
                 self.ui.openGLWidget.updateObject(ID=k, obj=obj, labelColor=user_color)
                 # self.ui.openGLWidget.updateObject(ID=k, vertex=v, color=self._isHexColorinName(k), type='boundingbox')
-                
-            elif len(v.shape) == 3 and v.shape[1] == 4 and v.shape[2] == 4: # (N, 4, 4)
+            
+            # -------- coordinate axis
+            elif len(v.shape) >= 3 and v.shape[-1] == 4 and v.shape[-2] == 4: # (..., 4, 4)
+                v = v.reshape(-1, 4, 4)
                 B = len(v)
                 length = 0.3
                 mat = v.repeat(3, axis=0)
@@ -538,6 +832,8 @@ class App(QMainWindow):
                 
                 self.ui.openGLWidget.updateObject(ID=k, obj=obj)
 
+            self.add2ObjPropsTable(v, k, user_color, adjustable=True)
+
         def _dealDict(v:dict):
             assert 'vertex' in v.keys(), '网格缺少顶点(vertex)'
             assert 'face' in v.keys(), '网格缺少面片索引(face)'
@@ -545,8 +841,11 @@ class App(QMainWindow):
             obj = Mesh(v['vertex'], v['face'])
             self.ui.openGLWidget.updateObject(ID=k, obj=obj)
             
+            self.add2ObjPropsTable(v, k)
+            
 
-
+        # self.ui.tableWidget_obj.setRowCount(0)
+        self.resetObjPropsTable()
         try:
             # with open(fullpath, 'rb') as f:
             if isinstance(fullpath, str) and os.path.isfile(fullpath):
@@ -561,6 +860,11 @@ class App(QMainWindow):
                     obj = trimesh.load(fullpath)
                 else:
                     obj = pickle.load(open(fullpath, 'rb'))
+                 
+                self.setWorkspaceObj(obj)   
+   
+            elif isinstance(fullpath, (dict)):
+                obj = fullpath
    
             else:
                 if extName in ['npz', 'npy', 'NPY', 'NPZ',]:
@@ -569,10 +873,12 @@ class App(QMainWindow):
                 else:
                     obj = pickle.load(fullpath)
                 
+                self.setWorkspaceObj(obj)   
             
             info = self.formatContentInfo(obj)
-            self.ui.label_info.setText(info)
-            # self.ui.label_info.setMarkdown(info)
+            # self.ui.label_info.setText(info)
+            # self.ui.label_info.setHtml(info)
+            self.ui.label_info.setMarkdown(info)
             
             if isinstance(obj, dict):
                 
@@ -580,12 +886,11 @@ class App(QMainWindow):
                 
                 self.ui.openGLWidget.reset()
                 for k, v in obj.items():
+                    k = str(k)
                     if hasattr(v, 'shape'):
-                        # if len(v.shape) in [3, 4]:
-                        #     for batch in v:
-                        #         _dealArray(batch)
-                        if len(v.shape) in [3, 2]:
-                            _dealArray(v)
+                        
+                        # if len(v.shape) in [3, 2]:
+                        _dealArray(v)
                             
                     elif isinstance(v, dict):
                         _dealDict(v)
@@ -593,6 +898,7 @@ class App(QMainWindow):
                     elif isinstance(v, (trimesh.parent.Geometry3D)):
                         self.ui.openGLWidget.updateTrimeshObject(ID=k, obj=v)
 
+                        self.add2ObjPropsTable(v, k)
                     
                 if self.isTrackObject and self.center_all is not None:
                     self.center_all = self.center_all.mean(axis=0) * self.ui.openGLWidget.scale
@@ -605,12 +911,15 @@ class App(QMainWindow):
                 fileName = os.path.splitext(baseName)[0]
                 self.ui.openGLWidget.updateTrimeshObject(ID=fileName, obj=obj)
 
-                
+                self.add2ObjPropsTable(obj, fileName)
             
         except:
             traceback.print_exc()
             exc_type, exc_value, exc_traceback = sys.exc_info()
             self.PopMessageWidgetObj.add_message_stack((('文件加载错误', str(exc_value)), 'error'))
+            
+        self.clearObjPropsTable()
+        self.changeObjectProps()
         
     def switchExtCallback(self, checked=True):
         if checked:
@@ -625,10 +934,10 @@ class App(QMainWindow):
             
         self.ui.openGLWidget.update()
         
-    def setGLScale(self,):
-        scale = self.ui.doubleSpinBox.value()
-        self.ui.openGLWidget.scale = scale
-        self.ui.openGLWidget.update()
+    # def setGLScale(self,):
+    #     scale = self.ui.doubleSpinBox.value()
+    #     self.ui.openGLWidget.scale = scale
+    #     self.ui.openGLWidget.update()
         
     def setTrackObject(self, ):
         self.isTrackObject = self.ui.checkBox.isChecked()
@@ -747,6 +1056,21 @@ class App(QMainWindow):
                 ...
         self.remoteUI.show()
         
+    def openDetailUI(self, ):
+        if sys.platform == 'win32':
+            try:
+                m = {
+                    Theme.LIGHT:MicaTheme.LIGHT,
+                    Theme.DARK:MicaTheme.DARK,
+                    Theme.AUTO:MicaTheme.AUTO
+                }
+
+                ApplyMica(self.fileDetailUI.winId(), m[self.tgtTheme], MicaStyle.DEFAULT)
+            except:
+                ...
+        self.fileDetailUI.show()
+        
+        
     def setDownloadProgress(self, dbytes:int, totalbytes:int, isBytes=True):
         self.ui.openGLWidget.statusbar.setProgress(dbytes, totalbytes, isBytes)
         
@@ -754,7 +1078,10 @@ class App(QMainWindow):
         self.ui.openGLWidget.statusbar.setHidden(hidden)
         
     def resizeEvent(self, event: QCloseEvent) -> None:
-        self.windowBlocker.resize(self.size())        
+        self.windowBlocker.resize(self.size())   
+        
+        self.ui.tool.setFixedWidth(320)
+        self.ui.tool.setFixedHeight(self.height()-50)
         return super().resizeEvent(event)
 
     def serverConnected(self, ):
@@ -777,13 +1104,17 @@ class App(QMainWindow):
         global CURRENT_THEME
         if theme == Theme.LIGHT:
             label_info_color = '#202020'
+            tool_color = '#E0E0E0'
         elif theme == Theme.DARK:
             label_info_color = '#E0E0E0'
+            tool_color = '#201e1c'
         else:
             if CURRENT_THEME == Theme.LIGHT:
                 label_info_color = '#202020'
+                tool_color = '#E0E0E0'
             else:
                 label_info_color = '#E0E0E0'
+                tool_color = '#201e1c'
         
         
         self.ui.label_info.setStyleSheet(
@@ -799,6 +1130,16 @@ class App(QMainWindow):
                     color: {0};
                 }}
             '''.format(label_info_color)
+        )
+        
+        self.ui.tool.setStyleSheet(
+            '''
+            QWidget
+            {{
+            background-color:{0};
+            border-radius:10px;
+            }}
+            '''.format(tool_color)
         )
             
     def changeTheme(self, theme):
@@ -932,6 +1273,10 @@ if __name__ == "__main__":
     # App.setStyleSheet(style)
     App.setWindowTitle('Batch3D Viewer')
     App.setWindowIcon(QIcon('icon.ico'))
+    
+
+    App.remoteUI.setWindowIcon(QIcon('icon.ico'))
+    App.fileDetailUI.setWindowIcon(QIcon('icon.ico'))
 
     if sys.platform == 'win32':
         import ctypes

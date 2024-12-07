@@ -3,9 +3,9 @@ import math
 import time
 import traceback
 import numpy as np
-from PySide6.QtCore import (QTimer, Qt, QRect, QRectF, Signal, QSize, QObject)
+from PySide6.QtCore import (QTimer, Qt, QRect, QRectF, Signal, QSize, QObject, QPoint)
 from PySide6.QtGui import (QBrush, QColor,QWheelEvent,QMouseEvent, QPainter, QPen, QFont)
-from PySide6.QtWidgets import (QApplication, QWidget, QLabel, QCheckBox)
+from PySide6.QtWidgets import (QApplication, QWidget, QLabel, QCheckBox, QSizePolicy, QVBoxLayout)
 from OpenGL.GL import *
 from OpenGL.GLU import *
 from OpenGL.GL import shaders
@@ -23,13 +23,13 @@ from typing import Tuple
 import copy
 from .mesh import Mesh, PointCloud, Grid, Axis, BoundingBox, Lines, Arrow, BaseObject
 from .utils.objloader import OBJ
-
+from ui.addon import GLAddon_ind
 from ui.statusBar import StatusBar
 import trimesh
 
 # from memory_profiler import profile
 
-from qfluentwidgets import CheckBox, setCustomStyleSheet, ComboBox, Slider
+from qfluentwidgets import CheckBox, setCustomStyleSheet, ComboBox, Slider, SegmentedWidget
 
 _AmbientLight  = [0.8, 0.8, 0.8, 1.0]
 _DiffuseLight  = [0.5, 0.5, 0.5, 1.0]
@@ -37,7 +37,7 @@ _SpecularLight = [0.4, 0.4, 0.4, 1.0]
 _PositionLight = [20.0, 20.0, 20.0, 0.0]
 
 def_color =  np.array([    
-        [217, 217, 217],
+        # [217, 217, 217],
         [233, 119, 119],
         [65 , 157, 129],
         [156, 201, 226],
@@ -305,7 +305,7 @@ class GLWidget(QOpenGLWidget):
         self.lastU = 0
         self.lastV = 0
         self.textShift = 0
-
+        self.lastPos = QPoint(0, 0)
         
 
         self.font = QFont([u'Cascadia Mono', u'Microsoft Yahei UI'], 9, )
@@ -322,7 +322,7 @@ class GLWidget(QOpenGLWidget):
         
         self.camera = GLCamera()
         self.camera.updateSignal.connect(self.update)
-        
+        # self.camera.updateSignal.connect(self.updateIndicator)
         
         self.textPainter = QPainter()
         # self.flush_timer.start()
@@ -375,21 +375,49 @@ class GLWidget(QOpenGLWidget):
 
         self.gl_render_mode = 1
         
-        self.gl_render_mode_combobox = ComboBox(parent=self,)
-        self.gl_render_mode_combobox.setFixedWidth(80)
-        self.gl_render_mode_combobox.addItems(['线框', '简单', '法线', '贴图', ])
-        self.gl_render_mode_combobox.setCurrentIndex(self.gl_render_mode)
-        self.gl_render_mode_combobox.currentIndexChanged.connect(self.changeRenderMode)
+        self.gl_render_mode_combobox = SegmentedWidget(parent=self,)
+        self.gl_render_mode_combobox.setFixedWidth(210)
+        # self.gl_render_mode_combobox.addItems(['线框', '简单', '法线', '贴图', ])
+        self.gl_render_mode_combobox.addItem('0', '线框', lambda:self.changeRenderMode(0))
+        self.gl_render_mode_combobox.addItem('1', '简单', lambda:self.changeRenderMode(1))
+        self.gl_render_mode_combobox.addItem('2', '法线', lambda:self.changeRenderMode(2))
+        self.gl_render_mode_combobox.addItem('3', '贴图', lambda:self.changeRenderMode(3))
+        self.gl_render_mode_combobox.setCurrentItem('1')
+        # self.gl_render_mode_combobox.currentIndexChanged.connect(self.changeRenderMode)
         
         self.point_line_size = 3
         
-        self.gl_slider = Slider(Qt.Orientation.Vertical, parent=self)
-        self.gl_slider.setFixedHeight(200)
-        self.gl_slider.setFixedWidth(20)
-        self.gl_slider.setMaximum(10)
-        self.gl_slider.setMinimum(1)
-        self.gl_slider.setValue(self.point_line_size)
-        self.gl_slider.valueChanged.connect(self.setGlobalSize)
+        # self.gl_slider = Slider(Qt.Orientation.Vertical, parent=self)
+        # self.gl_slider.setFixedHeight(200)
+        # self.gl_slider.setFixedWidth(20)
+        # self.gl_slider.setMaximum(10)
+        # self.gl_slider.setMinimum(1)
+        # self.gl_slider.setValue(self.point_line_size)
+        # self.gl_slider.valueChanged.connect(self.setGlobalSize)
+        
+        # sizePolicy = QSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        # self.SwitchLabel_box = QWidget(self)
+        
+        # self.SwitchLabel_box.move(360, 15)
+        
+        # self.SwitchLabel_box_layout = QVBoxLayout(self.SwitchLabel_box)
+        # self.SwitchLabel_box.setLayout(self.SwitchLabel_box_layout)
+        # self.SwitchLabel_box.setSizePolicy(sizePolicy)
+        # self.SwitchLabel_box.setStyleSheet('background-color: rgba(123,123,123, 50);')
+        
+        # self.indicator = GLAddon_ind(self)
+        # self.indicator.move(200, 200)
+        # self.indicator.setFixedSize(200, 200)
+        # self.indicator.show()
+        
+        self.setMinimumSize(200, 200)
+        
+        
+    # def updateIndicator(self, ):
+        
+    #     hrt = np.eye(4)
+    #     hrt[:3,:3] = self.camera.CameraTransformMat[:3,:3]
+    #     # self.indicator.set_pose(hrt)
         
     def setGlobalSize(self, size):
         self.point_line_size = size
@@ -429,78 +457,89 @@ class GLWidget(QOpenGLWidget):
         return rt
         
         
-    def removeSwitchLabel(self, name=None):
-        if name is None:
-            for k, v in self.labelSwitchList.items():
-                v.deleteLater()
-            self.labelSwitchList = {}
+    # def removeSwitchLabel(self, name=None):
+    #     if name is None:
+    #         for k, v in self.labelSwitchList.items():
+    #             v.deleteLater()
+    #         self.labelSwitchList = {}
         
-        if name in self.labelSwitchList.keys():
-            self.labelSwitchList[name].deleteLater()
-            self.labelSwitchList.pop(name)
-                
+    #     if name in self.labelSwitchList.keys():
+    #         self.SwitchLabel_box_layout.removeWidget(self.labelSwitchList[name])
+    #         self.labelSwitchList[name].deleteLater()
+    #         self.labelSwitchList.pop(name)
+        
+    #     # self.SwitchLabel_box.update()
+    #     # self.SwitchLabel_box.adjustSize()
+    #     self.SwitchLabel_box_layout.invalidate()
+    #     self.SwitchLabel_box_layout.activate()
+    #     self.SwitchLabel_box.adjustSize()
         
         
-    def addSwitchLabel(self, name, color=None):
+    # def addSwitchLabel(self, name, color=None):
         
-        # print(color)
-        def _isHexColorinName(name) -> str:
-            if '#' in name:
-                name = name.split('#', 2)[1]
-                name = name.split('_', 2)[0]
-                if len(name) == 6 or len(name) == 8:
-                    return name
-                else:
-                    return '808080'
-            else:
-                return '808080'
+    #     # print(color)
+    #     def _isHexColorinName(name) -> str:
+    #         if '#' in name:
+    #             name = name.split('#', 2)[1]
+    #             name = name.split('_', 2)[0]
+    #             if len(name) == 6 or len(name) == 8:
+    #                 return name
+    #             else:
+    #                 return '808080'
+    #         else:
+    #             return '808080'
 
         
-        def HEXRGBA2QTHEX(hex:str):
-            if len(hex) == 6:
-                return '#' + hex
-            elif len(hex) == 8:
-                return '#' + hex[-2:] + hex[:-2]
-            else:
-                return '#808080'
+    #     def HEXRGBA2QTHEX(hex:str):
+    #         if len(hex) == 6:
+    #             return '#' + hex
+    #         elif len(hex) == 8:
+    #             return '#' + hex[-2:] + hex[:-2]
+    #         else:
+    #             return '#808080'
             
-        def RGBA2HEXRGBA(rgb):
-            if len(rgb) == 3:
-                return '%02x%02x%02xff' % (int(rgb[0]*255), int(rgb[1]*255), int(rgb[2]*255))
-            elif len(rgb) == 4:
-                return '%02x%02x%02x%02x' % (int(rgb[0]*255), int(rgb[1]*255), int(rgb[2]*255), int(rgb[3]*255))
-            else:
-                return '808080'
+    #     def RGBA2HEXRGBA(rgb):
+    #         if len(rgb) == 3:
+    #             return '%02x%02x%02xff' % (int(rgb[0]*255), int(rgb[1]*255), int(rgb[2]*255))
+    #         elif len(rgb) == 4:
+    #             return '%02x%02x%02x%02x' % (int(rgb[0]*255), int(rgb[1]*255), int(rgb[2]*255), int(rgb[3]*255))
+    #         else:
+    #             return '808080'
             
-        def getColor(name):
-            return HEXRGBA2QTHEX(_isHexColorinName(name)) if color is None else HEXRGBA2QTHEX(RGBA2HEXRGBA(color))
+    #     def getColor(name):
+    #         return HEXRGBA2QTHEX(_isHexColorinName(name)) if color is None else HEXRGBA2QTHEX(RGBA2HEXRGBA(color))
             
-        # print(HEXRGBA2QTHEX(color))
+    #     # print(HEXRGBA2QTHEX(color))
         
-        labelObject = CheckBox(parent=self, text=name,)
-        labelObject.setChecked(True)
+    #     labelObject = CheckBox(parent=self.SwitchLabel_box, text=name,)
+    #     self.SwitchLabel_box_layout.addWidget(labelObject)
+    #     labelObject.setChecked(True)
         
-        _qss = checkboxStyle.format(hexcolor=getColor(name))
-        setCustomStyleSheet(labelObject, _qss, _qss)
+    #     _qss = checkboxStyle.format(hexcolor=getColor(name))
+    #     setCustomStyleSheet(labelObject, _qss, _qss)
         
         
-        if name in self.labelSwitchList.keys():
-            self.labelSwitchList[name].deleteLater()
-            self.labelSwitchList.pop(name)
+    #     if name in self.labelSwitchList.keys():
+    #         self.labelSwitchList[name].deleteLater()
+    #         self.labelSwitchList.pop(name)
             
-        self.labelSwitchList.update({name:labelObject})
+    #     self.labelSwitchList.update({name:labelObject})
 
-        # labelObject.setStyleSheet(checkboxStyle.format(hexcolor=getColor(name)))
-        labelObject.setFont(self.font)
-        labelObject.show()
-        labelObject.move(15, 15 + 30 * (len(self.labelSwitchList)-1))
-        labelObject.stateChanged.connect(lambda: self.showORHideObject(name, self.labelSwitchList[name].isChecked()))
+    #     # labelObject.setStyleSheet(checkboxStyle.format(hexcolor=getColor(name)))
+    #     labelObject.setFont(self.font)
+    #     labelObject.show()
+    #     # labelObject.move(360+15, 15 + 30 * (len(self.labelSwitchList)-1))
+    #     labelObject.stateChanged.connect(lambda: self.showORHideObject(name, self.labelSwitchList[name].isChecked()))
         
-        if name in self.labelSwitchStatue.keys():
-            labelObject.setChecked(self.labelSwitchStatue[name])
+    #     if name in self.labelSwitchStatue.keys():
+    #         labelObject.setChecked(self.labelSwitchStatue[name])
             
             
-        self.update()
+    #     self.update()
+    #     self.SwitchLabel_box_layout.invalidate()
+    #     self.SwitchLabel_box_layout.activate()
+
+    #     self.SwitchLabel_box.adjustSize()
         
     def showORHideObject(self, name, isShow=True):
         if name in self.objectList.keys():
@@ -513,9 +552,13 @@ class GLWidget(QOpenGLWidget):
                 
             self.update()
             
-    # def showORHideAllObjectCallback(self, name):
-    #     self.labelSwitchList[name].stateChanged.connect(lambda: self.showORHideObject(name, self.labelSwitchList[name].isChecked()))
-        
+
+    def updateObjectProps(self, key, props:dict):
+        if key in self.objectList.keys():
+            self.objectList[key].updateProps(props)
+            
+            
+        self.update()
 
     # ``````````````
     def updateObject_API(self, ID=1, objType=None, **kwargs) -> None:
@@ -537,7 +580,7 @@ class GLWidget(QOpenGLWidget):
             assert objType in availObjTypes, f'type must in {availObjTypes}'
             self.objectList.update({_ID:self.objMap[objType](**kwargs)})
             
-            self.addSwitchLabel(_ID)
+            # self.addSwitchLabel(_ID)
         elif objType == 'trimesh':
             self.updateTrimeshObject(ID, **kwargs)
             
@@ -545,7 +588,7 @@ class GLWidget(QOpenGLWidget):
             keys = list(self.objectList.keys())
             for id in keys:
                 self.objectList.pop(id)
-                self.removeSwitchLabel(id)
+                # self.removeSwitchLabel(id)
         else:
             if _ID in self.objectList.keys():
                 
@@ -553,7 +596,7 @@ class GLWidget(QOpenGLWidget):
                     self.objectList[_ID].setTransform(kwargs['transform'])
                 else:
                     self.objectList.pop(_ID)
-                    self.removeSwitchLabel(_ID)
+                    # self.removeSwitchLabel(_ID)
                 
         self.update()
 
@@ -563,12 +606,12 @@ class GLWidget(QOpenGLWidget):
         if obj is not None:
             self.objectList.update({_ID:obj})
             
-            self.addSwitchLabel(_ID, labelColor)
+            # self.addSwitchLabel(_ID, labelColor)
         else:
             if _ID in self.objectList.keys():
                 self.objectList.pop(_ID)
                 
-                self.removeSwitchLabel(_ID)
+                # self.removeSwitchLabel(_ID)
                 
         self.update()
 
@@ -605,7 +648,7 @@ class GLWidget(QOpenGLWidget):
             
             self.objectList.update({_ID:mo})
             
-            self.addSwitchLabel(_ID)
+            # self.addSwitchLabel(_ID)
 
         
         _ID = str(ID)
@@ -630,14 +673,14 @@ class GLWidget(QOpenGLWidget):
                 mo = PointCloud(obj.vertices, obj.colors / 255.)
                 self.objectList.update({_ID:mo})
                 
-                self.addSwitchLabel(_ID)
+                # self.addSwitchLabel(_ID)
                 
                     
         else:
             if _ID in self.objectList.keys():
                 self.objectList.pop(_ID)
                 
-                self.removeSwitchLabel(_ID)
+                # self.removeSwitchLabel(_ID)
                 
         self.update()
         
@@ -843,7 +886,7 @@ class GLWidget(QOpenGLWidget):
                 v.reset()
         self.objectList = {}
         
-        self.removeSwitchLabel()
+        # self.removeSwitchLabel()
         self.update()
         
 
@@ -859,8 +902,10 @@ class GLWidget(QOpenGLWidget):
         self.statusbar.move(0, h-self.statusbar.height())
         self.statusbar.resize(w, h)
 
-        self.gl_render_mode_combobox.move(self.window_w - self.gl_render_mode_combobox.width() - 15, 15)
-        self.gl_slider.move(self.window_w - self.gl_slider.width() - 15, 75)
+        self.gl_render_mode_combobox.move((self.window_w - self.gl_render_mode_combobox.width())//2 , 15)
+        
+        # self.indicator.move(QPoint(self.window_w - self.indicator.width()-20,self.window_h - self.indicator.height() - 20))
+        # self.gl_slider.move(self.window_w - self.gl_slider.width() - 15, 75)
 
         return super().resizeGL(w, h)
 

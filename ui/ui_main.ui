@@ -10,6 +10,12 @@
     <height>463</height>
    </rect>
   </property>
+  <property name="minimumSize">
+   <size>
+    <width>200</width>
+    <height>200</height>
+   </size>
+  </property>
   <property name="windowTitle">
    <string>MainWindow</string>
   </property>
@@ -55,22 +61,13 @@
           <height>16777215</height>
          </size>
         </property>
+        <property name="styleSheet">
+         <string notr="true">
+background-color: rgb(32, 30, 28);
+border-radius:10px;
+</string>
+        </property>
         <layout class="QVBoxLayout" name="verticalLayout">
-         <property name="spacing">
-          <number>6</number>
-         </property>
-         <property name="leftMargin">
-          <number>12</number>
-         </property>
-         <property name="topMargin">
-          <number>12</number>
-         </property>
-         <property name="rightMargin">
-          <number>12</number>
-         </property>
-         <property name="bottomMargin">
-          <number>12</number>
-         </property>
          <item>
           <layout class="QHBoxLayout" name="horizontalLayout">
            <property name="leftMargin">
@@ -95,7 +92,7 @@
              </property>
              <property name="minimumSize">
               <size>
-               <width>100</width>
+               <width>20</width>
                <height>0</height>
               </size>
              </property>
@@ -116,7 +113,7 @@
            </property>
            <property name="minimumSize">
             <size>
-             <width>100</width>
+             <width>20</width>
              <height>0</height>
             </size>
            </property>
@@ -124,58 +121,6 @@
             <string>打开远程文件夹</string>
            </property>
           </widget>
-         </item>
-         <item>
-          <layout class="QHBoxLayout" name="horizontalLayout_6">
-           <property name="topMargin">
-            <number>0</number>
-           </property>
-           <item>
-            <widget class="StrongBodyLabel" name="label">
-             <property name="sizePolicy">
-              <sizepolicy hsizetype="Fixed" vsizetype="Preferred">
-               <horstretch>0</horstretch>
-               <verstretch>0</verstretch>
-              </sizepolicy>
-             </property>
-             <property name="styleSheet">
-              <string notr="true">color: rgb(238, 238, 238);</string>
-             </property>
-             <property name="text">
-              <string>跟随物体</string>
-             </property>
-            </widget>
-           </item>
-           <item>
-            <spacer name="horizontalSpacer_4">
-             <property name="orientation">
-              <enum>Qt::Horizontal</enum>
-             </property>
-             <property name="sizeHint" stdset="0">
-              <size>
-               <width>40</width>
-               <height>20</height>
-              </size>
-             </property>
-            </spacer>
-           </item>
-           <item>
-            <widget class="SwitchButton" name="checkBox">
-             <property name="sizePolicy">
-              <sizepolicy hsizetype="Minimum" vsizetype="Fixed">
-               <horstretch>0</horstretch>
-               <verstretch>0</verstretch>
-              </sizepolicy>
-             </property>
-             <property name="text">
-              <string>CheckBox</string>
-             </property>
-             <property name="checked">
-              <bool>true</bool>
-             </property>
-            </widget>
-           </item>
-          </layout>
          </item>
          <item>
           <layout class="QHBoxLayout" name="horizontalLayout_8">
@@ -282,9 +227,9 @@
           </layout>
          </item>
          <item>
-          <layout class="QHBoxLayout" name="horizontalLayout_2">
+          <layout class="QHBoxLayout" name="horizontalLayout_10">
            <item>
-            <widget class="StrongBodyLabel" name="label_2">
+            <widget class="StrongBodyLabel" name="label_3">
              <property name="sizePolicy">
               <sizepolicy hsizetype="Fixed" vsizetype="Preferred">
                <horstretch>0</horstretch>
@@ -295,12 +240,12 @@
               <string notr="true">color: rgb(238, 238, 238);</string>
              </property>
              <property name="text">
-              <string>尺度</string>
+              <string>切片</string>
              </property>
             </widget>
            </item>
            <item>
-            <spacer name="horizontalSpacer">
+            <spacer name="horizontalSpacer_8">
              <property name="orientation">
               <enum>Qt::Horizontal</enum>
              </property>
@@ -313,21 +258,18 @@
             </spacer>
            </item>
            <item>
-            <widget class="DoubleSpinBox" name="doubleSpinBox">
-             <property name="prefix">
-              <string>放大</string>
-             </property>
-             <property name="suffix">
-              <string>倍</string>
-             </property>
-             <property name="decimals">
-              <number>1</number>
+            <widget class="SpinBox" name="spinBox">
+             <property name="enabled">
+              <bool>false</bool>
              </property>
              <property name="minimum">
-              <double>0.000000000000000</double>
+              <number>-1</number>
+             </property>
+             <property name="maximum">
+              <number>-1</number>
              </property>
              <property name="value">
-              <double>1.000000000000000</double>
+              <number>-1</number>
              </property>
             </widget>
            </item>
@@ -469,6 +411,58 @@ font: 9pt;</string>
           </widget>
          </item>
          <item>
+          <widget class="TableWidget" name="tableWidget_obj">
+           <property name="maximumSize">
+            <size>
+             <width>16777215</width>
+             <height>16777215</height>
+            </size>
+           </property>
+           <property name="editTriggers">
+            <set>QAbstractItemView::NoEditTriggers</set>
+           </property>
+           <property name="rowCount">
+            <number>0</number>
+           </property>
+           <property name="columnCount">
+            <number>3</number>
+           </property>
+           <attribute name="horizontalHeaderVisible">
+            <bool>true</bool>
+           </attribute>
+           <attribute name="horizontalHeaderCascadingSectionResizes">
+            <bool>true</bool>
+           </attribute>
+           <attribute name="horizontalHeaderMinimumSectionSize">
+            <number>30</number>
+           </attribute>
+           <attribute name="horizontalHeaderDefaultSectionSize">
+            <number>30</number>
+           </attribute>
+           <attribute name="horizontalHeaderStretchLastSection">
+            <bool>true</bool>
+           </attribute>
+           <attribute name="verticalHeaderVisible">
+            <bool>false</bool>
+           </attribute>
+           <column>
+            <property name="text">
+             <string>可见</string>
+            </property>
+           </column>
+           <column>
+            <property name="text">
+             <string>ID</string>
+            </property>
+           </column>
+           <column>
+            <property name="text">
+             <string>尺寸</string>
+            </property>
+           </column>
+          </widget>
+         </item>
+         <item>
           <widget class="QTextBrowser" name="label_info">
            <property name="styleSheet">
             <string notr="true">QTextBrowser
@@ -550,8 +544,30 @@ QScrollBar::sub-page:horizontal
            <property name="horizontalScrollBarPolicy">
             <enum>Qt::ScrollBarAlwaysOff</enum>
            </property>
+           <property name="autoFormatting">
+            <set>QTextEdit::AutoAll</set>
+           </property>
            <property name="lineWrapMode">
             <enum>QTextEdit::NoWrap</enum>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="PushButton" name="pushButton_opendetail">
+           <property name="sizePolicy">
+            <sizepolicy hsizetype="Minimum" vsizetype="Fixed">
+             <horstretch>0</horstretch>
+             <verstretch>0</verstretch>
+            </sizepolicy>
+           </property>
+           <property name="minimumSize">
+            <size>
+             <width>20</width>
+             <height>0</height>
+            </size>
+           </property>
+           <property name="text">
+            <string>详细信息</string>
            </property>
           </widget>
          </item>
@@ -621,11 +637,6 @@ QScrollBar::sub-page:horizontal
    <header>qfluentwidgets.h</header>
   </customwidget>
   <customwidget>
-   <class>DoubleSpinBox</class>
-   <extends>QDoubleSpinBox</extends>
-   <header>qfluentwidgets.h</header>
-  </customwidget>
-  <customwidget>
    <class>TableWidget</class>
    <extends>QTableWidget</extends>
    <header>qfluentwidgets.h</header>
@@ -643,6 +654,11 @@ QScrollBar::sub-page:horizontal
   <customwidget>
    <class>DropDownToolButton</class>
    <extends>QToolButton</extends>
+   <header>qfluentwidgets.h</header>
+  </customwidget>
+  <customwidget>
+   <class>SpinBox</class>
+   <extends>QSpinBox</extends>
    <header>qfluentwidgets.h</header>
   </customwidget>
  </customwidgets>

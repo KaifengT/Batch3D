@@ -41,7 +41,7 @@ class StatusBar(QWidget):
         
         
         self.progressBar = ProgressBar(self)
-        self.progressBar.setValue(50)
+        self.progressBar.setValue(0)
         self.progressBar.setFixedHeight(6)
         self.progressBar.setTextVisible(False)
         # self.progressBar.setStyleSheet(
@@ -66,6 +66,8 @@ class StatusBar(QWidget):
         self.setLayout(self.h)
         
         self.setHidden(True)
+        
+        self.animation.finished.connect(lambda: self.progressBar.setValue(0))
 
     def setHidden(self, hidden: bool) -> None:
         
@@ -97,17 +99,18 @@ class StatusBar(QWidget):
         else:
             self.statusText.setText(f' -> {int(dbytes/totalbytes*100)}%')
 
-    def paintEvent(self, event) -> None:
+    # def paintEvent(self, event) -> None:
         
-        p = QPainter()
-        brush = QBrush(QColor('#22DDDDDD'))
-        p.begin(self)
-        p.setPen(QColor('#22DDDDDD'))
-        p.setBrush(brush)
         
-        p.drawRect(self.rect())
+    #     p = QPainter()
+    #     brush = QBrush(QColor('#00DDDDDD'))
+    #     p.begin(self)
+    #     p.setPen(QColor('#00DDDDDD'))
+    #     p.setBrush(brush)
         
-        p.end()
+    #     p.drawRect(self.rect())
         
-        # return super().paintEvent(event)
+    #     p.end()
+        
+    #     # return super().paintEvent(event)
     

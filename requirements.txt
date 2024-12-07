@@ -1,8 +1,8 @@
-numpy
+numpy==1.26
 scipy
 pillow
 psutil
-PyQt6
+PySide6==6.6
 PySide6_Fluent_Widgets
 pywin32
 trimesh

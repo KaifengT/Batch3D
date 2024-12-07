@@ -214,7 +214,6 @@ def transPoint4(p:numpy.ndarray, t:numpy.ndarray):
     return pt
 
 
-# def rpy2hRT(pos:list)->numpy.mat:
 def invHRT(M):
     '''
      * @func invHRT
@@ -228,7 +227,7 @@ def invHRT(M):
     return inv
 
 
-def rpy2hRT(px=0, py=0, pz=0, roll=0, pitch=0, yaw=0)->numpy.mat:
+def rpy2hRT(px=0, py=0, pz=0, roll=0, pitch=0, yaw=0):
     """
 
     :param pos: rpy角转为齐次RT矩阵

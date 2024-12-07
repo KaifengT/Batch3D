@@ -1,3 +1,3 @@
 @echo off
 
-python main_ui.py
+python Batch3D.py

@@ -168,3 +168,6 @@ user.config
 cache/**
 python310/**
 run_venv.bat
+*.build/
+*.dist/
+b3d/

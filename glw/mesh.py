@@ -22,6 +22,11 @@ class BaseObject:
         self.lineWidth = 0
         
         self.isShow = True
+        
+        self.props = {
+            'isShow':True,
+            'size':3
+        }
 
         self.renderType = GL_POINTS
         self.vbotype = GL_C3F_V3F
@@ -65,11 +70,14 @@ class BaseObject:
             # self._texid[1].delete()
             # del self._texid
         
-    def show(self, show:bool=True):
-        self.isShow = show
+    # def show(self, show:bool=True):
+    #     self.isShow = show
+    def updateProps(self, props:dict):
+        self.props.update(props)
+    
         
     def render(self, ratio=1.):
-        if hasattr(self, '_vboid') and self.isShow:
+        if hasattr(self, '_vboid') and self.props['isShow']:
             self._vboid.bind()
             glInterleavedArrays(self.vbotype,0,None)
             if ratio > 5: ratio = 5
@@ -84,10 +92,15 @@ class BaseObject:
             
     def renderinShader(self, ratio=1., locMap:dict={}, render_mode=0, size=None):
         
-        if hasattr(self, '_vboid') and self.isShow:
+        if hasattr(self, '_vboid') and self.props['isShow']:
             self._vboid.bind()
             
-            if size:
+            
+            if self.props['size'] is not None:
+                size = self.props['size']
+            # elif size is None:
+            #     size = 3
+            # if size:
                 if self.pointSize:
                     glPointSize(size)
                 elif self.lineWidth:
@@ -158,7 +171,11 @@ class BaseObject:
             return (1., 1., 1., 1.)
  
     @staticmethod
-    def buildVBO(vertex, color=None, norm=None, indices=None, texture=None, texcoord=None):        
+    def buildVBO(vertex, color=None, norm=None, indices=None, texture=None, texcoord=None):    
+        
+        # print('buildVBO vertex:', vertex.shape)
+        
+            
         assert hasattr(vertex, 'shape') and len(vertex.shape)==2 and vertex.shape[1]==3, 'vertex format error'
         
         if norm is not None:
@@ -231,7 +248,6 @@ class BaseObject:
             texid = (textureSampler, None)
             
             vboArray = np.concatenate((texcoord, vboArray), axis=1, dtype=np.float32)
-        
             
         vboid = vbo.VBO(vboArray)
         stride = vboArray.shape[1] * nbytes

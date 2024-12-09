@@ -238,8 +238,8 @@ class App(QMainWindow):
         
         self.obj_properties = {}
 
-        self.ui.tableWidget_obj.setColumnWidth(0, 40)
-        self.ui.tableWidget_obj.setColumnWidth(1, 140)
+        self.ui.tableWidget_obj.setColumnWidth(0, 55)
+        self.ui.tableWidget_obj.setColumnWidth(1, 150)
         
 
         self.ui.pushButton_openfolder.clicked.connect(self.openFolder)
@@ -722,11 +722,11 @@ class App(QMainWindow):
             print(k, ':', v.nbytes, 'bytes')
             assert v.nbytes < 1e8, '数组过大，须切片后显示'
             
-            n_color = self._isHexColorinName(k)
+            n_color = self._decode_HexColor_to_RGB(self._isHexColorinName(k))
             user_color = n_color if n_color is not None else self.ui.openGLWidget.chooseColor()
             
             # -------- lines with arrows
-            if (len(v.shape) >= 3 and v.shape[-2] == 2 and v.shape[-1] == 3): # (..., 2, 3)
+            if (len(v.shape) >= 2 and v.shape[-2] == 2 and v.shape[-1] == 3 and 'line' in k): # (..., 2, 3)
                 
                 v = v.reshape(-1, 2, 3)
                 lines = Lines(vertex=v, color=user_color)
@@ -768,14 +768,19 @@ class App(QMainWindow):
                     self.ui.openGLWidget.updateObject(ID=k, obj=obj, labelColor=user_color)
                 else:
                     self.ui.openGLWidget.updateObject(ID=k, obj=lines, labelColor=user_color)
+
+            # -------- bounding box
+            elif (len(v.shape) >= 2 and v.shape[-2] == 8 and v.shape[-1] == 3 and 'bbox' in k): # (..., 8, 3)
+                v = v.reshape(-1, 8, 3)
+                obj = BoundingBox(vertex=v, color=user_color)
+                self.ui.openGLWidget.updateObject(ID=k, obj=obj, labelColor=user_color)
             
             # -------- pointcloud
             elif len(v.shape) >= 2 and v.shape[-1] == 3: # (..., 3)
                 v = v.reshape(-1, 3)
                 obj = PointCloud(vertex=v, color=user_color, size=self._isSizeinName(k))
                 self.ui.openGLWidget.updateObject(ID=k, obj=obj, labelColor=user_color)
-                # self.ui.openGLWidget.updateObject(ID=k, vertex=v, color=self._isHexColorinName(k), size=self._isSizeinName(k), type='pointcloud')
-                _getCenter(v)
+                # _getCenter(v)
                     
             # -------- pointcloud with point-wise color
             elif len(v.shape) >= 2 and v.shape[-1] in [6, 7]: # (..., 6)
@@ -790,13 +795,6 @@ class App(QMainWindow):
                 # self.ui.openGLWidget.updateObject(ID=k, vertex=vertex, color=color, size=self._isSizeinName(k), type='pointcloud')
                 
                 _getCenter(vertex)
-            
-            # -------- bounding box
-            elif len(v.shape) >= 3 and v.shape[-2] == 8 and v.shape[-1] == 3: # (..., 8, 3)
-                v = v.reshape(-1, 8, 3)
-                obj = BoundingBox(vertex=v, color=user_color)
-                self.ui.openGLWidget.updateObject(ID=k, obj=obj, labelColor=user_color)
-                # self.ui.openGLWidget.updateObject(ID=k, vertex=v, color=self._isHexColorinName(k), type='boundingbox')
             
             # -------- coordinate axis
             elif len(v.shape) >= 3 and v.shape[-1] == 4 and v.shape[-2] == 4: # (..., 4, 4)
@@ -837,8 +835,16 @@ class App(QMainWindow):
         def _dealDict(v:dict):
             assert 'vertex' in v.keys(), '网格缺少顶点(vertex)'
             assert 'face' in v.keys(), '网格缺少面片索引(face)'
-            
-            obj = Mesh(v['vertex'], v['face'])
+            if v['vertex'].shape[-1] == 3:
+                obj = Mesh(v['vertex'], v['face'])
+            elif v['vertex'].shape[-1] in (6, 7):
+                obj = Mesh(v['vertex'][..., :3], v['face'], color=v['vertex'][..., 3:])
+            elif v['vertex'].shape[-1] == 9:
+                obj = Mesh(v['vertex'][..., :3], v['face'], color=v['vertex'][..., 3:6], norm=v['vertex'][..., 6:])
+            elif v['vertex'].shape[-1] == 10:
+                obj = Mesh(v['vertex'][..., :3], v['face'], color=v['vertex'][..., 3:7], norm=v['vertex'][..., 7:10])
+            else:
+                assert 'vertex格式错误'
             self.ui.openGLWidget.updateObject(ID=k, obj=obj)
             
             self.add2ObjPropsTable(v, k)

@@ -619,7 +619,7 @@ class BoundingBox(BaseObject):
 
         lineIndex = [0,1, 1,2, 2,3, 3,0, 4,5, 5,6, 6,7, 7,4, 0,4, 1,5, 2,6, 3,7]
 
-        lineArray = vertex[lineIndex]
+        lineArray = vertex[..., lineIndex, :].reshape(-1, 3)
         self.reset()
         
         self.setTransform(transform)

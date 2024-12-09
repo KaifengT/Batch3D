@@ -332,19 +332,15 @@ class Ui_MainWindow(object):
 
         self.verticalLayout.addWidget(self.label_info)
 
+        self.horizontalLayout_7 = QHBoxLayout()
+        self.horizontalLayout_7.setObjectName(u"horizontalLayout_7")
         self.pushButton_opendetail = PushButton(self.tool)
         self.pushButton_opendetail.setObjectName(u"pushButton_opendetail")
         sizePolicy1.setHeightForWidth(self.pushButton_opendetail.sizePolicy().hasHeightForWidth())
         self.pushButton_opendetail.setSizePolicy(sizePolicy1)
         self.pushButton_opendetail.setMinimumSize(QSize(20, 0))
 
-        self.verticalLayout.addWidget(self.pushButton_opendetail)
-
-        self.horizontalLayout_7 = QHBoxLayout()
-        self.horizontalLayout_7.setObjectName(u"horizontalLayout_7")
-        self.horizontalSpacer_5 = QSpacerItem(40, 20, QSizePolicy.Expanding, QSizePolicy.Minimum)
-
-        self.horizontalLayout_7.addItem(self.horizontalSpacer_5)
+        self.horizontalLayout_7.addWidget(self.pushButton_opendetail)
 
         self.toolButton_theme = DropDownToolButton(self.tool)
         self.toolButton_theme.setObjectName(u"toolButton_theme")

@@ -102,7 +102,7 @@ class GLCamera(QObject):
             
         self.azimuth=135
         self.elevation=-60
-        self.viewPortDistance = 30
+        self.viewPortDistance = 10
         self.CameraTransformMat = np.identity(4)
         self.lookatPoint = np.array([0., 0., 0.,])
         self.fy = 1
@@ -112,6 +112,8 @@ class GLCamera(QObject):
         self.near = 0.1
         self.far = 4000.0
         
+        self.archball_rmat = None
+        self.archball_radius = 1.0
         
         
         self.filterAEV = kalmanFilter(3)
@@ -162,21 +164,84 @@ class GLCamera(QObject):
             counta = self.azimuth // -360
             self.azimuth -= counta * -360.
         
-    def rotate(self, dazimuth=0, delevation=0):
-        self.azimuth -= float(dazimuth) * 0.15
-        self.elevation  += float(delevation) * 0.15
-        
-        # if self.elevation > 360.:
-        #     self.elevation -= 360.
-            
-        # if self.elevation < 0.:
-        #     self.elevation += 360.
-            
-        # if self.azimuth > 360.:
-        #     self.azimuth -= 360.
-            
-        # if self.azimuth < 0.:
-        #     self.azimuth += 360.
+    def map_to_sphere(self, x, y, height, width):
+        cx, cy = width / 2, height / 2  # center of the window
+        norm_x = (x - cx) / cx
+        norm_y = (cy - y) / cy
+
+        d = math.sqrt(norm_x**2 + norm_y**2)
+        if d < self.archball_radius:
+            z = math.sqrt(self.archball_radius**2 - d**2)
+        else:
+            norm = math.sqrt(norm_x**2 + norm_y**2 + 1)
+            norm_x /= norm
+            norm_y /= norm
+            z = 1 / norm
+
+        return np.array([norm_x, norm_y, z])
+
+    def calculate_rotation(self, start=[0, 0], end=[0, 0]):
+        # params:
+        # start: 1x2 norm array, start point of the mouse drag, [x1, y1]
+        # end: 1x2 norm array, end point of the mouse drag, [x2, y2]
+        axis = np.cross(start, end)
+        cos_angle = np.dot(start, end) / (np.linalg.norm(start) * np.linalg.norm(end))
+        angle = math.acos(max(min(cos_angle, 1), -1))
+
+        if np.allclose(axis, [0, 0, 0]):
+            return np.eye(3), 0
+        else:
+            axis = axis / np.linalg.norm(axis)
+            return axis, angle
+
+    def rotation_matrix_from_axis_angle(self, axis, angle):
+        c = math.cos(angle)
+        s = math.sin(angle)
+        t = 1 - c
+        x, y, z = axis
+
+        return np.array([
+            [t*x*x + c, t*x*y - s*z, t*x*z + s*y],
+            [t*x*y + s*z, t*y*y + c, t*y*z - s*x],
+            [t*x*z - s*y, t*y*z + s*x, t*z*z + c]
+        ])
+
+    def rpy_from_rotation_matrix(self, R):
+        sy = math.sqrt(R[0, 0] * R[0, 0] + R[1, 0] * R[1, 0])
+        singular = sy < 1e-6
+
+        if not singular:
+            x = math.atan2(R[2, 1], R[2, 2])
+            y = math.atan2(-R[2, 0], sy)
+            z = math.atan2(R[1, 0], R[0, 0])
+        else:
+            x = math.atan2(-R[1, 2], R[1, 1])
+            y = math.atan2(-R[2, 0], sy)
+            z = 0
+
+        return np.degrees(np.array([x, y, z]))
+
+
+    def rotate(self, start=0, end=0, window_h=0, window_w=0):
+        # params:
+        # start: 1x2 array, start point of the mouse drag, [x1, y1]
+        # end: 1x2 array, end point of the mouse drag, [x2, y2]
+        # window_h: int, height of the window
+        # window_w: int, width of the window
+        # reutrn: 4x4 np.ndarray, rotation matrix
+
+        # map to sphere
+        start_norm = self.map_to_sphere(start[0], start[1], window_h, window_w)
+        end_norm = self.map_to_sphere(end[0], end[1], window_h, window_w)
+        axis, angle = self.calculate_rotation(start_norm, end_norm)
+        # transform screen space to world space
+        axis = self.CameraTransformMat[:3,:3].T.dot(axis)
+        rmat = self.rotation_matrix_from_axis_angle(axis, angle)
+        # transform 3x3 rmat to 4x4 rmat
+        temp_rmat = np.zeros((4,4))
+        temp_rmat[:3,:3] = rmat
+        temp_rmat[3,3] = 1
+        self.archball_rmat =  temp_rmat
         
     def zoom(self, ddistance=0):
         self.viewPortDistance -= ddistance * self.viewPortDistance * 0.1
@@ -214,10 +279,14 @@ class GLCamera(QObject):
                 self.resetAE()
                 self.filterAEV.stable(np.array([self.azimuth, self.elevation, self.viewPortDistance]))
             
-            rmat = rpy2hRT(0, 0, 0, 0, 0, aev[0]/180.*math.pi)
-            self.CameraTransformMat =  rpy2hRT(0, 0, 0, aev[1]/180.*math.pi, 0, 0) @ invHRT(rmat) 
-            self.CameraTransformMat[2, 3] = -aev[2]
+            # archball rotation log
+            # aev[:2] is no longer in use
+            # only use for screen init
+            if self.archball_rmat is not None:
+                self.CameraTransformMat =self.CameraTransformMat @ invHRT(self.archball_rmat)
+                self.archball_rmat = None
             
+            self.CameraTransformMat[2, 3] = -aev[2] # zoom
             tmat = np.identity(4)
             tmat[:3,3] = lookatPoint.T
             self.CameraTransformMat = self.CameraTransformMat @ invHRT(tmat)
@@ -232,7 +301,7 @@ class GLCamera(QObject):
             
             tmat = np.identity(4)
             tmat[:3,3] = self.lookatPoint.T
-            self.CameraTransformMat = self.CameraTransformMat @ np.linalg.inv(tmat)
+            self.CameraTransformMat = self.CameraTransformMat @ invHRT(tmat)
             
         if isEmit:
             self.updateSignal.emit()
@@ -999,7 +1068,13 @@ class GLWidget(QOpenGLWidget):
 
         if event.buttons() & Qt.LeftButton:
                         
-            self.camera.rotate(dx, dy)
+            # archball rotation
+            self.camera.rotate(
+                [event.x(), event.y()],
+                [self.lastPos.x(), self.lastPos.y()],
+                self.window_h,
+                self.window_w
+            )
 
         if event.buttons() & Qt.RightButton:
                         

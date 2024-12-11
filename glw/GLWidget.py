@@ -113,11 +113,13 @@ class GLCamera(QObject):
         self.far = 4000.0
         
         self.archball_rmat = None
+        self.target = None
         self.archball_radius = 1.0
         self.reset_flag = False
         
         self.filterAEV = kalmanFilter(3)
         self.filterlookatPoint = kalmanFilter(3)
+        # BUG TO FIX: filterRotaion cannot deal with quaternion symmetry when R >> Q
         self.filterRotaion = kalmanFilter(4, Q=0.5, R=0.1)
         
         self.filterAEV.stable(np.array([self.azimuth, self.elevation, self.viewPortDistance]))
@@ -313,6 +315,8 @@ class GLCamera(QObject):
         return R
 
     def updateTransform(self, isAnimated=True, isEmit=True) -> np.ndarray:
+        # TODO:
+        # add timer.stop() when the screen is not moving
     
         if isAnimated:
             
@@ -323,11 +327,13 @@ class GLCamera(QObject):
             aev = self.filterAEV.forward(aev_in)
             lookatPoint = self.filterlookatPoint.forward(self.lookatPoint)
             
-            # if np.allclose(aev, aev_in, atol=1e-3) and np.allclose(lookatPoint, self.lookatPoint, atol=1e-3):
-            #     print('stop')
-            #     self.timer.stop()
-            #     self.resetAE()
-            #     self.filterAEV.stable(np.array([self.azimuth, self.elevation, self.viewPortDistance]))
+            # control the window whether to contineous update
+            if self.archball_rmat is not None:
+                self.target = self.CameraTransformMat[:3, :3] @ self.archball_rmat[:3, :3].T
+            elif self.target is None:
+                self.target = self.CameraTransformMat[:3, :3]
+            if np.arccos((np.trace(self.CameraTransformMat[:3, :3] @ self.target.T) - 1) / 2.) < 1e-3:
+                self.timer.stop()
             
             if self.reset_flag:
                 self.filterlookatPoint.stable(self.lookatPoint)
@@ -339,6 +345,7 @@ class GLCamera(QObject):
                 tmat = np.identity(4)
                 tmat[:3,3] = self.lookatPoint.T
                 self.CameraTransformMat = self.CameraTransformMat @ invHRT(tmat)
+                self.reset_flag = False
             else:
                 # archball rotation log
                 # aev[:2] is no longer in use
@@ -355,16 +362,8 @@ class GLCamera(QObject):
                 self.CameraTransformMat = self.CameraTransformMat @ invHRT(tmat)
 
             self.CameraTransformMat_qua = self.rotation_matrix_to_quaternion(self.CameraTransformMat[:3,:3])
-            print(self.CameraTransformMat_qua)
             self.CameraTransformMat_qua = self.filterRotaion.forward(self.CameraTransformMat_qua)
             self.CameraTransformMat[:3,:3] = self.quaternion_to_rotation_matrix(self.CameraTransformMat_qua)
-
-            if self.reset_flag:
-                target = rpy2hRT(0,0,0,0,0,self.azimuth/180.*math.pi)
-                target = rpy2hRT(0,0,0,self.elevation/180.*math.pi,0,0) @ np.linalg.inv(target)
-                if np.arccos((np.trace(self.CameraTransformMat[:3,:3] @ target[:3,:3].T)-1) / 2.) < 1e-3:
-                    self.reset_flag = False
-                    self.timer.stop()
 
         else:
             

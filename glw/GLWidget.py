@@ -113,11 +113,14 @@ class GLCamera(QObject):
         self.far = 4000.0
         
         self.archball_rmat = None
+        self.target = None
         self.archball_radius = 1.0
-        
+        self.reset_flag = False
         
         self.filterAEV = kalmanFilter(3)
         self.filterlookatPoint = kalmanFilter(3)
+        # BUG TO FIX: filterRotaion cannot deal with quaternion symmetry when R >> Q
+        self.filterRotaion = kalmanFilter(4, Q=0.5, R=0.1)
         
         self.filterAEV.stable(np.array([self.azimuth, self.elevation, self.viewPortDistance]))
         self.updateTransform(False, False)
@@ -135,6 +138,7 @@ class GLCamera(QObject):
         self.elevation=elevation
         self.viewPortDistance = distance
         self.lookatPoint = lookatPoint
+        self.reset_flag = True
         return self.updateTransform()
     
     def updateIntr(self, window_h, window_w, PixelRatio=1.):
@@ -236,9 +240,15 @@ class GLCamera(QObject):
         axis, angle = self.calculate_rotation(start_norm, end_norm)
         # transform screen space to world space
         axis = self.CameraTransformMat[:3,:3].T.dot(axis)
-        rmat = self.rotation_matrix_from_axis_angle(axis, angle)
+        if angle == 0:
+            rmat = np.eye(3)
+        else:
+            rmat = self.rotation_matrix_from_axis_angle(axis, angle)
         # transform 3x3 rmat to 4x4 rmat
         temp_rmat = np.zeros((4,4))
+        if rmat.shape == (3, 3, 3):
+            print('error rmat shape', rmat.shape)
+
         temp_rmat[:3,:3] = rmat
         temp_rmat[3,3] = 1
         self.archball_rmat =  temp_rmat
@@ -262,7 +272,51 @@ class GLCamera(QObject):
         self.lookatPoint = np.array([x, y, z,])
         self.updateTransform(isAnimated=isAnimated, isEmit=isEmit)
         
+    def rotation_matrix_to_quaternion(self, R):
+        tr = R[0, 0] + R[1, 1] + R[2, 2]
+
+        if tr > 0:
+            S = np.sqrt(tr + 1.0) * 2
+            qw = 0.25 * S
+            qx = (R[2, 1] - R[1, 2]) / S
+            qy = (R[0, 2] - R[2, 0]) / S
+            qz = (R[1, 0] - R[0, 1]) / S
+        elif (R[0, 0] > R[1, 1]) and (R[0, 0] > R[2, 2]):
+            S = np.sqrt(1.0 + R[0, 0] - R[1, 1] - R[2, 2]) * 2
+            qw = (R[2, 1] - R[1, 2]) / S
+            qx = 0.25 * S
+            qy = (R[0, 1] + R[1, 0]) / S
+            qz = (R[0, 2] + R[2, 0]) / S
+        elif R[1, 1] > R[2, 2]:
+            S = np.sqrt(1.0 + R[1, 1] - R[0, 0] - R[2, 2]) * 2
+            qw = (R[0, 2] - R[2, 0]) / S
+            qx = (R[0, 1] + R[1, 0]) / S
+            qy = 0.25 * S
+            qz = (R[1, 2] + R[2, 1]) / S
+        else:
+            S = np.sqrt(1.0 + R[2, 2] - R[0, 0] - R[1, 1]) * 2
+            qw = (R[1, 0] - R[0, 1]) / S
+            qx = (R[0, 2] + R[2, 0]) / S
+            qy = (R[1, 2] + R[2, 1]) / S
+            qz = 0.25 * S
+
+        return np.array([qw, qx, qy, qz])
+
+    def quaternion_to_rotation_matrix(self, q):
+        q = q / np.linalg.norm(q)
+        qw, qx, qy, qz = q
+
+        R = np.array([
+            [1 - 2*qy**2 - 2*qz**2, 2*qx*qy - 2*qz*qw, 2*qx*qz + 2*qy*qw],
+            [2*qx*qy + 2*qz*qw, 1 - 2*qx**2 - 2*qz**2, 2*qy*qz - 2*qx*qw],
+            [2*qx*qz - 2*qy*qw, 2*qy*qz + 2*qx*qw, 1 - 2*qx**2 - 2*qy**2]
+        ])
+
+        return R
+
     def updateTransform(self, isAnimated=True, isEmit=True) -> np.ndarray:
+        # TODO:
+        # add timer.stop() when the screen is not moving
     
         if isAnimated:
             
@@ -273,24 +327,44 @@ class GLCamera(QObject):
             aev = self.filterAEV.forward(aev_in)
             lookatPoint = self.filterlookatPoint.forward(self.lookatPoint)
             
-            if np.allclose(aev, aev_in, atol=1e-3) and np.allclose(lookatPoint, self.lookatPoint, atol=1e-3):
-                # print('stop')
-                self.timer.stop()
-                self.resetAE()
-                self.filterAEV.stable(np.array([self.azimuth, self.elevation, self.viewPortDistance]))
-            
-            # archball rotation log
-            # aev[:2] is no longer in use
-            # only use for screen init
+            # control the window whether to contineous update
             if self.archball_rmat is not None:
-                self.CameraTransformMat =self.CameraTransformMat @ invHRT(self.archball_rmat)
-                self.archball_rmat = None
+                self.target = self.CameraTransformMat[:3, :3] @ self.archball_rmat[:3, :3].T
+            elif self.target is None:
+                self.target = self.CameraTransformMat[:3, :3]
+            if np.arccos((np.trace(self.CameraTransformMat[:3, :3] @ self.target.T) - 1) / 2.) < 1e-3:
+                self.timer.stop()
             
-            self.CameraTransformMat[2, 3] = -aev[2] # zoom
-            tmat = np.identity(4)
-            tmat[:3,3] = lookatPoint.T
-            self.CameraTransformMat = self.CameraTransformMat @ invHRT(tmat)
-                    
+            if self.reset_flag:
+                self.filterlookatPoint.stable(self.lookatPoint)
+            
+                rmat = rpy2hRT(0,0,0,0,0,self.azimuth/180.*math.pi)
+                self.CameraTransformMat = rpy2hRT(0,0,0,self.elevation/180.*math.pi,0,0) @ np.linalg.inv(rmat)
+                self.CameraTransformMat[2, 3] = -self.viewPortDistance
+            
+                tmat = np.identity(4)
+                tmat[:3,3] = self.lookatPoint.T
+                self.CameraTransformMat = self.CameraTransformMat @ invHRT(tmat)
+                self.reset_flag = False
+            else:
+                # archball rotation log
+                # aev[:2] is no longer in use
+                # only use for screen init
+                self.CameraTransformMat[:3, 3] = [0, 0, 0]
+                if self.archball_rmat is not None:
+                    self.CameraTransformMat = self.CameraTransformMat @ self.archball_rmat.T
+                    self.archball_rmat = None
+            
+                self.CameraTransformMat[2, 3] = -aev[2] # zoom
+                tmat = np.identity(4)
+                tmat[:3,3] = lookatPoint.T
+                # print(tmat)
+                self.CameraTransformMat = self.CameraTransformMat @ invHRT(tmat)
+
+            self.CameraTransformMat_qua = self.rotation_matrix_to_quaternion(self.CameraTransformMat[:3,:3])
+            self.CameraTransformMat_qua = self.filterRotaion.forward(self.CameraTransformMat_qua)
+            self.CameraTransformMat[:3,:3] = self.quaternion_to_rotation_matrix(self.CameraTransformMat_qua)
+
         else:
             
             self.filterlookatPoint.stable(self.lookatPoint)

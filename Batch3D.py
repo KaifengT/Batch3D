@@ -1,4 +1,6 @@
-
+'''
+copyright: (c) 2024 by KaifengTang
+'''
 import sys, os
 wdir = os.path.abspath(os.path.dirname(__file__))
 sys.path.append(wdir)
@@ -613,6 +615,8 @@ class App(QMainWindow):
             return 2
             
     def _decode_HexColor_to_RGB(self, hexcolor):
+        if hexcolor is None:
+            return None
         if len(hexcolor) == 6:
             return tuple(int(hexcolor[i:i+2], 16) / 255. for i in (0, 2, 4))
         elif len(hexcolor) == 8:

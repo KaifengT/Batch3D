@@ -1203,6 +1203,9 @@ class App(QMainWindow):
                 
                 self.tgtTheme = m[settings['theme']]
                 
+                self.ui.openGLWidget.gl_camera_control_combobox.setCurrentItem(settings['camera'])
+                self.ui.openGLWidget.changeCameraControl(int(settings['camera']))
+                
         except:
             ...
 
@@ -1211,13 +1214,14 @@ class App(QMainWindow):
         try:
             settings = {
                 'theme':self.tgtTheme.value,
+                'camera':self.ui.openGLWidget.gl_camera_control_combobox.currentRouteKey(),
             }
             
             with open(self.configPath, 'w') as f:
                 
                 json.dump(settings, f, indent=4)
         except:
-            ...
+            traceback.print_exc()
 
 
     def dragEnterEvent(self, event):

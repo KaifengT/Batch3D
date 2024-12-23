@@ -131,11 +131,11 @@ class GLCamera(QObject):
         self.last_arcboall_quat = np.array([1, 0, 0, 0])
         self.arcboall_t = np.array([0, 0, 0])
         
-        self.filterAEV = kalmanFilter(3)
-        self.filterlookatPoint = kalmanFilter(3)
+        self.filterAEV = kalmanFilter(3, R=0.5)
+        self.filterlookatPoint = kalmanFilter(3, R=0.5)
         # BUG TO FIX: filterRotaion cannot deal with quaternion symmetry when R >> Q
         # self.filterRotaion = kalmanFilter(4, Q=0.5, R=0.1)
-        self.filterRotaion = kalmanFilter(4, R=0.8)
+        self.filterRotaion = kalmanFilter(4, R=0.5)
         self.filterAngle = kalmanFilter(1)
         
         self.filterAEV.stable(np.array([self.azimuth, self.elevation, self.viewPortDistance]))
@@ -655,6 +655,12 @@ class GLWidget(QOpenGLWidget):
         
         self.point_line_size = 3
         
+        self.gl_camera_control_combobox = SegmentedWidget(parent=self,)
+        self.gl_camera_control_combobox.setFixedWidth(118)
+        self.gl_camera_control_combobox.addItem('0', '自由', lambda:self.changeCameraControl(0))
+        self.gl_camera_control_combobox.addItem('1', '环绕', lambda:self.changeCameraControl(1))
+        self.gl_camera_control_combobox.setCurrentItem('0')
+        
         # self.gl_slider = Slider(Qt.Orientation.Vertical, parent=self)
         # self.gl_slider.setFixedHeight(200)
         # self.gl_slider.setFixedWidth(20)
@@ -686,6 +692,11 @@ class GLWidget(QOpenGLWidget):
     #     hrt = np.eye(4)
     #     hrt[:3,:3] = self.camera.CameraTransformMat[:3,:3]
     #     # self.indicator.set_pose(hrt)
+    
+    def changeCameraControl(self, index):
+        self.camera.controltype = self.camera.controlType(index)
+        self.resetCamera()
+        
         
     def setGlobalSize(self, size):
         self.point_line_size = size
@@ -1171,6 +1182,8 @@ class GLWidget(QOpenGLWidget):
         self.statusbar.resize(w, h)
 
         self.gl_render_mode_combobox.move((self.window_w - self.gl_render_mode_combobox.width())//2 , 15)
+        
+        self.gl_camera_control_combobox.move((self.window_w - self.gl_camera_control_combobox.width())-20 , 15)
         
         # self.indicator.move(QPoint(self.window_w - self.indicator.width()-20,self.window_h - self.indicator.height() - 20))
         # self.gl_slider.move(self.window_w - self.gl_slider.width() - 15, 75)

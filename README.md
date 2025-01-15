@@ -1,7 +1,7 @@
 # Batch 3D Viewer - 批量3D查看器
 一款用于批量查看本地或远程3D数据的工具。
 
-![image](asset\cover1.png)
+![image](asset/cover1.png)
 
 ### 安装依赖
 首先，请确保安装了所有必需的依赖项：

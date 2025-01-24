@@ -126,8 +126,7 @@ class Ui_RemoteWidget(object):
 
     def retranslateUi(self, RemoteWidget):
         RemoteWidget.setWindowTitle(QCoreApplication.translate("RemoteWidget", u"\u9009\u62e9\u8fdc\u7a0b\u6587\u4ef6", None))
-        self.lineEdit_host.setInputMask(QCoreApplication.translate("RemoteWidget", u"000.000.000.000", None))
-        self.lineEdit_host.setText(QCoreApplication.translate("RemoteWidget", u"192.168.0.1", None))
+        self.lineEdit_host.setText("")
         self.lineEdit_port.setInputMask(QCoreApplication.translate("RemoteWidget", u"00000", None))
         self.lineEdit_port.setText(QCoreApplication.translate("RemoteWidget", u"22", None))
         self.lineEdit_username.setText(QCoreApplication.translate("RemoteWidget", u"root", None))

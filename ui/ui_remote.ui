@@ -28,11 +28,8 @@ border-bottom-right-radius: 2px;</string>
     <layout class="QHBoxLayout" name="horizontalLayout">
      <item>
       <widget class="LineEdit" name="lineEdit_host">
-       <property name="inputMask">
-        <string>000.000.000.000</string>
-       </property>
        <property name="text">
-        <string>192.168.0.1</string>
+        <string/>
        </property>
       </widget>
      </item>

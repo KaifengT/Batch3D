@@ -113,11 +113,19 @@ class backendSFTP(QObject):
         
     def connectSFTP(self, host, port, username, passwd, dir='/'):
         import paramiko
-        self.sftp = paramiko.SSHClient()
-        self.sftp.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-        self.sftp.connect(host, port, username, passwd, timeout=5)
-        self.sftp = self.sftp.open_sftp()
+        # self.sftp = paramiko.SSHClient()
+        # self.sftp.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+        # self.sftp.connect(host, port, username, passwd, timeout=5)
+        # self.sftp.get_transport().set_keepalive(30)
+        # self.sftp = self.sftp.open_sftp()
         self.currentDir = dir
+        
+        self.transport = paramiko.Transport((host, int(port)))
+        self.transport.connect(username=username, password=passwd)
+        self.transport.set_keepalive(5)
+        self.sftp = paramiko.SFTPClient.from_transport(self.transport)
+        
+
         
         
         self.infoSignal.emit((('服务器连接成功', str('呕吼')), 'complete'))

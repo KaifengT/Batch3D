@@ -1,4 +1,4 @@
-**[English](Readme.md), [Chinese](Readme_zh.md)**
+**[English](README.md), [Chinese](README_zh.md)**
 
 # Batch 3D Viewer
 A tool for batch viewing local or remote 3D data.

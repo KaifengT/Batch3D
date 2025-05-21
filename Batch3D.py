@@ -24,6 +24,7 @@ import json
 import natsort
 from glw.mesh import *
 import trimesh
+import h5py
 
 try:
     from win32mica import ApplyMica, MicaTheme, MicaStyle
@@ -410,7 +411,7 @@ class App(QMainWindow):
     def addFiletoTable(self, filepath:str, isRemote=False):
         extName = os.path.splitext(filepath)[-1][1:]
         
-        if extName in ['obj', 'pkl', 'cug', 'npy', 'npz', 'OBJ', 'PKL', 'CUG', 'NPY', 'NPZ', 'ply', 'stl', 'pcd', 'glb', 'xyz', 'PLY', 'STL', 'PCD', 'XYZ', 'GLB'] and not filepath.startswith('.'):
+        if extName in ['obj', 'pkl', 'cug', 'npy', 'npz', 'OBJ', 'PKL', 'CUG', 'NPY', 'NPZ', 'ply', 'stl', 'pcd', 'glb', 'xyz', 'PLY', 'STL', 'PCD', 'XYZ', 'GLB', 'h5', 'H5'] and not filepath.startswith('.'):
         
             self.ui.tableWidget.insertRow(0)
             event_widget = cellWidget(filepath, os.path.join(self.currentPath, filepath), isRemote=isRemote)
@@ -579,6 +580,25 @@ class App(QMainWindow):
                         
                     textInfo += '\n' + '-' * 50 + '\n\n'
                 
+            elif isinstance(obj, h5py.File):
+                #TODO
+                ...
+            elif isinstance(obj, trimesh.parent.Geometry3D):
+                #TODO
+                textInfo += f'#### {obj.__class__.__name__} :\n\n'
+                if hasattr(obj, 'vertices'):
+                    textInfo += f'vertices : {obj.vertices.shape}\n\n'
+                if hasattr(obj, 'faces'):
+                    textInfo += f'faces    : {obj.faces.shape}\n\n'
+                if hasattr(obj, 'vertex_normals'):
+                    textInfo += f'vertex_normals : {obj.vertex_normals.shape}\n\n'
+                if hasattr(obj, 'face_normals'):
+                    textInfo += f'face_normals : {obj.face_normals.shape}\n\n'
+                if hasattr(obj, 'colors'):
+                    textInfo += f'colors : {obj.colors.shape}\n\n'
+                if hasattr(obj, 'metadata'):
+                    for kk, vv in obj.metadata.items():
+                        textInfo += f'\t|-{kk} : {vv}\n'
             else:
                 textInfo += obj.__class__.__name__ + '\n\n'
         except:
@@ -646,37 +666,72 @@ class App(QMainWindow):
                 
                 if self.isSliceable(v):
                     maxBatch = min(maxBatch, v.shape[0])
+                    
+        elif isinstance(obj, h5py.File):
+            maxBatch = len(obj)
         
         self.ui.spinBox.setDisabled(maxBatch == 0)
         self.ui.spinBox.setMaximum(maxBatch-1)
+        
             
     def isSliceable(self, obj):
         if hasattr(obj, 'shape') and len(obj.shape) > 2:
+            return True
+        elif isinstance(obj, h5py.File) and len(obj) > 1:
             return True
         else:
             return False
 
     def slicefromBatch(self, batch,):
         
-        if self.workspace_obj is not None:
-            
-            if batch >= 0:
-                sliced = {}
+        try:
+            if self.workspace_obj is not None:
                 
-                for k, v in self.workspace_obj.items():
-                    if self.isSliceable(v):
-                        sliced[k] = v[batch:batch+1]
+                if isinstance(self.workspace_obj, dict):
+                
+                    if batch >= 0:
+                        sliced = {}
+                        
+                        for k, v in self.workspace_obj.items():
+                            if self.isSliceable(v):
+                                sliced[k] = v[batch:batch+1]
+                            else:
+                                sliced[k] = v
+                    
+                        # print('Sliced:')
+                        # for k, v in sliced.items():
+                        #     print(k, ':', v.shape)
+                    
+                        self.loadObj(sliced)
+                        
                     else:
-                        sliced[k] = v
-            
-                # print('Sliced:')
-                # for k, v in sliced.items():
-                #     print(k, ':', v.shape)
-            
-                self.loadObj(sliced)
+                        self.loadObj(self.workspace_obj)
+                        
+                elif isinstance(self.workspace_obj, h5py.File):
+                    if batch < 0:
+                        batch = 0
+                        
+                    sliced = {}
+                    
+                    group_names = list(self.workspace_obj.keys())
+                    
+                    this_object = self.workspace_obj[group_names[batch]]
+                    
+                    if isinstance(this_object, h5py.Group):
+                        this_object.visititems(lambda name, obj: sliced.update({name:obj}))
+                        sliced.update({'group':group_names[batch]})
+                        self.loadObj(sliced)
+                        
+                    elif isinstance(this_object, h5py.Dataset):
+                        sliced.update({group_names[batch]:this_object})
+
+                        self.loadObj(sliced)
+        
+        except:
+            traceback.print_exc()
+            exc_type, exc_value, exc_traceback = sys.exc_info()
+            self.PopMessageWidgetObj.add_message_stack((('切片时遇到错误', str(exc_value)), 'error'))
                 
-            else:
-                self.loadObj(self.workspace_obj)
         
     def loadObj(self, fullpath:str, extName=''):
         
@@ -716,7 +771,7 @@ class App(QMainWindow):
                 self.center_all = np.vstack((self.center_all, center))
             # print(self.center_all)
 
-        def _dealArray(v:np.ndarray):
+        def _dealArray(k:str, v:np.ndarray):
             
             v = np.nan_to_num(v)
             v = np.float32(v)
@@ -836,7 +891,7 @@ class App(QMainWindow):
 
             self.add2ObjPropsTable(v, k, user_color, adjustable=True)
 
-        def _dealDict(v:dict):
+        def _dealDict(k:str,v:dict):
             assert 'vertex' in v.keys(), '网格缺少顶点(vertex)'
             assert 'face' in v.keys(), '网格缺少面片索引(face)'
             if v['vertex'].shape[-1] == 3:
@@ -867,7 +922,11 @@ class App(QMainWindow):
                     obj = np.load(fullpath)
                     obj = dict(obj)
                 elif extName in ['obj', 'ply', 'stl', 'pcd', 'glb', 'xyz', 'OBJ', 'PLY', 'STL', 'PCD', 'XYZ', 'GLB']:
-                    obj = trimesh.load(fullpath)
+                    obj = trimesh.load(fullpath, process=False)
+                elif extName in ['h5', 'H5']:
+                    obj = h5py.File(fullpath, 'r', track_order=True)
+                    
+                    
                 else:
                     obj = pickle.load(open(fullpath, 'rb'))
                  
@@ -900,10 +959,10 @@ class App(QMainWindow):
                     if hasattr(v, 'shape'):
                         
                         # if len(v.shape) in [3, 2]:
-                        _dealArray(v)
+                        _dealArray(k, v)
                             
                     elif isinstance(v, dict):
-                        _dealDict(v)
+                        _dealDict(k, v)
                         
                     elif isinstance(v, (trimesh.parent.Geometry3D)):
                         self.ui.openGLWidget.updateTrimeshObject(ID=k, obj=v)
@@ -919,9 +978,51 @@ class App(QMainWindow):
                 self.ui.openGLWidget.reset()
                 baseName = os.path.basename(fullpath)
                 fileName = os.path.splitext(baseName)[0]
-                self.ui.openGLWidget.updateTrimeshObject(ID=fileName, obj=obj)
+                
+                if isinstance(obj, (trimesh.Scene, trimesh.Trimesh)):
 
+                    if hasattr(obj, 'scale') and obj.scale > 100:
+                        obj.apply_scale(1 / obj.scale * 10)
+                        self.PopMessageWidgetObj.add_message_stack((('网格尺寸过大, 已自动缩放', ''), 'warning'))
+                        
+                    self.ui.openGLWidget.updateTrimeshObject(ID=fileName, obj=obj)
+                    
+                elif isinstance(obj, trimesh.PointCloud):
+                    if hasattr(obj, 'colors') and hasattr(obj, 'vertices') and len(obj.colors.shape) > 1 and obj.colors.shape[0] == obj.vertices.shape[0]:
+                        if np.max(obj.colors) > 1:
+                            colors = obj.colors / 255.
+                        else:
+                            colors = obj.colors
+                        array = np.concatenate((obj.vertices, colors), axis=-1)
+                        _dealArray(fileName, array)
+                    else:
+                        _dealArray(fileName, np.array(obj.vertices))
+                    
+                else:
+                    self.PopMessageWidgetObj.add_message_stack((('不支持的Trimesh对象', obj.__class__.__name__), 'error'))
+                    
                 self.add2ObjPropsTable(obj, fileName)
+                
+                
+            elif isinstance(obj, h5py.File):
+                self.ui.openGLWidget.reset()
+                baseName = os.path.basename(fullpath)
+                fileName = os.path.splitext(baseName)[0]
+                
+                sliced = {}
+                group_names = list(obj.keys())
+                if len(group_names) > 0:
+                    first_object = obj[group_names[0]]
+                    if isinstance(first_object, h5py.Group):
+                        obj[group_names[0]].visititems(lambda name, obj: sliced.update({name:obj}))
+                        sliced.update({'group':group_names[0]})
+                        self.loadObj(sliced)
+                        
+                    elif isinstance(first_object, h5py.Dataset):
+                        
+                        sliced.update({group_names[0]:first_object})
+                        self.loadObj(sliced)
+
             
         except:
             traceback.print_exc()

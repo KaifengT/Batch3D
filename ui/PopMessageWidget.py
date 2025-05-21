@@ -33,7 +33,7 @@ class PopMessageWidget_fluent:
             orient=Qt.Vertical,    # vertical layout
             isClosable=True,
             position=InfoBarPosition.BOTTOM_RIGHT,
-            duration=-1 if msg[1] == 'error' else 5000,
+            duration=16000 if msg[1] == 'error' else 8000,
             parent=self.parant
         )
         # w.addWidget(PushButton('Action'))

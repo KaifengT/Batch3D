@@ -1,35 +1,46 @@
-# Batch 3D Viewer - 批量3D查看器
-一款用于批量查看本地或远程3D数据的工具。
+**[English](Readme.md), [Chinese](Readme_zh.md)**
+
+# Batch 3D Viewer
+A tool for batch viewing local or remote 3D data.
 
 ![image](asset/cover1.png)
 
-### 安装依赖
-首先，请确保安装了所有必需的依赖项：
+## Launch
+### Install Dependencies
+First, ensure all required dependencies are installed:
 ```bash
 pip install -r requirements.txt
 ```
-### 启动程序
-启动Batch 3D Viewer的方法有以下两种：
-1. 双击 `run.bat` 文件；
-2. 在命令行中运行 `python Batch3D.py`。
-### 打开目录及文件载入
-1. 点击“打开本地文件夹”按钮或拖入文件夹/文件至窗口，文件名将会显示在右侧列表中。
-2. 单击列表项或使用键盘的上下箭头快速切换文件。
-3. 双击列表项可重新载入该文件。
-### 远程服务器文件查看
-1. 点击“打开远程文件夹”按钮，输入服务器的IP地址、用户名和密码等信息。
-2. 软件将连接到服务器并下载文件以供查看。
-## 文件要求
-### 支持的存储格式
-本查看器支持以下文件格式：`.pkl`, `.npy`, `.npz`, `.ply`, `.obj`, `.stl` 等。
-`.pkl`, `.npy`, `.npz` 文件应采用二进制形式保存字典类型数据，字典值建议使用 `numpy.ndarray` 或`dict`类。以下是一个示例：
-```python
+
+### Start the Program
+There are two methods to launch Batch 3D Viewer:
+- Double-click the run.bat file;
+- Run python Batch3D.py in the command line.
+
+### Open Directory and File Loading
+1. Click the "Open Local Folder" button or drag a folder/file into the window. Filenames will appear in the right-side list.
+2. Click list items or use the keyboard's up/down arrows to switch files quickly.
+3. Double-click a list item to reload the file.
+
+### View Remote Server Files
+1. Click the "Open Remote Folder" button and enter the server’s IP address, username, password, and other information.
+2. The software will connect to the server and download files for viewing.
+
+## How to Save Viewable Data
+
+### File Formats and Organization
+
+This viewer supports the following formats: `.pkl`, `.npy`, `.npz`, `.ply`, `.obj`, `.stl`, `.h5` etc.
+
+1. `.pkl`, `.npy`, `.npz` files should store dictionary-type data in binary format. Values should use `numpy.ndarray` or `dict` classes. Example:
+
+```Python
 import pickle
 import numpy as np
 save_dt = {
-    'pcd1_#00FF00': np.random.rand(100, 3),  # 点云
-    'pcd2_#888888': np.random.rand(5, 100, 3),  # 点云
-    'line1_#123456': np.random.rand(5, 100, 2, 3),  # 线段
+    'pcd1_#00FF00': np.random.rand(100, 3),  # Point cloud
+    'pcd2_#888888': np.random.rand(5, 100, 3),  # Point cloud
+    'line1_#123456': np.random.rand(5, 100, 2, 3),  # Line segments
     'bbox1_#123456': np.array([
         [[0, 0, 1],
         [0, 1, 1],
@@ -40,32 +51,71 @@ save_dt = {
         [0, 1, 0],
         [1, 1, 0],
         [1, 0, 0],]
-        ]),  # 包围框
+        ]),  # Bounding box
     'mesh': {
-        'vertex': np.random.rand(233, 3), # 或(N, 6) (N, 7)
+        'vertex': np.random.rand(233, 3), # or (N, 6), (N, 7)
         'face':   np.random.randint(0, 233, size=(514, 3)),
     }
 }
 with open("test.pkl", 'wb') as f:
     pickle.dump(save_dt, f)
 ```
-保存后，查看器即可解析 `test.pkl` 文件。
-### 数据格式说明
-#### 类型识别
-对于 `.pkl`, `.npy`, `.npz` 文件，有以下显示类型：
-1. 点云：`ndarray`，形状为 `(..., N, 3)`, `(..., N, 6)` 或 `(..., N, 7)`，其中 $N > 2$；
-2. 线条：`ndarray`，键中需包含`line`字符串，形状为 `(..., 2, 3)`；
-3. 包围框：`ndarray`，键中需包含`bbox`字符串形状为 `(..., 8, 3)`；
-4. 齐次变换：`ndarray`，形状为 `(..., 4, 4)`；
-5. 网格：`dict`，必须包含两个键：
-    1. `vertex`，值为`ndarray`，形状为 `(N, 3)`, `(N, 6)` 或 `(N, 7)`，网格顶点xyz，xyzrgb或xyzrgba，
-    2. `face`，值为`ndarray`，形状为 `(M, 3)`，网格顶点索引，整形。
+The viewer can then parse the `test.pkl` file.
 
-其他类型的数据暂不支持。
-#### 批次处理
-对于 `.pkl`, `.npy`, `.npz` 文件，高维数据将被识别为批次数据，可进行切片分别显示。当切片选项设置为-1时，软件会将高维数据进行合并显示。若切片选项为其他值，软件将按第一个维度进行切片显示，其余维度合并显示。
-#### 颜色指定
-对于 `.pkl`, `.npy`, `.npz` 文件，可以通过在键名后添加 `'#HHHHHH'` 或 `'#HHHHHHHH'` 的16进制颜色代码来指定点云、线条、包围框的颜色。若未指定，系统将自动分配颜色。
-对于点云和网格的顶点，还可以将每个点的颜色属性拼接为 `(x, y, z, r, g, b)` 或 `(x, y, z, r, g, b, a)`，即维度为 `(..., N, 6)` 或 `(..., N, 7)`。
-## 运行脚本
-请参考 `example/` 文件夹中的示例脚本。
+2. HDF5
+
+For HDF5 files, use the following organization. Please refer to [example](example\example_04_read_HDF5_file.py) for details:
+
+```
++-- /（HDF5 root）
+|   +-- group_1
+|   |   +-- dataset_1_1
+|   |   |   +-- key1: np.ndarray
+|   |   |   +-- key2: np.ndarray
+|   |   +-- dataset_1_2
+|   |   |   +-- key1: np.ndarray
+|   |   |   +-- key2: np.ndarray
+|   |   |   +-- ...
+|   |   +-- ...
+|   +-- group_2
+|   |   +-- ...
+|   +-- ...
+```
+
+### Data Dimensions
+#### Dimension and Type Recognition
+
+For `.pkl`, `.npy`, `.npz`, `.h5` files, the software automatically determines display methods based on array dimensions and key identifiers:
+
+- Point Cloud: ndarray with shape `(..., N, 3)`, `(..., N, 6)` or `(..., N, 7)`，where $N > 2$；;
+
+- Line: ndarray with keys containing line and shape `(..., 2, 3)`;
+
+- Bounding Box: ndarray with keys containing bbox and shape `(..., 8, 3)`;
+
+- Homogeneous Transformation: ndarray with shape `(..., 4, 4)`;
+
+- Mesh: dict containing two keys:
+
+    1. vertex: ndarray with shape `(N, 3)`, `(N, 6)`, or `(N, 7)` (mesh vertex xyz, xyzrgb, or xyzrgba);
+
+    2. face: ndarray with shape `(M, 3)` (mesh vertex indices, integer type).
+
+Other data types are currently unsupported.
+
+#### Batch Processing
+
+- For `.pkl`, `.npy`, `.npz` files: Higher-dimensional data is treated as batch data for sliced display. When the slice index is set to `-1`, the software merges all dimensions for display. For other slice values, the first dimension is sliced while others are merged.
+
+- For `.h5` files: Each group under the root directory is treated as a data group for sliced display. Use the slice index to select groups. When set to `-1`, the first group is displayed.
+
+Note: To ensure slice order matches the group-saving order, write HDF5 files with `track_order=True`.
+
+#### Color Specification
+For `.pkl`, `.npy`, `.npz`, `.h5` files, append `#HHHHHH` or `#HHHHHHHH` hexadecimal color codes to keys to specify colors for point clouds, lines, or bounding boxes. If unspecified, colors are automatically assigned.
+
+For point clouds and mesh vertices, colors can also be embedded as `(x, y, z, r, g, b)` or `(x, y, z, r, g, b, a)` (i.e., dimensions `(..., N, 6)` or `(..., N, 7)`).
+
+## Run Scripts
+
+Refer to example scripts in [example1](example\example_01_read_ply.py), [example2](example\example_02_random_pcd.py), [example3](example\example_03_trimesh_obj.py)

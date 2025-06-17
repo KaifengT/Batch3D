@@ -635,10 +635,10 @@ class GLWidget(QOpenGLWidget):
         
         self.light_dir = np.array([1, 1, 0], dtype=np.float32)     # 光线照射方向
         self.light_color = np.array([1, 1, 1], dtype=np.float32)    # 光线颜色
-        self.ambient = np.array([0.15, 0.15, 0.15], dtype=np.float32)  # 环境光颜色
+        self.ambient = np.array([0.45, 0.45, 0.45], dtype=np.float32)  # 环境光颜色
         self.shiny = 50                                             # 高光系数
-        self.specular = 1.0                                         # 镜面反射系数
-        self.diffuse = 0.7                                          # 漫反射系数
+        self.specular = 0.1                                       # 镜面反射系数
+        self.diffuse = 1.0                                         # 漫反射系数
         self.pellucid = 0.5                                         # 透光度
 
         self.gl_render_mode = 1
@@ -709,12 +709,7 @@ class GLWidget(QOpenGLWidget):
         return def_color[id]
 
     def trigger_flush(self):
-        pass
-        # if self.flush_timer.isActive():
-            # return
         self.update()
-        
-        # self.flush_timer.start()
     
 
     def resetCamera(self):
@@ -1078,7 +1073,8 @@ class GLWidget(QOpenGLWidget):
         loc = self.shaderLocMap.get('u_ViewMatrix')
         camtrans = self.camera.updateTransform(isEmit=False)
         campos = np.linalg.inv(camtrans)[:3,3]
-        glUniform3f(self.shaderLocMap.get('u_CamPos'), *self.camera.lookatPoint[:3])
+        # glUniform3f(self.shaderLocMap.get('u_CamPos'), *self.camera.lookatPoint[:3])
+        glUniform3f(self.shaderLocMap.get('u_CamPos'), *campos)
         glUniformMatrix4fv(loc, 1, GL_FALSE, camtrans.T, None)
 
         loc = self.shaderLocMap.get('u_ModelMatrix')
@@ -1123,17 +1119,17 @@ class GLWidget(QOpenGLWidget):
         loc = self.shaderLocMap.get('u_AmbientColor')
         glUniform3f(loc, *self.ambient)
 
-        # loc = self.shaderLocMap.get('u_Shiny')
-        # glUniform1f(loc, self.shiny)
+        loc = self.shaderLocMap.get('u_Shiny')
+        glUniform1f(loc, self.shiny)
 
-        # loc = self.shaderLocMap.get('u_Specular')
-        # glUniform1f(loc, self.specular)
+        loc = self.shaderLocMap.get('u_Specular')
+        glUniform1f(loc, self.specular)
 
-        # loc = self.shaderLocMap.get('u_Diffuse')
-        # glUniform1f(loc, self.diffuse)
+        loc = self.shaderLocMap.get('u_Diffuse')
+        glUniform1f(loc, self.diffuse)
 
-        # loc = self.shaderLocMap.get('u_Pellucid')
-        # glUniform1f(loc, self.pellucid)
+        loc = self.shaderLocMap.get('u_Pellucid')
+        glUniform1f(loc, self.pellucid)
 
         
         

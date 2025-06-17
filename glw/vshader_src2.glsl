@@ -21,7 +21,7 @@ out vec3 v_Position;
 out vec3 v_Normal;
 out vec4 v_Color;
 out vec2 v_Texcoord;
-
+out vec3 v_WorldSpaceCamPos;
 flat out int simpleRender;
 
 void main() {
@@ -29,6 +29,7 @@ void main() {
     
     v_Color = a_Color;
     v_Texcoord = a_Texcoord;
+    v_WorldSpaceCamPos = u_CamPos; 
 
     if (a_Normal == vec3(0.0, 0.0, 0.0)) {
         simpleRender = 1;

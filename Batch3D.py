@@ -8,7 +8,7 @@ import numpy as np
 import numpy.linalg as linalg
 from PySide6.QtWidgets import ( QApplication, QMainWindow, QTableWidgetItem, QWidget, QFileDialog, QDialog, QGraphicsOpacityEffect, QGraphicsDropShadowEffect, QFrame, QVBoxLayout)
 from PySide6.QtCore import  QThread, Signal, Qt, QPropertyAnimation, QEasingCurve, QPoint, QRect
-from PySide6.QtGui import QCloseEvent, QIcon, QFont, QAction, QColor
+from PySide6.QtGui import QCloseEvent, QIcon, QFont, QAction, QColor, QSurfaceFormat
 from ui.PopMessageWidget import PopMessageWidget_fluent as PopMessageWidget
 import multiprocessing
 
@@ -190,6 +190,17 @@ class App(QMainWindow):
     def __init__(self,):
         """"""
         super().__init__()
+        
+        
+        # fmt = QSurfaceFormat()
+        # fmt.setVersion(3, 3)
+        # fmt.setProfile(QSurfaceFormat.OpenGLContextProfile.CoreProfile)
+        # fmt.setSamples(4) # Anti-aliasing
+        # QSurfaceFormat.setDefaultFormat(fmt)
+
+        
+        
+        
         
         self.ui = Ui_MainWindow()
         self.ui.setupUi(self)

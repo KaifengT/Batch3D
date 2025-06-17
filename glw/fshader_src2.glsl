@@ -14,6 +14,7 @@ in vec3 v_Position;
 in vec3 v_Normal;
 in vec4 v_Color;
 in vec2 v_Texcoord;
+in vec3 v_WorldSpaceCamPos;
 flat in int simpleRender;
 
 uniform sampler2D u_Texture;
@@ -34,16 +35,30 @@ void main() {
         vec3 normal = normalize(v_Normal);
         vec3 result = vec3(0.0);
 
-        
+        vec3 viewDir = normalize(v_WorldSpaceCamPos - v_Position);
+        vec3 ambient_lighting = u_AmbientColor;
+        vec3 diffuse_lighting = vec3(0.0);
+        vec3 specular_lighting = vec3(0.0);
 
         for (int i = 0; i < u_NumLights; ++i) {
             vec3 lightDir = normalize(u_Lights[i].position - v_Position);
-            float diff = max(dot(normal, lightDir), 0.0);
+            float diff_intensity = max(dot(normal, lightDir), 0.0);
+            diffuse_lighting += min(u_Lights[i].color * diff_intensity * u_Diffuse, vec3(1.0));
+            // vec3 scatteredLight = min(u_AmbientColor + u_Lights[i].color * diff_intensity, vec3(1.0)); // 散射光
 
-            vec3 scatteredLight = min(u_AmbientColor + u_Lights[i].color * diff, vec3(1.0)); // 散射光
+            // result += scatteredLight;
+            // diffuse_lighting += u_AmbientColor * u_Lights[i].color * diff_intensity;
 
-            result += scatteredLight;
+            // (Blinn-Phong)
+            if (diff_intensity > 0.0) { 
+                vec3 halfwayDir = normalize(lightDir + viewDir);
+                float spec_angle = max(dot(normal, halfwayDir), 0.0);
+                float spec_intensity = pow(spec_angle, u_Shiny);
+                specular_lighting += u_Specular * spec_intensity * u_Lights[i].color;
+            }
+            
         }
+        result = ambient_lighting + diffuse_lighting + specular_lighting + u_AmbientColor;
 
         // render mode texture
         if (render_mode == 3){

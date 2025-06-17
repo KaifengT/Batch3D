@@ -153,10 +153,16 @@ class BaseObject:
                   
             if hasattr(self, '_indid') and self._indid is not None:
                 self._indid.bind()
+                # if render_mode == 0:
+                #     glPolygonMode(GL_FRONT_AND_BACK, GL_LINE)
+                #     glDrawElements(GL_LINES, self._vboInfo['len_ind'], GL_UNSIGNED_INT, None)
+                # else:
+                #     glDrawElements(self.renderType, self._vboInfo['len_ind'], GL_UNSIGNED_INT, None)
                 if render_mode == 0:
-                    glDrawElements(GL_LINES, self._vboInfo['len_ind'], GL_UNSIGNED_INT, None)
+                    glPolygonMode(GL_FRONT_AND_BACK, GL_LINE)
                 else:
-                    glDrawElements(self.renderType, self._vboInfo['len_ind'], GL_UNSIGNED_INT, None)
+                    glPolygonMode(GL_FRONT_AND_BACK, GL_FILL)
+                glDrawElements(self.renderType, self._vboInfo['len_ind'], GL_UNSIGNED_INT, None)
                 self._indid.unbind()
             else:
                 glDrawArrays(self.renderType, 0, self._vboInfo['len'])

@@ -84,7 +84,7 @@ def_color =  np.array([
 checkboxStyle = '''
 CheckBox{{
     color: {hexcolor};
-    font: 700 10pt "Cascadia Mono", "Microsoft Yahei UI";}}
+    font: 700 10pt "SF Pro Display", "Helvetica Neue", "Arial";}}
     '''
 
 class GLCamera(QObject):
@@ -543,7 +543,7 @@ class GLWidget(QOpenGLWidget):
     def __init__(self, 
         parent: QWidget=None,
 
-        background_color: Tuple = (0, 0, 0, 0),
+        background_color: Tuple = (45, 45, 50, 255),  # 深色背景，带透明度
 
         **kwargs,
         ) -> None:
@@ -576,7 +576,8 @@ class GLWidget(QOpenGLWidget):
         self.lastPos = QPoint(0, 0)
         
 
-        self.font = QFont([u'Cascadia Mono', u'Microsoft Yahei UI'], 9, )
+        # 使用更现代的Mac友好字体
+        self.font = QFont(['SF Pro Display', 'Helvetica Neue', 'Arial'], 10, QFont.Weight.Normal)
 
         self.MouseClickPointinWorldCoordinate = np.array([0,0,0,1])
 
@@ -1028,15 +1029,14 @@ class GLWidget(QOpenGLWidget):
         
         vshader = shaders.compileShader(vshader_src, GL_VERTEX_SHADER)
         fshader = shaders.compileShader(fshader_src, GL_FRAGMENT_SHADER)
-        self.program = shaders.compileProgram(vshader, fshader)
+        self.program = shaders.compileProgram(vshader, fshader, validate=False)
 
-
-        splat_vshader_src = open('./glw/splat_vshader.glsl', encoding='utf-8').read()
-        splat_fshader_src = open('./glw/splat_fshader.glsl', encoding='utf-8').read()
+        # splat_vshader_src = open('./glw/splat_vshader.glsl', encoding='utf-8').read()
+        # splat_fshader_src = open('./glw/splat_fshader.glsl', encoding='utf-8').read()
         
-        splat_vshader = shaders.compileShader(splat_vshader_src, GL_VERTEX_SHADER)
-        splat_fshader = shaders.compileShader(splat_fshader_src, GL_FRAGMENT_SHADER)
-        self.splat_program = shaders.compileProgram(splat_vshader, splat_fshader)
+        # splat_vshader = shaders.compileShader(splat_vshader_src, GL_VERTEX_SHADER)
+        # splat_fshader = shaders.compileShader(splat_fshader_src, GL_FRAGMENT_SHADER)
+        # self.splat_program = shaders.compileProgram(splat_vshader, splat_fshader)
 
         self.shaderAttribList = ['a_Position', 'a_Color', 'a_Normal', 'a_Texcoord']
         self.shaderUniformList = ['u_ProjMatrix', 'u_ViewMatrix', 'u_ModelMatrix', 'u_CamPos', \

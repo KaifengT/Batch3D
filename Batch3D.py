@@ -508,7 +508,7 @@ class App(QMainWindow):
         self.ui.tableWidget_obj.insertRow(row_count)
         tt = QTableWidgetItem(name)
         tt.setForeground(QColor(*color))
-        tt.setFont(QFont([u'Cascadia Mono', u'Microsoft Yahei UI'], pointSize=10, weight= 500))
+        tt.setFont(QFont(['SF Pro Display', 'Helvetica Neue', 'Arial'], pointSize=10, weight=500))
         tt.needsRemove = False
         self.ui.tableWidget_obj.setItem(row_count, 1, tt)
         tb = ToggleToolButton(FIF.VIEW)
@@ -1392,7 +1392,8 @@ if __name__ == "__main__":
     multiprocessing.freeze_support()
     app = QApplication(sys.argv)
 
-    font = QFont([u'Cascadia Mono', u'Microsoft Yahei UI'], )
+    # 使用更现代的Mac友好字体
+    font = QFont(['SF Pro Display', 'Helvetica Neue', 'Arial'], 10, QFont.Weight.Normal)
     app.setFont(font)
    
     App = App()

@@ -548,7 +548,7 @@ class Grid(BaseObject):
         
         line = np.concatenate((lineX, lineY), 0)
         
-        color = [0.2, 0.2, 0.2, .7]
+        color = [0.4, 0.4, 0.4, 0.8]  # 调亮网格颜色，提高对比度
         
         self.reset()
         

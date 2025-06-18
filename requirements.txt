@@ -4,9 +4,7 @@ pillow
 psutil
 PySide6==6.6
 PySide6_Fluent_Widgets
-pywin32
 trimesh
-win32mica
 PyOpenGL
 PyOpenGL-accelerate
 paramiko

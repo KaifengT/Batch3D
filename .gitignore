@@ -171,3 +171,6 @@ run_venv.bat
 *.build/
 *.dist/
 b3d/
+
+
+.DS_Store

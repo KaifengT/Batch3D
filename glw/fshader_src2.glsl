@@ -1,4 +1,4 @@
-#version 330 core
+#version 120
 
 struct PointLight {
     vec3 position;
@@ -10,12 +10,12 @@ struct PointLight {
 uniform PointLight u_Lights[MAX_LIGHTS];
 uniform int u_NumLights;
 
-in vec3 v_Position;
-in vec3 v_Normal;
-in vec4 v_Color;
-in vec2 v_Texcoord;
-in vec3 v_WorldSpaceCamPos;
-flat in int simpleRender;
+varying vec3 v_Position;
+varying vec3 v_Normal;
+varying vec4 v_Color;
+varying vec2 v_Texcoord;
+varying vec3 v_WorldSpaceCamPos;
+varying float simpleRender;
 
 uniform sampler2D u_Texture;
 
@@ -30,7 +30,7 @@ uniform int render_mode;
 
 void main() {
 
-    if (simpleRender == 0){
+    if (simpleRender < 0.5){
 
         vec3 normal = normalize(v_Normal);
         vec3 result = vec3(0.0);
@@ -72,7 +72,7 @@ void main() {
         else if (render_mode == 2){
             
             
-            gl_FragColor = vec4((1-normal)*0.4 + 0.2, 1.0);
+            gl_FragColor = vec4((1.0-normal)*0.4 + 0.2, 1.0);
             return;
         }
         // render mode none

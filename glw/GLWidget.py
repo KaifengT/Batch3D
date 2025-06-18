@@ -1035,7 +1035,7 @@ class GLWidget(QOpenGLWidget):
         
             
         try:
-            if platform == 'darwin':
+            if sys.platform == 'darwin':
                 print('Using OpenGL 1.2')
                 vshader_src = open('./glw/vshader_src_120.glsl', encoding='utf-8').read()
                 fshader_src = open('./glw/fshader_src_120.glsl', encoding='utf-8').read()

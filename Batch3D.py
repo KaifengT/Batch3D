@@ -205,7 +205,7 @@ class App(QMainWindow):
         
         self.ui = Ui_MainWindow()
         self.ui.setupUi(self)
-        self.tgtTheme = Theme.AUTO
+        self.tgtTheme = Theme.DARK
 
         # self.toolframe = QFrame(self.ui.openGLWidget)
         # self.ui.tool.setFixedSize(200, 200)

@@ -14,7 +14,7 @@
    </rect>
   </property>
   <property name="windowTitle">
-   <string>选择远程文件</string>
+   <string>Remote Folder</string>
   </property>
   <property name="styleSheet">
    <string notr="true">
@@ -72,7 +72,7 @@ border-bottom-right-radius: 2px;</string>
    <item>
     <widget class="PushButton" name="pushButton_connect">
      <property name="text">
-      <string>连接服务器</string>
+      <string>Connect Server</string>
      </property>
     </widget>
    </item>
@@ -120,14 +120,17 @@ border-bottom-right-radius: 2px;</string>
      </item>
      <item>
       <widget class="ComboBox" name="comboBox">
+       <property name="currentText">
+        <string>Current Dir</string>
+       </property>
        <item>
         <property name="text">
-         <string>当前目录</string>
+         <string>Current Dir</string>
         </property>
        </item>
        <item>
         <property name="text">
-         <string>递归显示</string>
+         <string>Recursive Open</string>
         </property>
        </item>
       </widget>
@@ -139,14 +142,14 @@ border-bottom-right-radius: 2px;</string>
      <item>
       <widget class="PushButton" name="pushButton_cancel">
        <property name="text">
-        <string>取消</string>
+        <string>Cancel</string>
        </property>
       </widget>
      </item>
      <item>
       <widget class="PushButton" name="pushButton_openfolder">
        <property name="text">
-        <string>打开文件夹</string>
+        <string>Accept</string>
        </property>
       </widget>
      </item>

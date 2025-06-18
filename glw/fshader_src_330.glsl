@@ -72,7 +72,7 @@ void main() {
         else if (render_mode == 2){
             
             
-            gl_FragColor = vec4((1-normal)*0.4 + 0.2, 1.0);
+            gl_FragColor = vec4((1.0-normal)*0.4 + 0.2, 1.0);
             return;
         }
         // render mode none

@@ -39,6 +39,8 @@ _DiffuseLight  = [0.5, 0.5, 0.5, 1.0]
 _SpecularLight = [0.4, 0.4, 0.4, 1.0]
 _PositionLight = [20.0, 20.0, 20.0, 0.0]
 
+current_platform = sys.platform
+
 def_color =  np.array([    
         # [217, 217, 217],
         [233, 119, 119],
@@ -80,12 +82,6 @@ def_color =  np.array([
 
 
 
-
-checkboxStyle = '''
-CheckBox{{
-    color: {hexcolor};
-    font: 700 10pt "Cascadia Mono", "Microsoft Yahei UI";}}
-    '''
 
 class GLCamera(QObject):
     
@@ -320,7 +316,7 @@ class GLCamera(QObject):
         self.lookatPoint += ydelta[:3]
         
     def translateTo(self, x=0, y=0, z=0, isAnimated=False, isEmit=True):
-        self.lookatPoint = np.array([x, y, z,])
+        self.lookatPoint = np.array([x, y, z,], dtype=np.float32)
         self.updateTransform(isAnimated=isAnimated, isEmit=isEmit)
         
     def rotation_matrix_to_quaternion(self, R):
@@ -537,22 +533,36 @@ class GLCamera(QObject):
 
 class GLWidget(QOpenGLWidget):
 
-    current_ship_pcd_invaild_signal = Signal(bool)
-    # resize_signal = Signal(tuple)
 
     def __init__(self, 
         parent: QWidget=None,
-
         background_color: Tuple = (0, 0, 0, 0),
-
         **kwargs,
         ) -> None:
+
         super().__init__(parent)
 
         self.parent = parent
         self.setMinimumSize(200, 200)
         self.window_w = 0
         self.window_h = 0
+
+
+        # For macOS
+        if current_platform == 'darwin':
+            background_color = [45, 45, 50, 255]
+            self.font = QFont(['SF Pro Display', 'Helvetica Neue', 'Arial'], 10, QFont.Weight.Normal)
+        
+        # For Windows
+        elif current_platform == 'win32':
+            background_color = [0, 0, 0, 0]
+            self.font = QFont([u'Cascadia Mono', u'Microsoft Yahei UI'], 9, )
+
+        else:
+            background_color = [0, 0, 0, 0]
+            self.font = QFont([u'Cascadia Mono', u'Microsoft Yahei UI'], 9, )
+
+
 
         self.bg_color = (background_color[i] / 255 for i in range(len(background_color)))
         
@@ -575,9 +585,6 @@ class GLWidget(QOpenGLWidget):
         self.textShift = 0
         self.lastPos = QPoint(0, 0)
         
-
-        self.font = QFont([u'Cascadia Mono', u'Microsoft Yahei UI'], 9, )
-
         self.MouseClickPointinWorldCoordinate = np.array([0,0,0,1])
 
         self.baseTransform = np.identity(4, dtype=np.float32)
@@ -645,11 +652,11 @@ class GLWidget(QOpenGLWidget):
         
         self.gl_render_mode_combobox = SegmentedWidget(parent=self,)
         self.gl_render_mode_combobox.setFixedWidth(210)
-        # self.gl_render_mode_combobox.addItems(['线框', '简单', '法线', '贴图', ])
-        self.gl_render_mode_combobox.addItem('0', '线框', lambda:self.changeRenderMode(0))
-        self.gl_render_mode_combobox.addItem('1', '简单', lambda:self.changeRenderMode(1))
-        self.gl_render_mode_combobox.addItem('2', '法线', lambda:self.changeRenderMode(2))
-        self.gl_render_mode_combobox.addItem('3', '贴图', lambda:self.changeRenderMode(3))
+        
+        self.gl_render_mode_combobox.addItem('0', ' Line ', lambda:self.changeRenderMode(0))
+        self.gl_render_mode_combobox.addItem('1', 'Simple', lambda:self.changeRenderMode(1))
+        self.gl_render_mode_combobox.addItem('2', 'Normal', lambda:self.changeRenderMode(2))
+        self.gl_render_mode_combobox.addItem('3', 'Texture', lambda:self.changeRenderMode(3))
         self.gl_render_mode_combobox.setCurrentItem('1')
         # self.gl_render_mode_combobox.currentIndexChanged.connect(self.changeRenderMode)
         
@@ -657,8 +664,8 @@ class GLWidget(QOpenGLWidget):
         
         self.gl_camera_control_combobox = SegmentedWidget(parent=self,)
         self.gl_camera_control_combobox.setFixedWidth(118)
-        self.gl_camera_control_combobox.addItem('0', '自由', lambda:self.changeCameraControl(0))
-        self.gl_camera_control_combobox.addItem('1', '环绕', lambda:self.changeCameraControl(1))
+        self.gl_camera_control_combobox.addItem('0', 'Arcball', lambda:self.changeCameraControl(0))
+        self.gl_camera_control_combobox.addItem('1', ' Orbit ', lambda:self.changeCameraControl(1))
         self.gl_camera_control_combobox.setCurrentItem('0')
         
         # self.gl_slider = Slider(Qt.Orientation.Vertical, parent=self)
@@ -836,22 +843,14 @@ class GLWidget(QOpenGLWidget):
 
     # ``````````````
     def updateObject_API(self, ID=1, objType=None, **kwargs) -> None:
+        '''
+        Deprecated
+        '''
         _ID = str(ID)
         availObjTypes = self.objMap.keys()
+        assert objType in availObjTypes, f'type must in {availObjTypes}'
         if objType in availObjTypes:
-            # if isinstance(ID, str):
-            #     cid = 0
-            # else:
-            #     cid = ID % len(def_color)
-                
-            # if color is not None:
-            #     if isinstance(color, str):
-            #         _color = self._decode_HexColor_to_RGB(color)
-                
-            # else:
-            #     _color = def_color[cid]
-            
-            assert objType in availObjTypes, f'type must in {availObjTypes}'
+
             self.objectList.update({_ID:self.objMap[objType](**kwargs)})
             
             # self.addSwitchLabel(_ID)
@@ -862,7 +861,7 @@ class GLWidget(QOpenGLWidget):
             keys = list(self.objectList.keys())
             for id in keys:
                 self.objectList.pop(id)
-                # self.removeSwitchLabel(id)
+                
         else:
             if _ID in self.objectList.keys():
                 
@@ -872,6 +871,16 @@ class GLWidget(QOpenGLWidget):
                     self.objectList.pop(_ID)
                     # self.removeSwitchLabel(_ID)
                 
+        self.update()
+        
+    def setObjTransform(self, ID=1, transform=None) -> None:
+        _ID = str(ID)
+        if _ID in self.objectList.keys():
+            if transform is not None:
+                self.objectList[_ID].setTransform(transform)
+            else:
+                self.objectList[_ID].setTransform(np.identity(4, dtype=np.float32))
+        
         self.update()
 
 
@@ -1022,21 +1031,35 @@ class GLWidget(QOpenGLWidget):
         self.grid = Grid()
         # self.axis = OBJ('./axis.obj')
         self.axis = Axis()
+                
         
-        vshader_src = open('./glw/vshader_src2.glsl', encoding='utf-8').read()
-        fshader_src = open('./glw/fshader_src2.glsl', encoding='utf-8').read()
-        
-        vshader = shaders.compileShader(vshader_src, GL_VERTEX_SHADER)
-        fshader = shaders.compileShader(fshader_src, GL_FRAGMENT_SHADER)
-        self.program = shaders.compileProgram(vshader, fshader)
+            
+        try:
+            if platform == 'darwin':
+                print('Using OpenGL 1.2')
+                vshader_src = open('./glw/vshader_src_120.glsl', encoding='utf-8').read()
+                fshader_src = open('./glw/fshader_src_120.glsl', encoding='utf-8').read()
+                vshader = shaders.compileShader(vshader_src, GL_VERTEX_SHADER)
+                fshader = shaders.compileShader(fshader_src, GL_FRAGMENT_SHADER)
+                self.program = shaders.compileProgram(vshader, fshader, validate=False)
+            else:
+                print('Using OpenGL 3.3')
+                vshader_src = open('./glw/vshader_src_330.glsl', encoding='utf-8').read()
+                fshader_src = open('./glw/fshader_src_330.glsl', encoding='utf-8').read()
+                vshader = shaders.compileShader(vshader_src, GL_VERTEX_SHADER)
+                fshader = shaders.compileShader(fshader_src, GL_FRAGMENT_SHADER)
+                self.program = shaders.compileProgram(vshader, fshader)
+             
+        except:
+            print('Shader compilation failed')
 
 
-        splat_vshader_src = open('./glw/splat_vshader.glsl', encoding='utf-8').read()
-        splat_fshader_src = open('./glw/splat_fshader.glsl', encoding='utf-8').read()
-        
-        splat_vshader = shaders.compileShader(splat_vshader_src, GL_VERTEX_SHADER)
-        splat_fshader = shaders.compileShader(splat_fshader_src, GL_FRAGMENT_SHADER)
-        self.splat_program = shaders.compileProgram(splat_vshader, splat_fshader)
+        # For future use
+        # splat_vshader_src = open('./glw/splat_vshader.glsl', encoding='utf-8').read()
+        # splat_fshader_src = open('./glw/splat_fshader.glsl', encoding='utf-8').read()
+        # splat_vshader = shaders.compileShader(splat_vshader_src, GL_VERTEX_SHADER)
+        # splat_fshader = shaders.compileShader(splat_fshader_src, GL_FRAGMENT_SHADER)
+        # self.splat_program = shaders.compileProgram(splat_vshader, splat_fshader)
 
         self.shaderAttribList = ['a_Position', 'a_Color', 'a_Normal', 'a_Texcoord']
         self.shaderUniformList = ['u_ProjMatrix', 'u_ViewMatrix', 'u_ModelMatrix', 'u_CamPos', \

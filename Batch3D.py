@@ -26,16 +26,17 @@ from glw.mesh import *
 import trimesh
 import h5py
 
-try:
-    from win32mica import ApplyMica, MicaTheme, MicaStyle
-except:
-    ...
+if sys.platform == 'win32':
+    try:
+        from win32mica import ApplyMica, MicaTheme, MicaStyle
+    except:
+        ...
 
 ########################################################################
 
 
 
-from qfluentwidgets import (setTheme, Theme, setThemeColor, qconfig, RoundMenu, widgets, ToggleToolButton, Slider, Action)
+from qfluentwidgets import (setTheme, Theme, setThemeColor, qconfig, RoundMenu, widgets, ToggleToolButton, Slider, Action, PushButton)
 from qfluentwidgets import FluentIcon as FIF
 
 
@@ -76,7 +77,7 @@ class RemoteUI(QDialog):
         # self.ui.pushButton_cancel.applyStyleSheet(**Button_Style_R)
         
         self.ui.tableWidget.cellDoubleClicked.connect(self.chdirSFTP)
-        self.ui.tableWidget.setHorizontalHeaderLabels(['目录'])
+        self.ui.tableWidget.setHorizontalHeaderLabels(['File Directory'])
         
         self.ui.pushButton_openfolder.setDisabled(True)
         
@@ -174,7 +175,7 @@ class fileDetailInfoUI(QDialog):
         super().__init__(parent,)
         self.setAttribute(Qt.WA_TranslucentBackground)
         self.resize(500, 700)
-        self.setWindowTitle('文件内容')
+        self.setWindowTitle('File Contents')
         
         self.verticalLayout = QVBoxLayout(self)
 
@@ -216,7 +217,7 @@ class App(QMainWindow):
         # add shadow
         self.shadow = QGraphicsDropShadowEffect()
         self.shadow.setBlurRadius(30)
-        self.shadow.setColor(QColor(30, 30, 30))
+        self.shadow.setColor(QColor(80, 80, 80))
         self.shadow.setOffset(0, 0)
 
         self.ui.tool.setGraphicsEffect(self.shadow)
@@ -316,10 +317,10 @@ class App(QMainWindow):
         # self.ui.checkBox.setOffText('关')
         # self.ui.checkBox.checkedChanged.connect(self.setTrackObject)
         self.ui.checkBox_axis.checkedChanged.connect(self.setGLAxisVisable)
-        self.ui.checkBox_axis.setOnText('开')
-        self.ui.checkBox_axis.setOffText('关')
-        self.ui.checkBox_arrow.setOnText('开')
-        self.ui.checkBox_arrow.setOffText('关')
+        self.ui.checkBox_axis.setOnText('On')
+        self.ui.checkBox_axis.setOffText('Off')
+        self.ui.checkBox_arrow.setOnText('On')
+        self.ui.checkBox_arrow.setOffText('Off')
 
         self.center_all = None
         
@@ -339,19 +340,19 @@ class App(QMainWindow):
         
         
         self.themeToolButtonMenu = RoundMenu(parent=self)
-        self.themeLIGHTAction = QAction(FIF.BRIGHTNESS.icon(), '浅色')
-        self.themeDARKAction = QAction(FIF.QUIET_HOURS.icon(), '深色')
-        self.themeAUTOAction = QAction(FIF.CONSTRACT.icon(), '自动')
+        self.themeLIGHTAction = QAction(FIF.BRIGHTNESS.icon(), 'Light')
+        self.themeDARKAction = QAction(FIF.QUIET_HOURS.icon(), 'Dark')
+        # self.themeAUTOAction = QAction(FIF.CONSTRACT.icon(), 'Auto')
         self.themeToolButtonMenu.addAction(self.themeLIGHTAction)
         self.themeToolButtonMenu.addAction(self.themeDARKAction)
-        self.themeToolButtonMenu.addAction(self.themeAUTOAction)
+        # self.themeToolButtonMenu.addAction(self.themeAUTOAction)
         self.ui.toolButton_theme.setMenu(self.themeToolButtonMenu)
         self.ui.toolButton_theme.setIcon(FIF.PALETTE)
         
         
         self.themeLIGHTAction.triggered.connect(lambda:self.changeTheme(Theme.LIGHT))
         self.themeDARKAction.triggered.connect(lambda:self.changeTheme(Theme.DARK))
-        self.themeAUTOAction.triggered.connect(lambda:self.changeTheme(Theme.AUTO))
+        # self.themeAUTOAction.triggered.connect(lambda:self.changeTheme(Theme.AUTO))
         
         self.ui.spinBox.valueChanged.connect(self.slicefromBatch)
         
@@ -366,10 +367,18 @@ class App(QMainWindow):
         
         self.configPath = './user.config'
         self.loadSettings()
-        # self.changeTheme(self.tgtTheme)
-        self.changeTXTTheme(self.tgtTheme)
+        self.changeTheme(self.tgtTheme)
+        # self.changeTXTTheme(self.tgtTheme)
         
-        self.setUpWatchForThemeChange()
+        # self.setUpWatchForThemeChange()
+        
+        # rename
+        self.GL = self.ui.openGLWidget
+        self.reset_script_namespace()
+    
+    def reset_script_namespace(self, ):
+        self.script_namespace = {'Batch3D':self,
+                                 }
     
         
     def moveToolWidget(self, hide=True):
@@ -395,9 +404,9 @@ class App(QMainWindow):
             self.currentPath = path
         else:
             if os.path.exists(self.currentPath) and os.path.isdir(self.currentPath):
-                self.currentPath = QFileDialog.getExistingDirectory(self,"选取文件夹",self.currentPath) # 起始路径
+                self.currentPath = QFileDialog.getExistingDirectory(self,"Select Folder",self.currentPath) # 起始路径
             else:
-                self.currentPath = QFileDialog.getExistingDirectory(self,"选取文件夹",'./') # 起始路径
+                self.currentPath = QFileDialog.getExistingDirectory(self,"Select Folder",'./') # 起始路径
         
         # print(self.currentPath)
         if len(self.currentPath) and os.path.exists(self.currentPath):
@@ -508,7 +517,7 @@ class App(QMainWindow):
         self.ui.tableWidget_obj.insertRow(row_count)
         tt = QTableWidgetItem(name)
         tt.setForeground(QColor(*color))
-        tt.setFont(QFont([u'Cascadia Mono', u'Microsoft Yahei UI'], pointSize=10, weight= 500))
+        tt.setFont(font)
         tt.needsRemove = False
         self.ui.tableWidget_obj.setItem(row_count, 1, tt)
         tb = ToggleToolButton(FIF.VIEW)
@@ -741,7 +750,12 @@ class App(QMainWindow):
         except:
             traceback.print_exc()
             exc_type, exc_value, exc_traceback = sys.exc_info()
-            self.PopMessageWidgetObj.add_message_stack((('切片时遇到错误', str(exc_value)), 'error'))
+            self.PopMessageWidgetObj.add_message_stack((('slice error occurred', str(exc_value)), 'error'))
+
+
+          
+    def showObj(self, data:dict):
+        self.loadObj(fullpath=data)
                 
         
     def loadObj(self, fullpath:str, extName=''):
@@ -790,7 +804,7 @@ class App(QMainWindow):
             
             
             print(k, ':', v.nbytes, 'bytes')
-            assert v.nbytes < 1e8, '数组过大，须切片后显示'
+            assert v.nbytes < 1e8, 'array too large, must slice to show'
             
             n_color = self._decode_HexColor_to_RGB(self._isHexColorinName(k))
             user_color = n_color if n_color is not None else self.ui.openGLWidget.chooseColor()
@@ -903,8 +917,8 @@ class App(QMainWindow):
             self.add2ObjPropsTable(v, k, user_color, adjustable=True)
 
         def _dealDict(k:str,v:dict):
-            assert 'vertex' in v.keys(), '网格缺少顶点(vertex)'
-            assert 'face' in v.keys(), '网格缺少面片索引(face)'
+            assert 'vertex' in v.keys(), 'mesh missing vertex(vertex)'
+            assert 'face' in v.keys(), 'mesh missing face(face)'
             if v['vertex'].shape[-1] == 3:
                 obj = Mesh(v['vertex'], v['face'])
             elif v['vertex'].shape[-1] in (6, 7):
@@ -914,7 +928,8 @@ class App(QMainWindow):
             elif v['vertex'].shape[-1] == 10:
                 obj = Mesh(v['vertex'][..., :3], v['face'], color=v['vertex'][..., 3:7], norm=v['vertex'][..., 7:10])
             else:
-                assert 'vertex格式错误'
+                assert 'vertex format error'
+
             self.ui.openGLWidget.updateObject(ID=k, obj=obj)
             
             self.add2ObjPropsTable(v, k)
@@ -940,12 +955,13 @@ class App(QMainWindow):
                     
                 else:
                     obj = pickle.load(open(fullpath, 'rb'))
-                 
-                self.setWorkspaceObj(obj)   
+                    
+                self.setWorkspaceObj(obj)
    
             elif isinstance(fullpath, (dict)):
                 obj = fullpath
    
+            # for remote file
             else:
                 if extName in ['npz', 'npy', 'NPY', 'NPZ',]:
                     obj = np.load(fullpath)
@@ -953,11 +969,9 @@ class App(QMainWindow):
                 else:
                     obj = pickle.load(fullpath)
                 
-                self.setWorkspaceObj(obj)   
-            
+                self.setWorkspaceObj(obj)
+                
             info = self.formatContentInfo(obj)
-            # self.ui.label_info.setText(info)
-            # self.ui.label_info.setHtml(info)
             self.ui.label_info.setMarkdown(info)
             
             if isinstance(obj, dict):
@@ -994,7 +1008,7 @@ class App(QMainWindow):
 
                     if hasattr(obj, 'scale') and obj.scale > 100:
                         obj.apply_scale(1 / obj.scale * 10)
-                        self.PopMessageWidgetObj.add_message_stack((('网格尺寸过大, 已自动缩放', ''), 'warning'))
+                        self.PopMessageWidgetObj.add_message_stack((('mesh is too large, auto scaled', ''), 'warning'))
                         
                     self.ui.openGLWidget.updateTrimeshObject(ID=fileName, obj=obj)
                     
@@ -1010,7 +1024,7 @@ class App(QMainWindow):
                         _dealArray(fileName, np.array(obj.vertices))
                     
                 else:
-                    self.PopMessageWidgetObj.add_message_stack((('不支持的Trimesh对象', obj.__class__.__name__), 'error'))
+                    self.PopMessageWidgetObj.add_message_stack((('unsupported Trimesh object', obj.__class__.__name__), 'error'))
                     
                 self.add2ObjPropsTable(obj, fileName)
                 
@@ -1038,28 +1052,26 @@ class App(QMainWindow):
         except:
             traceback.print_exc()
             exc_type, exc_value, exc_traceback = sys.exc_info()
-            self.PopMessageWidgetObj.add_message_stack((('文件加载错误', str(exc_value)), 'error'))
+            self.PopMessageWidgetObj.add_message_stack((('file load error', str(exc_value)), 'error'))
             
         self.clearObjPropsTable()
         self.changeObjectProps()
         
-    def switchExtCallback(self, checked=True):
-        if checked:
-            self.ui.openGLWidget.baseTransform = np.array([ [-1.31165008e-01,  1.64332643e-02,  9.91064088e-01,  2.52000000e+00],
-                                                            [ 1.36828413e-02,  9.99839251e-01, -1.48635603e-02,  9.36000000e+00],
-                                                            [-9.91127227e-01,  5.41885955e-03, -1.31439524e-01,  1.78900000e+01],
-                                                            [ 0.00000000e+00,  0.00000000e+00,  0.00000000e+00,  1.00000000e+00],
-                        ])
-            
-        else:
-            self.ui.openGLWidget.baseTransform = np.identity(4, dtype=np.float32)
-            
-        self.ui.openGLWidget.update()
+
+
+    def setObjTransform(self, ID, transform:np.ndarray=None):
+        """
+        Set the transformation matrix for an object in the OpenGL widget.
         
-    # def setGLScale(self,):
-    #     scale = self.ui.doubleSpinBox.value()
-    #     self.ui.openGLWidget.scale = scale
-    #     self.ui.openGLWidget.update()
+        Parameters:
+        - ID: The identifier for the object.
+        - transform: A 4x4 transformation matrix.
+        """
+        
+        self.ui.openGLWidget.setObjTransform(ID, transform)
+        self.ui.openGLWidget.update()
+
+
         
     def setTrackObject(self, ):
         self.isTrackObject = self.ui.checkBox.isChecked()
@@ -1099,7 +1111,7 @@ class App(QMainWindow):
     
 
     def openScript(self, ):
-        currentScriptPath = QFileDialog.getOpenFileName(self,"选取脚本",self.currentPath, '*.py')[0] # 起始路径
+        currentScriptPath = QFileDialog.getOpenFileName(self,"Select Script",self.currentPath, '*.py')[0] # 起始路径
 
         # print(self.currentScriptPath)
 
@@ -1108,24 +1120,55 @@ class App(QMainWindow):
             self.currentScriptPath = currentScriptPath
             
     def runScript(self, ):
+        self.reset_script_namespace()
+        self.ui.openGLWidget.reset()
+        
         if os.path.isfile(self.currentScriptPath):
             fname = os.path.basename(self.currentScriptPath)
-            namespace = {}
+            
             sys.path.append(os.path.dirname(self.currentScriptPath))
             with open(self.currentScriptPath, ) as f:
 
                 code = f.read()
-                code = code.replace('from pcdviewerAPI import executeSignal', '')
+                code = code.replace('from pcdviewerAPI import executeSignal', '') # Deprecated
+
+            try:
+                exec(code, self.script_namespace)
+                if sys.platform == 'win32':
+                    for item_name, item_instance in self.script_namespace.items():
+                        if isinstance(item_instance, QWidget) and item_instance.isWindow():
+                            hwnd = item_instance.winId()
+                            if hwnd != 0:
+                                self.applyMicaTheme(hwnd)
+                            
+                            item_instance.setStyleSheet("background-color: #00000000;")
                 
-                self.sendCodeSignal.emit(code, fname)
-                self.ui.pushButton_runscript.disconnect(self)
-                # func, kwargs = namespace['main']()
-                # # st3 = time.time()
-                # # print('t1', st2-st, 't2', st3-st2)
-                # getattr(self.ui.openGLWidget, func)(**kwargs)
+            except Exception as e:
+                exc_type, exc_value, exc_tb = sys.exc_info()
+                
+                # 准备详细的错误信息
+                error_details_list = traceback.format_exception(exc_type, exc_value, exc_tb)
+                error_details_str = "".join(error_details_list)
+                
+                # 1. 在控制台打印详细的错误信息和追溯
+                print(f"--- Error executing script: {fname} ---")
+                print(error_details_str)
+                print(f"--- End of script error for: {fname} ---")
+                
+                # 2. 在UI的PopMessageWidget中显示错误摘要
+                self.PopMessageWidgetObj.add_message_stack(
+                    ((f"Script '{fname}' exec error", str(exc_value)), 'error')
+                )
+            # self.sendCodeSignal.emit(code, fname)
+            # self.ui.pushButton_runscript.disconnect(self)
+            # func, kwargs = namespace['main']()
+            # # st3 = time.time()
+            # # print('t1', st2-st, 't2', st3-st2)
+            # getattr(self.ui.openGLWidget, func)(**kwargs)
+            # print('namespace:', self.script_namespace)
 
     def runScriptStateChangeRunning(self, ):
-        self.ui.pushButton_runscript.setText('终止脚本')
+        self.ui.pushButton_runscript.setText('Terminate Script')
         # self.ui.pushButton_runscript.applyStyleSheet(**Button_Style_R)
         self.ui.pushButton_runscript.setIcon(FIF.CANCEL)
         self.ui.pushButton_runscript.disconnect(self)
@@ -1134,7 +1177,7 @@ class App(QMainWindow):
         
     def runScriptStateChangeFinish(self, ):
         # print('nb')
-        self.ui.pushButton_runscript.setText('运行脚本')
+        self.ui.pushButton_runscript.setText('Run Script')
         self.ui.pushButton_runscript.setIcon(FIF.SEND)
         # self.ui.pushButton_runscript.applyStyleSheet(**Button_Style_G)
         self.ui.pushButton_runscript.disconnect(self)
@@ -1164,32 +1207,25 @@ class App(QMainWindow):
         return super().closeEvent(event)
     
 
-    def openRemoteUI(self, ):
+    def applyMicaTheme(self, winId):
         if sys.platform == 'win32':
             try:
                 m = {
                     Theme.LIGHT:MicaTheme.LIGHT,
                     Theme.DARK:MicaTheme.DARK,
-                    Theme.AUTO:MicaTheme.AUTO
                 }
 
-                ApplyMica(self.remoteUI.winId(), m[self.tgtTheme], MicaStyle.DEFAULT)
+                ApplyMica(winId, m[self.tgtTheme], MicaStyle.DEFAULT)
             except:
-                ...
+                print(f'ApplyMica id {winId} failed')
+
+
+    def openRemoteUI(self, ):
+        self.applyMicaTheme(self.remoteUI.winId())
         self.remoteUI.show()
         
     def openDetailUI(self, ):
-        if sys.platform == 'win32':
-            try:
-                m = {
-                    Theme.LIGHT:MicaTheme.LIGHT,
-                    Theme.DARK:MicaTheme.DARK,
-                    Theme.AUTO:MicaTheme.AUTO
-                }
-
-                ApplyMica(self.fileDetailUI.winId(), m[self.tgtTheme], MicaStyle.DEFAULT)
-            except:
-                ...
+        self.applyMicaTheme(self.fileDetailUI.winId())
         self.fileDetailUI.show()
         
         
@@ -1226,18 +1262,12 @@ class App(QMainWindow):
         global CURRENT_THEME
         if theme == Theme.LIGHT:
             label_info_color = '#202020'
-            tool_color = '#E0E0E0'
+            tool_color = '#FEFEFE'
+            shadow_color = '#808080'
         elif theme == Theme.DARK:
-            label_info_color = '#E0E0E0'
+            label_info_color = '#FEFEFE'
             tool_color = '#201e1c'
-        else:
-            if CURRENT_THEME == Theme.LIGHT:
-                label_info_color = '#202020'
-                tool_color = '#E0E0E0'
-            else:
-                label_info_color = '#E0E0E0'
-                tool_color = '#201e1c'
-        
+            shadow_color = '#101010'
         
         self.ui.label_info.setStyleSheet(
             '''
@@ -1263,40 +1293,20 @@ class App(QMainWindow):
             }}
             '''.format(tool_color)
         )
+        
+        self.shadow.setColor(QColor(shadow_color))
+        self.ui.tool.setGraphicsEffect(self.shadow)
+        self.update()
             
     def changeTheme(self, theme):
         global CURRENT_THEME
         self.tgtTheme = theme
-        
+        print('changeTheme:', theme)
         self.changeTXTTheme(theme)
-        
-        # print('changeTheme', 'CURRENT_THEME', CURRENT_THEME, 'qconfig.theme', qconfig.theme, 'tgtTheme', self.tgtTheme, 'theme', theme,)
-        
-        if theme == Theme.AUTO:
-            setTheme(theme)
-            CURRENT_THEME = qconfig.theme
-            self.watchForThemeTimer.start(1000)
-            self.watchForThemeTimer.setSingleShot(False)
-        else:
-            setTheme(theme)
-            self.watchForThemeTimer.stop()
-                
-        # setTheme(theme)
-        
-        if sys.platform == 'win32':
-            try:
-                m = {
-                    Theme.LIGHT:MicaTheme.LIGHT,
-                    Theme.DARK:MicaTheme.DARK,
-                    Theme.AUTO:MicaTheme.AUTO
-                }
-                if theme == Theme.AUTO:
-                    ApplyMica(self.winId(), m[theme], MicaStyle.DEFAULT, changeGlobalTheme)
-                else:
-                    ApplyMica(self.winId(), m[theme], MicaStyle.DEFAULT)
 
-            except:
-                ...
+        setTheme(theme)
+        
+        self.applyMicaTheme(self.winId())
         
         self.saveSettings()
         
@@ -1317,7 +1327,11 @@ class App(QMainWindow):
                 
                 self.ui.openGLWidget.gl_camera_control_combobox.setCurrentItem(settings['camera'])
                 self.ui.openGLWidget.changeCameraControl(int(settings['camera']))
-                
+
+                self.currentScriptPath = settings['lastScript']
+                if len(self.currentScriptPath) and os.path.isfile(self.currentScriptPath):
+                    self.ui.label_script.setText(os.path.basename(self.currentScriptPath))
+
         except:
             ...
 
@@ -1327,6 +1341,7 @@ class App(QMainWindow):
             settings = {
                 'theme':self.tgtTheme.value,
                 'camera':self.ui.openGLWidget.gl_camera_control_combobox.currentRouteKey(),
+                'lastScript':self.currentScriptPath,
             }
             
             with open(self.configPath, 'w') as f:
@@ -1375,7 +1390,7 @@ if __name__ == "__main__":
     
     
     
-    setTheme(Theme.AUTO)
+    # setTheme(Theme.AUTO)
     
     CURRENT_THEME = qconfig.theme
     
@@ -1392,8 +1407,6 @@ if __name__ == "__main__":
     multiprocessing.freeze_support()
     app = QApplication(sys.argv)
 
-    font = QFont([u'Cascadia Mono', u'Microsoft Yahei UI'], )
-    app.setFont(font)
    
     App = App()
     # App.setStyleSheet(style)
@@ -1408,17 +1421,17 @@ if __name__ == "__main__":
         import ctypes
         ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("myappid")
         try:
-            # from win32mica import ApplyMica, MicaTheme, MicaStyle
             App.setAttribute(Qt.WA_TranslucentBackground)
-            ApplyMica(App.winId(), MicaTheme.AUTO, MicaStyle.DEFAULT, changeGlobalTheme)
+            font = QFont([u'Cascadia Mono', u'Microsoft Yahei UI'], )
+            app.setFont(font)
 
         except:
             ...
 
     elif sys.platform == 'darwin':
-        pass
+        font = QFont(['SF Pro Display', 'Helvetica Neue', 'Arial'], 10, QFont.Weight.Normal)
+        app.setFont(font)
     
-    # setTheme(Theme.LIGHT)
     
     App.show()
 

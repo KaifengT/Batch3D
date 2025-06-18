@@ -548,7 +548,8 @@ class Grid(BaseObject):
         
         line = np.concatenate((lineX, lineY), 0)
         
-        color = [0.2, 0.2, 0.2, .7]
+        # color = [0.2, 0.2, 0.2, .7]
+        color = [0.4, 0.4, 0.4, .8]
         
         self.reset()
         

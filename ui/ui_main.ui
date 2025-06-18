@@ -97,7 +97,7 @@ border-radius:10px;
               </size>
              </property>
              <property name="text">
-              <string>打开本地文件夹</string>
+              <string>Local Folder</string>
              </property>
             </widget>
            </item>
@@ -118,7 +118,7 @@ border-radius:10px;
             </size>
            </property>
            <property name="text">
-            <string>打开远程文件夹</string>
+            <string>Remote Folder</string>
            </property>
           </widget>
          </item>
@@ -139,7 +139,7 @@ border-radius:10px;
               <string notr="true">color: rgb(238, 238, 238);</string>
              </property>
              <property name="text">
-              <string>网格</string>
+              <string>Grid</string>
              </property>
             </widget>
            </item>
@@ -191,7 +191,7 @@ border-radius:10px;
               <string notr="true">color: rgb(238, 238, 238);</string>
              </property>
              <property name="text">
-              <string>箭头</string>
+              <string>Arrow</string>
              </property>
             </widget>
            </item>
@@ -240,7 +240,7 @@ border-radius:10px;
               <string notr="true">color: rgb(238, 238, 238);</string>
              </property>
              <property name="text">
-              <string>切片</string>
+              <string>Slice</string>
              </property>
             </widget>
            </item>
@@ -292,7 +292,7 @@ border-radius:10px;
               </size>
              </property>
              <property name="text">
-              <string>打开脚本</string>
+              <string>Open Script</string>
              </property>
             </widget>
            </item>
@@ -348,7 +348,7 @@ font: 9pt;</string>
               </size>
              </property>
              <property name="text">
-              <string>运行脚本</string>
+              <string>Exec Script </string>
              </property>
             </widget>
            </item>
@@ -405,7 +405,7 @@ font: 9pt;</string>
            </attribute>
            <column>
             <property name="text">
-             <string>文件</string>
+             <string>File</string>
             </property>
            </column>
           </widget>
@@ -447,7 +447,7 @@ font: 9pt;</string>
            </attribute>
            <column>
             <property name="text">
-             <string>可见</string>
+             <string>Vis</string>
             </property>
            </column>
            <column>
@@ -457,7 +457,7 @@ font: 9pt;</string>
            </column>
            <column>
             <property name="text">
-             <string>尺寸</string>
+             <string>Size</string>
             </property>
            </column>
           </widget>
@@ -569,7 +569,7 @@ QScrollBar::sub-page:horizontal
               </size>
              </property>
              <property name="text">
-              <string>详细信息</string>
+              <string>Info</string>
              </property>
             </widget>
            </item>

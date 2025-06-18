@@ -3,7 +3,7 @@
 ################################################################################
 ## Form generated from reading UI file 'ui_remote.ui'
 ##
-## Created by: Qt User Interface Compiler version 6.6.1
+## Created by: Qt User Interface Compiler version 6.6.0
 ##
 ## WARNING! All changes made in this file will be lost when recompiling UI file!
 ################################################################################
@@ -125,19 +125,20 @@ class Ui_RemoteWidget(object):
     # setupUi
 
     def retranslateUi(self, RemoteWidget):
-        RemoteWidget.setWindowTitle(QCoreApplication.translate("RemoteWidget", u"\u9009\u62e9\u8fdc\u7a0b\u6587\u4ef6", None))
+        RemoteWidget.setWindowTitle(QCoreApplication.translate("RemoteWidget", u"Remote Folder", None))
         self.lineEdit_host.setText("")
         self.lineEdit_port.setInputMask(QCoreApplication.translate("RemoteWidget", u"00000", None))
         self.lineEdit_port.setText(QCoreApplication.translate("RemoteWidget", u"22", None))
         self.lineEdit_username.setText(QCoreApplication.translate("RemoteWidget", u"root", None))
         self.lineEdit_passwd.setInputMask("")
         self.lineEdit_passwd.setText("")
-        self.pushButton_connect.setText(QCoreApplication.translate("RemoteWidget", u"\u8fde\u63a5\u670d\u52a1\u5668", None))
+        self.pushButton_connect.setText(QCoreApplication.translate("RemoteWidget", u"Connect Server", None))
         self.lineEdit_dir.setText(QCoreApplication.translate("RemoteWidget", u"/root", None))
-        self.comboBox.setItemText(0, QCoreApplication.translate("RemoteWidget", u"\u5f53\u524d\u76ee\u5f55", None))
-        self.comboBox.setItemText(1, QCoreApplication.translate("RemoteWidget", u"\u9012\u5f52\u663e\u793a", None))
+        self.comboBox.setItemText(0, QCoreApplication.translate("RemoteWidget", u"Current Dir", None))
+        self.comboBox.setItemText(1, QCoreApplication.translate("RemoteWidget", u"Recursive Open", None))
 
-        self.pushButton_cancel.setText(QCoreApplication.translate("RemoteWidget", u"\u53d6\u6d88", None))
-        self.pushButton_openfolder.setText(QCoreApplication.translate("RemoteWidget", u"\u6253\u5f00\u6587\u4ef6\u5939", None))
+        self.comboBox.setCurrentText(QCoreApplication.translate("RemoteWidget", u"Current Dir", None))
+        self.pushButton_cancel.setText(QCoreApplication.translate("RemoteWidget", u"Cancel", None))
+        self.pushButton_openfolder.setText(QCoreApplication.translate("RemoteWidget", u"Accept", None))
     # retranslateUi
 

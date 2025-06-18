@@ -72,7 +72,8 @@ class backendEngine(QObject):
         except:
             traceback.print_exc()
             # exc_type, exc_value, exc_traceback = sys.exc_info()
-            self.infoSignal.emit((('脚本异常', traceback.format_exc()), 'error'))
+            self.infoSignal.emit((('Script Error', traceback.format_exc()), 'error'))
+
         
         print('success executed code, cost ', time.time()-st2)
         
@@ -83,7 +84,7 @@ class backendEngine(QObject):
                     self.namespace['loop']()
                 except:
                     traceback.print_exc()
-                    self.infoSignal.emit((('循环异常', traceback.format_exc()), 'error'))
+                    self.infoSignal.emit((('Loop Error', traceback.format_exc()), 'error'))
                     self.quitFlag = True
                 self.thread().usleep(1)
 
@@ -128,7 +129,8 @@ class backendSFTP(QObject):
 
         
         
-        self.infoSignal.emit((('服务器连接成功', str('呕吼')), 'complete'))
+        self.infoSignal.emit((('Server Connected', f'Remote Host:{host}'), 'complete'))
+
         # print('connect to sftp server success')
         try:
             self.sftpListDir(dir, False)
@@ -197,7 +199,7 @@ class backendSFTP(QObject):
         except:
             traceback.print_exc()
             exc_type, exc_value, exc_traceback = sys.exc_info()
-            self.infoSignal.emit((('远程错误', str(exc_value)), 'error'))
+            self.infoSignal.emit((('Remote Error', str(exc_value)), 'error'))
         # self.quitFlag = False
         finally:
             self.executeSignal.emit('setDownloadProgressHidden', {'hidden':True, })
@@ -277,7 +279,7 @@ class backendSFTP(QObject):
         except:
             traceback.print_exc()
             exc_type, exc_value, exc_traceback = sys.exc_info()
-            self.infoSignal.emit((('远程错误', str(exc_value) + '\n' + remoteName + '->' + tgtPath), 'error'))
+            self.infoSignal.emit((('Remote Error', str(exc_value) + '\n' + remoteName + '->' + tgtPath), 'error'))
             
         
     

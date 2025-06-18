@@ -3,7 +3,7 @@
 ################################################################################
 ## Form generated from reading UI file 'ui_main.ui'
 ##
-## Created by: Qt User Interface Compiler version 6.6.1
+## Created by: Qt User Interface Compiler version 6.6.0
 ##
 ## WARNING! All changes made in this file will be lost when recompiling UI file!
 ################################################################################
@@ -376,25 +376,25 @@ class Ui_MainWindow(object):
 
     def retranslateUi(self, MainWindow):
         MainWindow.setWindowTitle(QCoreApplication.translate("MainWindow", u"MainWindow", None))
-        self.pushButton_openfolder.setText(QCoreApplication.translate("MainWindow", u"\u6253\u5f00\u672c\u5730\u6587\u4ef6\u5939", None))
-        self.pushButton_openremotefolder.setText(QCoreApplication.translate("MainWindow", u"\u6253\u5f00\u8fdc\u7a0b\u6587\u4ef6\u5939", None))
-        self.label_4.setText(QCoreApplication.translate("MainWindow", u"\u7f51\u683c", None))
+        self.pushButton_openfolder.setText(QCoreApplication.translate("MainWindow", u"Local Folder", None))
+        self.pushButton_openremotefolder.setText(QCoreApplication.translate("MainWindow", u"Remote Folder", None))
+        self.label_4.setText(QCoreApplication.translate("MainWindow", u"Grid", None))
         self.checkBox_axis.setText(QCoreApplication.translate("MainWindow", u"CheckBox", None))
-        self.label_5.setText(QCoreApplication.translate("MainWindow", u"\u7bad\u5934", None))
+        self.label_5.setText(QCoreApplication.translate("MainWindow", u"Arrow", None))
         self.checkBox_arrow.setText(QCoreApplication.translate("MainWindow", u"CheckBox", None))
-        self.label_3.setText(QCoreApplication.translate("MainWindow", u"\u5207\u7247", None))
-        self.pushButton_openscript.setText(QCoreApplication.translate("MainWindow", u"\u6253\u5f00\u811a\u672c", None))
+        self.label_3.setText(QCoreApplication.translate("MainWindow", u"Slice", None))
+        self.pushButton_openscript.setText(QCoreApplication.translate("MainWindow", u"Open Script", None))
         self.label_script.setText(QCoreApplication.translate("MainWindow", u"...", None))
-        self.pushButton_runscript.setText(QCoreApplication.translate("MainWindow", u"\u8fd0\u884c\u811a\u672c", None))
+        self.pushButton_runscript.setText(QCoreApplication.translate("MainWindow", u"Exec Script ", None))
         ___qtablewidgetitem = self.tableWidget.horizontalHeaderItem(0)
-        ___qtablewidgetitem.setText(QCoreApplication.translate("MainWindow", u"\u6587\u4ef6", None));
+        ___qtablewidgetitem.setText(QCoreApplication.translate("MainWindow", u"File", None));
         ___qtablewidgetitem1 = self.tableWidget_obj.horizontalHeaderItem(0)
-        ___qtablewidgetitem1.setText(QCoreApplication.translate("MainWindow", u"\u53ef\u89c1", None));
+        ___qtablewidgetitem1.setText(QCoreApplication.translate("MainWindow", u"Vis", None));
         ___qtablewidgetitem2 = self.tableWidget_obj.horizontalHeaderItem(1)
         ___qtablewidgetitem2.setText(QCoreApplication.translate("MainWindow", u"ID", None));
         ___qtablewidgetitem3 = self.tableWidget_obj.horizontalHeaderItem(2)
-        ___qtablewidgetitem3.setText(QCoreApplication.translate("MainWindow", u"\u5c3a\u5bf8", None));
-        self.pushButton_opendetail.setText(QCoreApplication.translate("MainWindow", u"\u8be6\u7ec6\u4fe1\u606f", None))
+        ___qtablewidgetitem3.setText(QCoreApplication.translate("MainWindow", u"Size", None));
+        self.pushButton_opendetail.setText(QCoreApplication.translate("MainWindow", u"Info", None))
         self.toolButton_theme.setText("")
     # retranslateUi
 

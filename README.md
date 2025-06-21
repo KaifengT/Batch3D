@@ -118,4 +118,4 @@ For point clouds and mesh vertices, colors can also be embedded as `(x, y, z, r,
 
 ## Run Scripts
 
-Refer to example scripts in [example1](example\example_01_read_ply.py), [example2](example\example_02_random_pcd.py), [example3](example\example_03_trimesh_obj.py)
+Refer to example scripts in [example1](example\example_01_random_pcd.py), [example2](example\example_02_trimesh_obj.py), [example3](example\example_04_customize_ui.py).

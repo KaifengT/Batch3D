@@ -29,7 +29,7 @@ window.resize(300, 200)
 # define user functions
 def switch_objects(value):
     data =  datalist[value]
-    Batch3D.showObj({'data':data})
+    Batch3D.addObj({'data':data})
     
 
 def random_transform():

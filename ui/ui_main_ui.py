@@ -179,8 +179,9 @@ class Ui_MainWindow(object):
         self.label_script.setObjectName(u"label_script")
         sizePolicy2.setHeightForWidth(self.label_script.sizePolicy().hasHeightForWidth())
         self.label_script.setSizePolicy(sizePolicy2)
+        self.label_script.setMaximumSize(QSize(130, 16777215))
         self.label_script.setStyleSheet(u"color: rgb(238, 238, 238);\n"
-"font: 9pt;")
+"font: 7pt;")
         self.label_script.setWordWrap(True)
 
         self.horizontalLayout_3.addWidget(self.label_script)

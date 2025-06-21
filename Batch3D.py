@@ -6,8 +6,9 @@ wdir = os.path.abspath(os.path.dirname(__file__))
 sys.path.append(wdir)
 import numpy as np
 import numpy.linalg as linalg
+from enum import Enum
 from PySide6.QtWidgets import ( QApplication, QMainWindow, QTableWidgetItem, QWidget, QFileDialog, QDialog, QGraphicsOpacityEffect, QGraphicsDropShadowEffect, QFrame, QVBoxLayout)
-from PySide6.QtCore import  QThread, Signal, Qt, QPropertyAnimation, QEasingCurve, QPoint, QRect
+from PySide6.QtCore import  QSize, QThread, Signal, Qt, QPropertyAnimation, QEasingCurve, QPoint, QRect
 from PySide6.QtGui import QCloseEvent, QIcon, QFont, QAction, QColor, QSurfaceFormat
 from ui.PopMessageWidget import PopMessageWidget_fluent as PopMessageWidget
 import multiprocessing
@@ -36,15 +37,28 @@ if sys.platform == 'win32':
 
 
 
-from qfluentwidgets import (setTheme, Theme, setThemeColor, qconfig, RoundMenu, widgets, ToggleToolButton, Slider, Action, PushButton)
+from qfluentwidgets import (setTheme, Theme, setThemeColor, qconfig, RoundMenu, widgets, ToggleToolButton, Slider, Action, PushButton, FluentIconBase)
 from qfluentwidgets import FluentIcon as FIF
 
 
+class MyFluentIcon(FluentIconBase, Enum):
+    """ Custom icons """
+
+    Folder = "Folder"
+    File = "File"
+
+
+    def path(self, theme=Theme.AUTO):
+        # getIconColor() return "white" or "black" according to current theme
+        return f'ui/icons/{self.value}.svg'
+
+
 class cellWidget(QTableWidgetItem):
-    def __init__(self, text: str, fullpath='', isRemote=False) -> None:
+    def __init__(self, text: str, fullpath='', isRemote=False, isdir=False) -> None:
         
         self.fullpath = fullpath
         self.isRemote = isRemote
+        self.isdir = isdir
         return super().__init__(text,)
 
 class cellWidget_toggle(QTableWidgetItem):
@@ -71,18 +85,31 @@ class RemoteUI(QDialog):
         self.ui.pushButton_openfolder.clicked.connect(self.openFolder)
         
         self.ui.pushButton_cancel.clicked.connect(self.close)
-        
-        # self.ui.pushButton_connect.applyStyleSheet(**Button_Style_GS)
-        # self.ui.pushButton_openfolder.applyStyleSheet(**Button_Style_GS)
-        # self.ui.pushButton_cancel.applyStyleSheet(**Button_Style_R)
-        
+                
         self.ui.tableWidget.cellDoubleClicked.connect(self.chdirSFTP)
-        self.ui.tableWidget.setHorizontalHeaderLabels(['File Directory'])
+        
+
+        self.ui.tableWidget.setColumnWidth(0, 270)
+        self.ui.tableWidget.setColumnWidth(1, 160)
+        self.ui.tableWidget.setColumnWidth(2, 120)
+
         
         self.ui.pushButton_openfolder.setDisabled(True)
         
         self.configPath = './ssh.config'
         
+    def bytestoReadable(self, n):
+        symbols = ('K', 'M', 'G', 'T', 'P', 'E', 'Z', 'Y')
+        prefix = {}
+        for i, s in enumerate(symbols):
+            prefix[s] = 1 << (i + 1) * 10
+        for s in reversed(symbols):
+            if n >= prefix[s]:
+                value = float(n) / prefix[s]
+                return '%.1f%s' % (value, s)
+        return "%sB" % n
+
+
     def serverConnected(self, ):
         self.ui.pushButton_openfolder.setDisabled(False)
         
@@ -127,9 +154,9 @@ class RemoteUI(QDialog):
             'dir':self.ui.lineEdit_dir.text()})
         
     def chdirSFTP(self, row, col):
-        fullpath = self.ui.tableWidget.item(row, col).fullpath
-        
-        self.executeSignal.emit('sftpListDir', {'dir':fullpath, 'isSet':False, 'onlydir':True})
+        if self.ui.tableWidget.item(row, 0).isdir:
+            fullpath = self.ui.tableWidget.item(row, 0).fullpath
+            self.executeSignal.emit('sftpListDir', {'dir':fullpath, 'isSet':False, 'onlydir':False})
         
     def openFolder(self, ):
         self.executeSignal.emit('sftpListDir', {'dir':self.ui.lineEdit_dir.text(), 'recursive':(False, True)[self.ui.comboBox.currentIndex()]})
@@ -139,18 +166,41 @@ class RemoteUI(QDialog):
         print('openFolder_background')
         self.executeSignal.emit('sftpListDir', {'dir':self.ui.lineEdit_dir.text(), 'recursive':(False, True)[self.ui.comboBox.currentIndex()]})
         
-    def setFolderContents(self, filelist:list, dirname:str):
+    def setFolderContents(self, files_dict:dict, dirname:str):
         self.ui.tableWidget.setRowCount(0)
         # self.ui.tableWidget.setHorizontalHeaderLabels([dirname])
         self.ui.lineEdit_dir.setText(dirname)
-        for f in filelist:
+
+        files_dict = natsort.natsorted(
+            files_dict.items(), 
+            key=lambda x: str(int(not x[1]['isdir'])) + x[0],
+            # alg=natsort.ns.REAL
+        )
+        files_dict.reverse()
+        files_dict = dict(files_dict)
+
+
+        for k, v in files_dict.items():
             self.ui.tableWidget.insertRow(0)
             
-            event_widget = cellWidget(f, dirname.rstrip('/') + '/' + f, True)
+            if v['isdir']:
+                event_widget = cellWidget(k, dirname.rstrip('/') + '/' + k, True, True)
+                event_widget.setIcon(MyFluentIcon.Folder.qicon())
+                size_weight = QTableWidgetItem('--')
+
+            else:
+                event_widget = cellWidget(k, dirname.rstrip('/') + '/' + k, True, False)
+                event_widget.setIcon(MyFluentIcon.File.qicon())
+                size_weight = QTableWidgetItem(self.bytestoReadable(v['size']))
+
+            size_weight.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
+            mtime_weight = QTableWidgetItem(v['mtime'])
             self.ui.tableWidget.setItem(0, 0, event_widget)
+            self.ui.tableWidget.setItem(0, 2, size_weight)
+            self.ui.tableWidget.setItem(0, 1, mtime_weight)
             
         self.ui.tableWidget.insertRow(0)
-        event_widget = cellWidget('..', os.path.dirname(dirname), True)
+        event_widget = cellWidget('..', os.path.dirname(dirname), True, True)
         self.ui.tableWidget.setItem(0, 0, event_widget)
             
         
@@ -418,16 +468,27 @@ class App(QMainWindow):
                 
                 self.addFiletoTable(f)
                 
-    def openRemoteFolder(self, filelist:list, dirname:str):
-        # print(filelist)
+    def openRemoteFolder(self, filelist:dict, dirname:str):
+        print(filelist)
         
+        filelist = natsort.natsorted(
+            filelist.items(), 
+            key=lambda x: x[0],
+        )
+        filelist.reverse()
+        filelist = dict(filelist)
+
+
         self.ui.tableWidget.setRowCount(0)
-        filelist = filelist[::-1]
-        for f in filelist:
-            self.addFiletoTable(f, isRemote=True)
+
+        for k, v in filelist.items():
+            self.addFiletoTable(k, isRemote=True)
 
 
-        
+        # filelist = filelist[::-1]
+        # for f in filelist:
+        #     self.addFiletoTable(f, isRemote=True)
+
     def addFiletoTable(self, filepath:str, isRemote=False):
         extName = os.path.splitext(filepath)[-1][1:]
         
@@ -435,8 +496,9 @@ class App(QMainWindow):
         
             self.ui.tableWidget.insertRow(0)
             event_widget = cellWidget(filepath, os.path.join(self.currentPath, filepath), isRemote=isRemote)
-            self.ui.tableWidget.setItem(0, 0, event_widget)
+            event_widget.setIcon(MyFluentIcon.File.qicon())
 
+            self.ui.tableWidget.setItem(0, 0, event_widget)
 
     def resetObjPropsTable(self, ):
         row_count = self.ui.tableWidget_obj.rowCount()
@@ -469,7 +531,6 @@ class App(QMainWindow):
                 'size':size,
             }
             self.ui.openGLWidget.updateObjectProps(key, props)
-
 
     def add2ObjPropsTable(self, obj, name:str, color=None, adjustable=False):
         
@@ -517,7 +578,7 @@ class App(QMainWindow):
         self.ui.tableWidget_obj.insertRow(row_count)
         tt = QTableWidgetItem(name)
         tt.setForeground(QColor(*color))
-        tt.setFont(font)
+        # tt.setFont(font)
         tt.needsRemove = False
         self.ui.tableWidget_obj.setItem(row_count, 1, tt)
         tb = ToggleToolButton(FIF.VIEW)
@@ -552,9 +613,6 @@ class App(QMainWindow):
 
         # self.ui.tableWidget_obj.setCellWidget(0, 0, tb)
         
-
-
-
     def formatContentInfo(self, obj):
         # textInfo = ' FILE CONTENT: '.center(50, '-') + '\n\n'
         textInfo = '### FILE CONTENT: ' + '\n\n --- \n\n'
@@ -630,8 +688,6 @@ class App(QMainWindow):
             
             return textInfo
         
-        
-
     def _isHexColorinName(self, name) -> str:
         if '#' in name:
             name = name.split('#', 2)[1]
@@ -693,7 +749,6 @@ class App(QMainWindow):
         self.ui.spinBox.setDisabled(maxBatch == 0)
         self.ui.spinBox.setMaximum(maxBatch-1)
         
-            
     def isSliceable(self, obj):
         if hasattr(obj, 'shape') and len(obj.shape) > 2:
             return True
@@ -752,12 +807,9 @@ class App(QMainWindow):
             exc_type, exc_value, exc_traceback = sys.exc_info()
             self.PopMessageWidgetObj.add_message_stack((('slice error occurred', str(exc_value)), 'error'))
 
-
-          
-    def showObj(self, data:dict):
+    def addObj(self, data:dict):
         self.loadObj(fullpath=data)
                 
-        
     def loadObj(self, fullpath:str, extName=''):
         
         
@@ -916,7 +968,7 @@ class App(QMainWindow):
 
             self.add2ObjPropsTable(v, k, user_color, adjustable=True)
 
-        def _dealDict(k:str,v:dict):
+        def _dealDict(k:str, v:dict):
             assert 'vertex' in v.keys(), 'mesh missing vertex(vertex)'
             assert 'face' in v.keys(), 'mesh missing face(face)'
             if v['vertex'].shape[-1] == 3:
@@ -935,6 +987,23 @@ class App(QMainWindow):
             self.add2ObjPropsTable(v, k)
             
 
+        def _load_np_file(file):
+
+            obj = np.load(file, allow_pickle=True)
+                
+            if isinstance(obj, dict):
+                ...
+            elif isinstance(obj, np.lib.npyio.NpzFile):
+                obj = dict(obj)
+
+            elif isinstance(obj, np.ndarray):
+                obj = {'numpy file': obj}
+            else:
+                raise ValueError(f'Unknown numpy file type: {type(obj)}')
+
+            return obj
+
+
         # self.ui.tableWidget_obj.setRowCount(0)
         self.resetObjPropsTable()
         try:
@@ -945,8 +1014,8 @@ class App(QMainWindow):
                     # f = PLYLoader(fullpath)
                     # obj = f.data
                 if extName in ['npz', 'npy', 'NPY', 'NPZ',]:
-                    obj = np.load(fullpath)
-                    obj = dict(obj)
+                    obj = _load_np_file(fullpath)
+
                 elif extName in ['obj', 'ply', 'stl', 'pcd', 'glb', 'xyz', 'OBJ', 'PLY', 'STL', 'PCD', 'XYZ', 'GLB']:
                     obj = trimesh.load(fullpath, process=False)
                 elif extName in ['h5', 'H5']:
@@ -964,8 +1033,7 @@ class App(QMainWindow):
             # for remote file
             else:
                 if extName in ['npz', 'npy', 'NPY', 'NPZ',]:
-                    obj = np.load(fullpath)
-                    obj = dict(obj)
+                    obj = _load_np_file(fullpath)
                 else:
                     obj = pickle.load(fullpath)
                 
@@ -1057,8 +1125,6 @@ class App(QMainWindow):
         self.clearObjPropsTable()
         self.changeObjectProps()
         
-
-
     def setObjTransform(self, ID, transform:np.ndarray=None):
         """
         Set the transformation matrix for an object in the OpenGL widget.
@@ -1071,8 +1137,6 @@ class App(QMainWindow):
         self.ui.openGLWidget.setObjTransform(ID, transform)
         self.ui.openGLWidget.update()
 
-
-        
     def setTrackObject(self, ):
         self.isTrackObject = self.ui.checkBox.isChecked()
         if self.isTrackObject and self.center_all is not None:
@@ -1085,23 +1149,6 @@ class App(QMainWindow):
         
     def switchOblyBwCallback(self, ):
         self.isNolyBw = self.ui.checkBox_2.isChecked()
-
-    # def updateBoundingBox(self, ID=1, vertex:np.ndarray=None):
-    #     try:
-    #         self.ui.openGLWidget.updateboundingbox(ID, vertex)
-
-    #     except:
-    #         exc_type, exc_value, exc_traceback = sys.exc_info()
-    #         self.PopMessageWidgetObj.add_message_stack((('数据错误', str(exc_value)), 'error'))
-
-    # def updatePointCloud(self, ID=1, pcd=None):
-    #     try:
-    #         self.ui.openGLWidget.updatepointcloud(ID, pcd)
-
-    #     except:
-    #         exc_type, exc_value, exc_traceback = sys.exc_info()
-    #         self.PopMessageWidgetObj.add_message_stack((('数据错误', str(exc_value)), 'error'))
-
 
     def backendExeGLCallback(self, func, kwargs):
         getattr(self.ui.openGLWidget, func)(**kwargs)
@@ -1122,6 +1169,8 @@ class App(QMainWindow):
     def runScript(self, ):
         self.reset_script_namespace()
         self.ui.openGLWidget.reset()
+        self.resetObjPropsTable()
+        self.clearObjPropsTable()
         
         if os.path.isfile(self.currentScriptPath):
             fname = os.path.basename(self.currentScriptPath)
@@ -1131,6 +1180,7 @@ class App(QMainWindow):
 
                 code = f.read()
                 code = code.replace('from pcdviewerAPI import executeSignal', '') # Deprecated
+                code = code.replace('import Batch3D', '') # Deprecated
 
             try:
                 exec(code, self.script_namespace)
@@ -1191,7 +1241,18 @@ class App(QMainWindow):
         
         self.runScriptStateChangeFinish()
         self.backend.start()
-        
+
+    def getFilePathFromList(self, row:int):
+        fullpath = self.ui.tableWidget.item(row, 0).fullpath
+        isRemote = self.ui.tableWidget.item(row, 0).isRemote
+
+        return fullpath, isRemote
+
+    def getListLength(self, ):
+        return self.ui.tableWidget.rowCount()
+
+
+
     def closeEvent(self, event: QCloseEvent) -> None:
         
         self.saveSettings()
@@ -1366,20 +1427,6 @@ class App(QMainWindow):
             self.openFolder(file)
         
 
-
-style = """
-QMainWindow {
-    background-color: #353535;
-
-    border-top-left-radius: 2px;
-    border-top-right-radius: 2px;
-    border-bottom-left-radius: 2px;
-    border-bottom-right-radius: 2px;
-
-}
-"""    
-
-
 def changeGlobalTheme(x):
     global CURRENT_THEME
     CURRENT_THEME = [Theme.LIGHT, Theme.DARK][x]
@@ -1422,7 +1469,7 @@ if __name__ == "__main__":
         ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("myappid")
         try:
             App.setAttribute(Qt.WA_TranslucentBackground)
-            font = QFont([u'Cascadia Mono', u'Microsoft Yahei UI'], )
+            font = QFont([u'Microsoft Yahei UI'], )
             app.setFont(font)
 
         except:

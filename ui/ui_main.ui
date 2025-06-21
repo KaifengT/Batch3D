@@ -317,9 +317,15 @@ border-radius:10px;
                <verstretch>0</verstretch>
               </sizepolicy>
              </property>
+             <property name="maximumSize">
+              <size>
+               <width>130</width>
+               <height>16777215</height>
+              </size>
+             </property>
              <property name="styleSheet">
               <string notr="true">color: rgb(238, 238, 238);
-font: 9pt;</string>
+font: 7pt;</string>
              </property>
              <property name="text">
               <string>...</string>

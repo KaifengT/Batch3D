@@ -26,7 +26,7 @@ class Ui_RemoteWidget(object):
         if not RemoteWidget.objectName():
             RemoteWidget.setObjectName(u"RemoteWidget")
         RemoteWidget.setWindowModality(Qt.ApplicationModal)
-        RemoteWidget.resize(497, 480)
+        RemoteWidget.resize(584, 596)
         RemoteWidget.setStyleSheet(u"\n"
 "border-top-left-radius: 2px;\n"
 "border-top-right-radius: 2px;\n"
@@ -76,12 +76,25 @@ class Ui_RemoteWidget(object):
         self.verticalLayout.addWidget(self.lineEdit_dir)
 
         self.tableWidget = TableWidget(RemoteWidget)
-        if (self.tableWidget.columnCount() < 1):
-            self.tableWidget.setColumnCount(1)
+        if (self.tableWidget.columnCount() < 3):
+            self.tableWidget.setColumnCount(3)
+        __qtablewidgetitem = QTableWidgetItem()
+        __qtablewidgetitem.setTextAlignment(Qt.AlignLeading|Qt.AlignVCenter);
+        self.tableWidget.setHorizontalHeaderItem(0, __qtablewidgetitem)
+        __qtablewidgetitem1 = QTableWidgetItem()
+        self.tableWidget.setHorizontalHeaderItem(1, __qtablewidgetitem1)
+        __qtablewidgetitem2 = QTableWidgetItem()
+        __qtablewidgetitem2.setTextAlignment(Qt.AlignTrailing|Qt.AlignVCenter);
+        self.tableWidget.setHorizontalHeaderItem(2, __qtablewidgetitem2)
         self.tableWidget.setObjectName(u"tableWidget")
+        self.tableWidget.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
         self.tableWidget.setEditTriggers(QAbstractItemView.NoEditTriggers)
-        self.tableWidget.setColumnCount(1)
-        self.tableWidget.horizontalHeader().setVisible(False)
+        self.tableWidget.setColumnCount(3)
+        self.tableWidget.horizontalHeader().setVisible(True)
+        self.tableWidget.horizontalHeader().setCascadingSectionResizes(True)
+        self.tableWidget.horizontalHeader().setMinimumSectionSize(120)
+        self.tableWidget.horizontalHeader().setDefaultSectionSize(270)
+        self.tableWidget.horizontalHeader().setProperty("showSortIndicator", True)
         self.tableWidget.horizontalHeader().setStretchLastSection(True)
         self.tableWidget.verticalHeader().setVisible(False)
 
@@ -134,6 +147,12 @@ class Ui_RemoteWidget(object):
         self.lineEdit_passwd.setText("")
         self.pushButton_connect.setText(QCoreApplication.translate("RemoteWidget", u"Connect Server", None))
         self.lineEdit_dir.setText(QCoreApplication.translate("RemoteWidget", u"/root", None))
+        ___qtablewidgetitem = self.tableWidget.horizontalHeaderItem(0)
+        ___qtablewidgetitem.setText(QCoreApplication.translate("RemoteWidget", u"    Name", None));
+        ___qtablewidgetitem1 = self.tableWidget.horizontalHeaderItem(1)
+        ___qtablewidgetitem1.setText(QCoreApplication.translate("RemoteWidget", u"Modify Time", None));
+        ___qtablewidgetitem2 = self.tableWidget.horizontalHeaderItem(2)
+        ___qtablewidgetitem2.setText(QCoreApplication.translate("RemoteWidget", u"Size    ", None));
         self.comboBox.setItemText(0, QCoreApplication.translate("RemoteWidget", u"Current Dir", None))
         self.comboBox.setItemText(1, QCoreApplication.translate("RemoteWidget", u"Recursive Open", None))
 

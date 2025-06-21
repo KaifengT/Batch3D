@@ -96,7 +96,7 @@ class backendEngine(QObject):
 class backendSFTP(QObject):
     executeSignal = Signal(str, dict)
     infoSignal = Signal(tuple)
-    listFolderContextSignal = Signal(list, str)
+    listFolderContextSignal = Signal(dict, str)
 
     started = Signal()
     finished = Signal()
@@ -144,28 +144,45 @@ class backendSFTP(QObject):
     def sftpListDir(self, dir, isSet=True, onlydir=False, recursive=False):
         self.currentDir = dir
         files = self.sftp.listdir(dir)
+        attr = self.sftp.listdir_attr(dir)
         
         
+        size = [a.st_size for a in attr]
+        mtime = [time.strftime('%Y-%m-%d %H:%M', time.localtime(a.st_mtime)) for a in attr]
+        isdir = [a.st_mode & 0o170000 == 0o040000 for a in attr]
+
+        files_dict= {}
+        for i in range(len(files)):
+            files_dict[files[i]] = {'size':size[i], 'mtime':mtime[i], 'isdir':isdir[i]}
+
         # print(self.recurrentListDir(dir))
         
         if onlydir:
-            attr = self.sftp.listdir_attr(dir)
-            isdir = [a.st_mode & 0o170000 == 0o040000 for a in attr]
-            dirs = []
-            for i in range(len(files)):
-                if isdir[i]:
-                    dirs.append(files[i])
-            dirs = natsort.natsorted(dirs)
+            
+            # dirs = []
+            # for i in range(len(files)):
+            #     if isdir[i]:
+            #         dirs.append(files[i])
+            # dirs = natsort.natsorted(dirs)
+            dirs = {}
+            for k, v in files_dict.items():
+                if v['isdir']:
+                    dirs[k] = v
+
             
         elif recursive:
             files = self.recurrentListDir(dir)
-            dirs = natsort.natsorted([remove_left(f, self.currentDir+'/') for f in files])
+            dirs = {}
+            for k, v in files.items():
+                dirs[remove_left(k, self.currentDir+'/')] = v
+            # dirs = natsort.natsorted([remove_left(f, self.currentDir+'/') for f in files])
             
             
         else:
-            dirs = natsort.natsorted(files)
+            # dirs = natsort.natsorted(files)
+            dirs = files_dict
             
-        # print(files)
+        # print(dirs)
         if isSet:
             return 'openRemoteFolder', {'filelist':dirs, 'dirname':self.currentDir}
         else:
@@ -174,19 +191,29 @@ class backendSFTP(QObject):
             
 
 
+    # def recurrentListDir(self, path):
+    #     files = []
+    #     for name, attr in zip(self.sftp.listdir(path), self.sftp.listdir_attr(path)):
+    #         # full_path = os.path.join(path, name)
+    #         fullpath = self._joinPathLinuxStyle(path, name)
+    #         if attr.st_mode & 0o170000 != 0o040000:
+    #             files.append(fullpath)
+            
+    #         else:
+    #             files.extend(self.recurrentListDir(fullpath))
+    #     return files           
+           
     def recurrentListDir(self, path):
-        files = []
+        files = {}
         for name, attr in zip(self.sftp.listdir(path), self.sftp.listdir_attr(path)):
             # full_path = os.path.join(path, name)
             fullpath = self._joinPathLinuxStyle(path, name)
             if attr.st_mode & 0o170000 != 0o040000:
-                files.append(fullpath)
+                files[fullpath] = {'size':attr.st_size, 'mtime':attr.st_mtime, 'isdir':False}
             
             else:
-                files.extend(self.recurrentListDir(fullpath))
-        return files           
-           
-           
+                files.update(self.recurrentListDir(fullpath))
+        return files                
         
 
     def run(self, callback, kwargs):
@@ -307,7 +334,7 @@ class backendSFTP(QObject):
             self.sftp.getfo(remoteName, tmpfile, callback=self._downloadProgress, max_concurrent_prefetch_requests=64)
             tmpfile.seek(0)
 
-            
+            self.executeSignal.emit('setDownloadProgressHidden', {'hidden':True, })
             return 'loadObj', {'fullpath':tmpfile, 'extName':extName}
         
         elif extName in ['obj']:
@@ -320,12 +347,15 @@ class backendSFTP(QObject):
             for file, rela in zip(assetFileList, assetFileListRelative):
                 self._downLoadtoLoacl(file, rela)
                 
+            self.executeSignal.emit('setDownloadProgressHidden', {'hidden':True, })
             return 'loadObj', {'fullpath':os.path.join(self.localCacheDir, assetFileListRelative[0]), 'extName':extName}
         
     
         elif extName in ['ply', 'txt', 'stl', 'pcd', 'glb', 'xyz', 'PLY', 'TXT', 'STL', 'PCD', 'XYZ', 'GLB']:
             self._deleteCache()
             self._downLoadtoLoacl(remoteName, filename)
+
+            self.executeSignal.emit('setDownloadProgressHidden', {'hidden':True, })
             return 'loadObj', {'fullpath':os.path.join(self.localCacheDir, filename), 'extName':extName}
             
                 

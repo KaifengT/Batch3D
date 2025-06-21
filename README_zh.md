@@ -100,4 +100,4 @@ with open("test.pkl", 'wb') as f:
 对于 `.pkl`, `.npy`, `.npz`, `.h5`文件，可以通过在键名后添加 `'#HHHHHH'` 或 `'#HHHHHHHH'` 的16进制颜色代码来指定点云、线条、包围框的颜色。若未指定，系统将自动分配颜色。
 对于点云和网格的顶点，还可以将每个点的颜色属性拼接为 `(x, y, z, r, g, b)` 或 `(x, y, z, r, g, b, a)`，即维度为 `(..., N, 6)` 或 `(..., N, 7)`。
 ## 运行脚本
-请参考 [example1](example\example_01_read_ply.py), [example2](example\example_02_random_pcd.py), [example3](example\example_03_trimesh_obj.py) 文件夹中的示例脚本。
+请参考 [example1](example\example_01_random_pcd.py)、[example2](example\example_02_trimesh_obj.py)、[example3](example\example_04_customize_ui.py) 文件夹中的示例脚本。

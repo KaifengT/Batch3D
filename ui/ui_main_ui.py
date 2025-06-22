@@ -20,8 +20,8 @@ from PySide6.QtWidgets import (QAbstractItemView, QApplication, QHBoxLayout, QHe
     QTextBrowser, QTextEdit, QVBoxLayout, QWidget)
 
 from glw.GLWidget import GLWidget
-from qfluentwidgets import (DropDownToolButton, PushButton, SpinBox, StrongBodyLabel,
-    SwitchButton, TableWidget)
+from qfluentwidgets import (DropDownToolButton, PrimaryPushButton, PushButton, SpinBox,
+    StrongBodyLabel, SwitchButton, TableWidget)
 from ui.addon import GLAddon_circling
 
 class Ui_MainWindow(object):
@@ -58,7 +58,7 @@ class Ui_MainWindow(object):
         self.horizontalLayout = QHBoxLayout()
         self.horizontalLayout.setObjectName(u"horizontalLayout")
         self.horizontalLayout.setContentsMargins(0, 0, 0, 0)
-        self.pushButton_openfolder = PushButton(self.tool)
+        self.pushButton_openfolder = PrimaryPushButton(self.tool)
         self.pushButton_openfolder.setObjectName(u"pushButton_openfolder")
         sizePolicy1 = QSizePolicy(QSizePolicy.Minimum, QSizePolicy.Fixed)
         sizePolicy1.setHorizontalStretch(0)
@@ -72,7 +72,7 @@ class Ui_MainWindow(object):
 
         self.verticalLayout.addLayout(self.horizontalLayout)
 
-        self.pushButton_openremotefolder = PushButton(self.tool)
+        self.pushButton_openremotefolder = PrimaryPushButton(self.tool)
         self.pushButton_openremotefolder.setObjectName(u"pushButton_openremotefolder")
         sizePolicy1.setHeightForWidth(self.pushButton_openremotefolder.sizePolicy().hasHeightForWidth())
         self.pushButton_openremotefolder.setSizePolicy(sizePolicy1)

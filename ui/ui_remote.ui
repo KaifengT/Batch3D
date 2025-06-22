@@ -70,18 +70,48 @@ border-bottom-right-radius: 2px;</string>
     </layout>
    </item>
    <item>
-    <widget class="PushButton" name="pushButton_connect">
+    <widget class="PrimaryPushButton" name="pushButton_connect">
      <property name="text">
       <string>Connect Server</string>
      </property>
     </widget>
    </item>
    <item>
-    <widget class="LineEdit" name="lineEdit_dir">
-     <property name="text">
-      <string>/root</string>
-     </property>
-    </widget>
+    <layout class="QHBoxLayout" name="horizontalLayout_5">
+     <item>
+      <widget class="ToolButton" name="pushButton_refresh">
+       <property name="maximumSize">
+        <size>
+         <width>36</width>
+         <height>16777215</height>
+        </size>
+       </property>
+       <property name="text">
+        <string/>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="LineEdit" name="lineEdit_dir">
+       <property name="text">
+        <string>/root</string>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="PrimaryToolButton" name="pushButton_go">
+       <property name="maximumSize">
+        <size>
+         <width>36</width>
+         <height>16777215</height>
+        </size>
+       </property>
+       <property name="text">
+        <string/>
+       </property>
+      </widget>
+     </item>
+    </layout>
    </item>
    <item>
     <widget class="TableWidget" name="tableWidget">
@@ -182,7 +212,7 @@ border-bottom-right-radius: 2px;</string>
       </widget>
      </item>
      <item>
-      <widget class="PushButton" name="pushButton_openfolder">
+      <widget class="PrimaryPushButton" name="pushButton_openfolder">
        <property name="text">
         <string>Accept</string>
        </property>
@@ -211,6 +241,21 @@ border-bottom-right-radius: 2px;</string>
   <customwidget>
    <class>TableWidget</class>
    <extends>QTableWidget</extends>
+   <header>qfluentwidgets.h</header>
+  </customwidget>
+  <customwidget>
+   <class>PrimaryPushButton</class>
+   <extends>QPushButton</extends>
+   <header>qfluentwidgets.h</header>
+  </customwidget>
+  <customwidget>
+   <class>ToolButton</class>
+   <extends>QPushButton</extends>
+   <header>qfluentwidgets.h</header>
+  </customwidget>
+  <customwidget>
+   <class>PrimaryToolButton</class>
+   <extends>QPushButton</extends>
    <header>qfluentwidgets.h</header>
   </customwidget>
  </customwidgets>

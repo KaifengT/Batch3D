@@ -7,8 +7,8 @@ PySide6_Fluent_Widgets
 pywin32
 trimesh
 win32mica
-PyOpenGL
-PyOpenGL-accelerate
+PyOpenGL==3.1.7
+PyOpenGL-accelerate==3.1.7
 paramiko
 opencv-python
 natsort

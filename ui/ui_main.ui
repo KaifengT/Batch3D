@@ -83,7 +83,7 @@ border-radius:10px;
             <number>0</number>
            </property>
            <item>
-            <widget class="PushButton" name="pushButton_openfolder">
+            <widget class="PrimaryPushButton" name="pushButton_openfolder">
              <property name="sizePolicy">
               <sizepolicy hsizetype="Minimum" vsizetype="Fixed">
                <horstretch>0</horstretch>
@@ -104,7 +104,7 @@ border-radius:10px;
           </layout>
          </item>
          <item>
-          <widget class="PushButton" name="pushButton_openremotefolder">
+          <widget class="PrimaryPushButton" name="pushButton_openremotefolder">
            <property name="sizePolicy">
             <sizepolicy hsizetype="Minimum" vsizetype="Fixed">
              <horstretch>0</horstretch>
@@ -652,6 +652,11 @@ QScrollBar::sub-page:horizontal
   <customwidget>
    <class>SpinBox</class>
    <extends>QSpinBox</extends>
+   <header>qfluentwidgets.h</header>
+  </customwidget>
+  <customwidget>
+   <class>PrimaryPushButton</class>
+   <extends>QPushButton</extends>
    <header>qfluentwidgets.h</header>
   </customwidget>
  </customwidgets>

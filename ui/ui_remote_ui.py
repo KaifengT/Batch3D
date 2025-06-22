@@ -19,7 +19,8 @@ from PySide6.QtWidgets import (QAbstractItemView, QApplication, QHBoxLayout, QHe
     QLineEdit, QSizePolicy, QSpacerItem, QTableWidgetItem,
     QVBoxLayout, QWidget)
 
-from qfluentwidgets import (ComboBox, LineEdit, PushButton, TableWidget)
+from qfluentwidgets import (ComboBox, LineEdit, PrimaryPushButton, PrimaryToolButton,
+    PushButton, TableWidget, ToolButton)
 
 class Ui_RemoteWidget(object):
     def setupUi(self, RemoteWidget):
@@ -65,15 +66,32 @@ class Ui_RemoteWidget(object):
 
         self.verticalLayout.addLayout(self.horizontalLayout_2)
 
-        self.pushButton_connect = PushButton(RemoteWidget)
+        self.pushButton_connect = PrimaryPushButton(RemoteWidget)
         self.pushButton_connect.setObjectName(u"pushButton_connect")
 
         self.verticalLayout.addWidget(self.pushButton_connect)
 
+        self.horizontalLayout_5 = QHBoxLayout()
+        self.horizontalLayout_5.setObjectName(u"horizontalLayout_5")
+        self.pushButton_refresh = ToolButton(RemoteWidget)
+        self.pushButton_refresh.setObjectName(u"pushButton_refresh")
+        self.pushButton_refresh.setMaximumSize(QSize(36, 16777215))
+
+        self.horizontalLayout_5.addWidget(self.pushButton_refresh)
+
         self.lineEdit_dir = LineEdit(RemoteWidget)
         self.lineEdit_dir.setObjectName(u"lineEdit_dir")
 
-        self.verticalLayout.addWidget(self.lineEdit_dir)
+        self.horizontalLayout_5.addWidget(self.lineEdit_dir)
+
+        self.pushButton_go = PrimaryToolButton(RemoteWidget)
+        self.pushButton_go.setObjectName(u"pushButton_go")
+        self.pushButton_go.setMaximumSize(QSize(36, 16777215))
+
+        self.horizontalLayout_5.addWidget(self.pushButton_go)
+
+
+        self.verticalLayout.addLayout(self.horizontalLayout_5)
 
         self.tableWidget = TableWidget(RemoteWidget)
         if (self.tableWidget.columnCount() < 3):
@@ -123,7 +141,7 @@ class Ui_RemoteWidget(object):
 
         self.horizontalLayout_3.addWidget(self.pushButton_cancel)
 
-        self.pushButton_openfolder = PushButton(RemoteWidget)
+        self.pushButton_openfolder = PrimaryPushButton(RemoteWidget)
         self.pushButton_openfolder.setObjectName(u"pushButton_openfolder")
 
         self.horizontalLayout_3.addWidget(self.pushButton_openfolder)
@@ -146,7 +164,9 @@ class Ui_RemoteWidget(object):
         self.lineEdit_passwd.setInputMask("")
         self.lineEdit_passwd.setText("")
         self.pushButton_connect.setText(QCoreApplication.translate("RemoteWidget", u"Connect Server", None))
+        self.pushButton_refresh.setText("")
         self.lineEdit_dir.setText(QCoreApplication.translate("RemoteWidget", u"/root", None))
+        self.pushButton_go.setText("")
         ___qtablewidgetitem = self.tableWidget.horizontalHeaderItem(0)
         ___qtablewidgetitem.setText(QCoreApplication.translate("RemoteWidget", u"    Name", None));
         ___qtablewidgetitem1 = self.tableWidget.horizontalHeaderItem(1)

@@ -7,7 +7,7 @@ sys.path.append(wdir)
 import numpy as np
 import numpy.linalg as linalg
 from enum import Enum
-from PySide6.QtWidgets import ( QApplication, QMainWindow, QTableWidgetItem, QWidget, QFileDialog, QDialog, QGraphicsOpacityEffect, QGraphicsDropShadowEffect, QFrame, QVBoxLayout)
+from PySide6.QtWidgets import ( QApplication, QMainWindow, QTableWidgetItem, QWidget, QFileDialog, QDialog, QGraphicsOpacityEffect, QGraphicsDropShadowEffect, QFrame, QVBoxLayout, QLabel)
 from PySide6.QtCore import  QSize, QThread, Signal, Qt, QPropertyAnimation, QEasingCurve, QPoint, QRect
 from PySide6.QtGui import QCloseEvent, QIcon, QFont, QAction, QColor, QSurfaceFormat
 from ui.PopMessageWidget import PopMessageWidget_fluent as PopMessageWidget
@@ -37,7 +37,7 @@ if sys.platform == 'win32':
 
 
 
-from qfluentwidgets import (setTheme, Theme, setThemeColor, qconfig, RoundMenu, widgets, ToggleToolButton, Slider, Action, PushButton, FluentIconBase)
+from qfluentwidgets import (setTheme, Theme, setThemeColor, qconfig, RoundMenu, widgets, ToggleToolButton, Slider, Action, PushButton, FluentIconBase, StrongBodyLabel)
 from qfluentwidgets import FluentIcon as FIF
 
 
@@ -80,6 +80,9 @@ class RemoteUI(QDialog):
         self.ui.setupUi(self)
         self.setAttribute(Qt.WA_TranslucentBackground)
         # self.setWindowFlags(Qt.FramelessWindowHint)
+
+        self.ui.pushButton_go.setIcon(FIF.RIGHT_ARROW)
+        self.ui.pushButton_refresh.setIcon(FIF.SYNC)
                              
         self.ui.pushButton_connect.clicked.connect(self.connectSFTP)
         self.ui.pushButton_openfolder.clicked.connect(self.openFolder)
@@ -89,12 +92,19 @@ class RemoteUI(QDialog):
         self.ui.tableWidget.cellDoubleClicked.connect(self.chdirSFTP)
         
 
+        self.ui.pushButton_go.clicked.connect(lambda: self.chdirSFTP_path(self.ui.lineEdit_dir.text()))
+        self.ui.pushButton_refresh.clicked.connect(lambda: self.chdirSFTP_path(self.ui.lineEdit_dir.text()))
+
         self.ui.tableWidget.setColumnWidth(0, 270)
         self.ui.tableWidget.setColumnWidth(1, 160)
         self.ui.tableWidget.setColumnWidth(2, 120)
 
+        self.ui.tableWidget.setBorderVisible(True)
+        self.ui.tableWidget.setBorderRadius(6)
         
         self.ui.pushButton_openfolder.setDisabled(True)
+        self.ui.pushButton_go.setDisabled(True)
+        self.ui.pushButton_refresh.setDisabled(True)
         
         self.configPath = './ssh.config'
         
@@ -112,6 +122,9 @@ class RemoteUI(QDialog):
 
     def serverConnected(self, ):
         self.ui.pushButton_openfolder.setDisabled(False)
+        self.ui.pushButton_go.setDisabled(False)
+        self.ui.pushButton_refresh.setDisabled(False)
+
         
     def loadSettings(self, ):
         
@@ -157,6 +170,11 @@ class RemoteUI(QDialog):
         if self.ui.tableWidget.item(row, 0).isdir:
             fullpath = self.ui.tableWidget.item(row, 0).fullpath
             self.executeSignal.emit('sftpListDir', {'dir':fullpath, 'isSet':False, 'onlydir':False})
+
+
+    def chdirSFTP_path(self, path):
+        self.executeSignal.emit('sftpListDir', {'dir':path, 'isSet':False, 'onlydir':False})
+
         
     def openFolder(self, ):
         self.executeSignal.emit('sftpListDir', {'dir':self.ui.lineEdit_dir.text(), 'recursive':(False, True)[self.ui.comboBox.currentIndex()]})
@@ -306,6 +324,12 @@ class App(QMainWindow):
         self.ui.tableWidget_obj.setColumnWidth(0, 55)
         self.ui.tableWidget_obj.setColumnWidth(1, 150)
         
+        self.ui.tableWidget_obj.setBorderVisible(True)
+        self.ui.tableWidget_obj.setBorderRadius(6)
+
+        self.ui.tableWidget.setBorderVisible(True)
+        self.ui.tableWidget.setBorderRadius(6)
+
 
         self.ui.pushButton_openfolder.clicked.connect(self.openFolder)
         self.ui.pushButton_openfolder.setIcon(FIF.FOLDER)
@@ -469,7 +493,6 @@ class App(QMainWindow):
                 self.addFiletoTable(f)
                 
     def openRemoteFolder(self, filelist:dict, dirname:str):
-        print(filelist)
         
         filelist = natsort.natsorted(
             filelist.items(), 
@@ -503,20 +526,20 @@ class App(QMainWindow):
     def resetObjPropsTable(self, ):
         row_count = self.ui.tableWidget_obj.rowCount()
         for i in range(row_count):
-            item = self.ui.tableWidget_obj.item(i, 1)
+            item = self.ui.tableWidget_obj.cellWidget(i, 1)
             item.needsRemove = True
                 
     def clearObjPropsTable(self, ):
         row_count = self.ui.tableWidget_obj.rowCount()
         for i in range(row_count)[::-1]:
-            item = self.ui.tableWidget_obj.item(i, 1)
+            item = self.ui.tableWidget_obj.cellWidget(i, 1)
             if item.needsRemove:
                 self.ui.tableWidget_obj.removeRow(i)
 
     def changeObjectProps(self, ):
         row_count = self.ui.tableWidget_obj.rowCount()
         for i in range(row_count):
-            key = self.ui.tableWidget_obj.item(i, 1).text()
+            key = self.ui.tableWidget_obj.cellWidget(i, 1).text()
             isShow = self.ui.tableWidget_obj.cellWidget(i, 0).isChecked()
             if isShow:
                 self.ui.tableWidget_obj.cellWidget(i, 0).setIcon(FIF.VIEW)
@@ -558,7 +581,7 @@ class App(QMainWindow):
         # print('row_count', row_count)
         i = 0
         for i in range(row_count):
-            item = self.ui.tableWidget_obj.item(i, 1)
+            item = self.ui.tableWidget_obj.cellWidget(i, 1)
             if item.text() == name:
                 # print('find exist name:', name)
                 item.needsRemove = False
@@ -576,17 +599,36 @@ class App(QMainWindow):
         
         # print('add new name:', name)
         self.ui.tableWidget_obj.insertRow(row_count)
-        tt = QTableWidgetItem(name)
-        tt.setForeground(QColor(*color))
+        # tt = QTableWidgetItem(name)
+        # tt.setForeground(QColor(*color))
+        # tt.setBackground(QColor(*color))
+        # tt = RoundedRectTableItem(name, radius=5, margin=2, bg_color=QColor(*color))
+        tt = QLabel(name)
+        r, g, b = color
+        luminance = 0.2126 * r + 0.7152 * g + 0.0722 * b
+        font_color = 'black' if luminance > 128 else 'white'
+        tt.setStyleSheet(f'''
+            background-color: rgb({r}, {g}, {b});
+            color: {font_color};
+            border-radius: 6px;
+            padding: 2px;
+            margin: 6px;
+            ''')
+        tt.setFont(font)
+
+
+
         # tt.setFont(font)
         tt.needsRemove = False
-        self.ui.tableWidget_obj.setItem(row_count, 1, tt)
+        # self.ui.tableWidget_obj.setItem(row_count, 1, tt)
+        self.ui.tableWidget_obj.setCellWidget(row_count, 1, tt)
+
         tb = ToggleToolButton(FIF.VIEW)
         tb.setChecked(True)
         tb.toggled.connect(self.changeObjectProps)
         tb.setMaximumSize(24, 24)
-        self.ui.tableWidget_obj.setCellWidget(row_count, 0, tb)
         
+        self.ui.tableWidget_obj.setCellWidget(row_count, 0, tb)
         if adjustable:
             add_slider(row_count)
             
@@ -1080,6 +1122,8 @@ class App(QMainWindow):
                         
                     self.ui.openGLWidget.updateTrimeshObject(ID=fileName, obj=obj)
                     
+                    self.add2ObjPropsTable(obj, fileName)
+
                 elif isinstance(obj, trimesh.PointCloud):
                     if hasattr(obj, 'colors') and hasattr(obj, 'vertices') and len(obj.colors.shape) > 1 and obj.colors.shape[0] == obj.vertices.shape[0]:
                         if np.max(obj.colors) > 1:
@@ -1090,11 +1134,13 @@ class App(QMainWindow):
                         _dealArray(fileName, array)
                     else:
                         _dealArray(fileName, np.array(obj.vertices))
+
+                    self.add2ObjPropsTable(obj, fileName, adjustable=True)
                     
                 else:
                     self.PopMessageWidgetObj.add_message_stack((('unsupported Trimesh object', obj.__class__.__name__), 'error'))
                     
-                self.add2ObjPropsTable(obj, fileName)
+                # self.add2ObjPropsTable(obj, fileName)
                 
                 
             elif isinstance(obj, h5py.File):
@@ -1469,7 +1515,7 @@ if __name__ == "__main__":
         ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("myappid")
         try:
             App.setAttribute(Qt.WA_TranslucentBackground)
-            font = QFont([u'Microsoft Yahei UI'], )
+            font = QFont([u'Microsoft Yahei UI'], 10)
             app.setFont(font)
 
         except:

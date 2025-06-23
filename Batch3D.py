@@ -37,7 +37,7 @@ if sys.platform == 'win32':
 
 
 
-from qfluentwidgets import (setTheme, Theme, setThemeColor, qconfig, RoundMenu, widgets, ToggleToolButton, Slider, Action, PushButton, FluentIconBase, StrongBodyLabel)
+from qfluentwidgets import (setTheme, Theme, setThemeColor, qconfig, RoundMenu, widgets, ToggleToolButton, Slider, Action, PushButton, FluentIconBase)
 from qfluentwidgets import FluentIcon as FIF
 
 
@@ -269,11 +269,9 @@ class App(QMainWindow):
 
         
         
-        
-        
         self.ui = Ui_MainWindow()
         self.ui.setupUi(self)
-        self.tgtTheme = Theme.DARK
+        self.tgtTheme = Theme.LIGHT
 
         # self.toolframe = QFrame(self.ui.openGLWidget)
         # self.ui.tool.setFixedSize(200, 200)
@@ -450,6 +448,7 @@ class App(QMainWindow):
         self.GL = self.ui.openGLWidget
         self.reset_script_namespace()
     
+
     def reset_script_namespace(self, ):
         self.script_namespace = {'Batch3D':self,
                                  }

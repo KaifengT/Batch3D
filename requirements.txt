@@ -10,5 +10,5 @@ win32mica
 PyOpenGL==3.1.7
 PyOpenGL-accelerate==3.1.7
 paramiko
-opencv-python
 natsort
+h5py

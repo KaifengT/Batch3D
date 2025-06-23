@@ -13,7 +13,7 @@ from OpenGL.GLU import *
 from OpenGL.GL import shaders
 from PySide6.QtOpenGLWidgets import QOpenGLWidget
 from OpenGL.arrays import vbo
-import cv2
+# import cv2
 import trimesh.visual
 
 from .utils.transformations import rotation_matrix, rpy2hRT, invHRT
@@ -731,11 +731,11 @@ class GLWidget(QOpenGLWidget):
             return (0.9, 0.9, 0.9, 0.9)
 
 
-    def _vector_to_transform_matrix(self, vector):
-        R = cv2.Rodrigues(vector)
-        rt = np.identity(4, dtype=np.float32)
-        rt[:3,:3] = R[0]
-        return rt
+    # def _vector_to_transform_matrix(self, vector):
+    #     R = cv2.Rodrigues(vector)
+    #     rt = np.identity(4, dtype=np.float32)
+    #     rt[:3,:3] = R[0]
+    #     return rt
         
         
     # def removeSwitchLabel(self, name=None):

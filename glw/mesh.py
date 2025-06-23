@@ -4,12 +4,9 @@ import math
 from typing import Any
 import PIL.Image as im
 import numpy as np
-import time, os
-import cv2
 from OpenGL.GL import *
 from OpenGL.GLU import *
 from OpenGL.arrays import vbo
-from PySide6.QtCore import (QObject, Signal, QTimer, Slot)
 from ctypes import *
 from .utils.transformations import invHRT, rotation_matrix, rotationMatrixY, rpy2hRT
 from PIL import Image

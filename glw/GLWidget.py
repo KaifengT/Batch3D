@@ -89,6 +89,10 @@ class GLCamera(QObject):
         archball = 0
         trackball = 1
         
+    class projectionMode(Enum):
+        perspective = 0
+        orthographic = 1
+        
     
     updateSignal = Signal()
     
@@ -133,6 +137,10 @@ class GLCamera(QObject):
         # self.filterRotaion = kalmanFilter(4, Q=0.5, R=0.1)
         self.filterRotaion = kalmanFilter(4, R=0.4)
         self.filterAngle = kalmanFilter(1)
+        
+        self.filterPersp = kalmanFilter(16)
+        
+        self.projection_mode = self.projectionMode.perspective
         
         self.filterAEV.stable(np.array([self.azimuth, self.elevation, self.viewPortDistance]))
         self.updateTransform(False, False)
@@ -516,18 +524,41 @@ class GLCamera(QObject):
 
        
     def updateProjTransform(self, aspect=1.) -> np.ndarray:
-        right = np.tan(np.radians(self.viewAngle/2)) * self.near
-        left = -right
-        top = right/aspect
-        bottom = left/aspect
-        rw, rh, rd = 1/(right-left), 1/(top-bottom), 1/(self.far-self.near)
- 
-        return np.array([
-            [2 * self.near * rw, 0, 0, 0],
-            [0, 2 * self.near * rh, 0, 0],
-            [(right+left) * rw, (top+bottom) * rh, -(self.far+self.near) * rd, -1],
-            [0, 0, -2 * self.near * self.far * rd, 0]
-        ], dtype=np.float32)
+        if self.projection_mode == self.projectionMode.perspective:
+            
+            right = np.tan(np.radians(self.viewAngle/2)) * self.near
+            left = -right
+            top = right/aspect
+            bottom = left/aspect
+            rw, rh, rd = 1/(right-left), 1/(top-bottom), 1/(self.far-self.near)
+    
+            return np.array([
+                [2 * self.near * rw, 0, 0, 0],
+                [0, 2 * self.near * rh, 0, 0],
+                [(right+left) * rw, (top+bottom) * rh, -(self.far+self.near) * rd, -1],
+                [0, 0, -2 * self.near * self.far * rd, 0]
+            ], dtype=np.float32)
+            
+        elif self.projection_mode == self.projectionMode.orthographic:
+            
+            height = self.viewPortDistance * 0.2 
+            width = height * aspect
+            right = width
+            left = -width
+            top = height
+            bottom = -height
+            
+            rw, rh, rd = 1/(right-left), 1/(top-bottom), 1/(self.far-self.near)
+
+            return np.array([
+                [1 * rw, 0, 0, 0],
+                [0, 1 * rh, 0, 0],
+                [0, 0, -1 * rd, -(self.far+self.near) * rd],
+                [0, 0, 0, 1]
+            ], dtype=np.float32).T
+            
+        else:
+            raise ValueError(f'Unknown projection mode: {self.projection_mode}')
                
 
 
@@ -667,7 +698,13 @@ class GLWidget(QOpenGLWidget):
         self.gl_camera_control_combobox.addItem('0', 'Arcball', lambda:self.changeCameraControl(0))
         self.gl_camera_control_combobox.addItem('1', ' Orbit ', lambda:self.changeCameraControl(1))
         self.gl_camera_control_combobox.setCurrentItem('0')
-        
+
+
+        self.gl_camera_perp_combobox = SegmentedWidget(parent=self,)
+        self.gl_camera_perp_combobox.setFixedWidth(118)
+        self.gl_camera_perp_combobox.addItem('0', 'Persp', lambda:self.changeCameraPerspMode(0))
+        self.gl_camera_perp_combobox.addItem('1', ' Ortho ', lambda:self.changeCameraPerspMode(1))
+        self.gl_camera_perp_combobox.setCurrentItem('0')        
         # self.gl_slider = Slider(Qt.Orientation.Vertical, parent=self)
         # self.gl_slider.setFixedHeight(200)
         # self.gl_slider.setFixedWidth(20)
@@ -704,6 +741,11 @@ class GLWidget(QOpenGLWidget):
         self.camera.controltype = self.camera.controlType(index)
         self.resetCamera()
         
+    def changeCameraPerspMode(self, index):
+        self.camera.projection_mode = self.camera.projectionMode(index)
+        # self.camera.updateProjTransform(aspect=self.window_w/self.window_h)
+        # self.resetCamera()
+        self.update()
         
     def setGlobalSize(self, size):
         self.point_line_size = size
@@ -1203,6 +1245,8 @@ class GLWidget(QOpenGLWidget):
         self.gl_render_mode_combobox.move((self.window_w - self.gl_render_mode_combobox.width())//2 , 15)
         
         self.gl_camera_control_combobox.move((self.window_w - self.gl_camera_control_combobox.width())-20 , 15)
+        
+        self.gl_camera_perp_combobox.move((self.window_w - self.gl_camera_perp_combobox.width())-150 , 15)
         
         # self.indicator.move(QPoint(self.window_w - self.indicator.width()-20,self.window_h - self.indicator.height() - 20))
         # self.gl_slider.move(self.window_w - self.gl_slider.width() - 15, 75)

@@ -8,7 +8,7 @@ import numpy as np
 import numpy.linalg as linalg
 from enum import Enum
 from PySide6.QtWidgets import ( QApplication, QMainWindow, QTableWidgetItem, QWidget, QFileDialog, QDialog, QGraphicsOpacityEffect, QGraphicsDropShadowEffect, QFrame, QVBoxLayout, QLabel)
-from PySide6.QtCore import  QSize, QThread, Signal, Qt, QPropertyAnimation, QEasingCurve, QPoint, QRect
+from PySide6.QtCore import  QSize, QThread, Signal, Qt, QPropertyAnimation, QEasingCurve, QPoint, QRect, QObject
 from PySide6.QtGui import QCloseEvent, QIcon, QFont, QAction, QColor, QSurfaceFormat
 from ui.PopMessageWidget import PopMessageWidget_fluent as PopMessageWidget
 import multiprocessing
@@ -450,8 +450,28 @@ class App(QMainWindow):
     
 
     def reset_script_namespace(self, ):
-        self.script_namespace = {'Batch3D':self,
-                                 }
+        # delete objects in script namespace
+        try:
+            if hasattr(self, 'script_namespace'):
+                for k, v in self.script_namespace.items():
+                    if k == 'Batch3D':
+                        continue
+                    if isinstance(v, QThread):
+                        v.quit()
+                        v.wait()
+                    elif isinstance(v, QObject):
+                        if hasattr(v, 'isWindow') and v.isWindow():
+                            v.close()
+                        if hasattr(v, 'deleteLater'):
+                            v.deleteLater()
+                    else:
+                        del v
+        except:
+            traceback.print_exc()
+                
+        
+        finally:
+            self.script_namespace = {'Batch3D':self,}
     
         
     def moveToolWidget(self, hide=True):
@@ -1523,7 +1543,10 @@ if __name__ == "__main__":
     elif sys.platform == 'darwin':
         font = QFont(['SF Pro Display', 'Helvetica Neue', 'Arial'], 10, QFont.Weight.Normal)
         app.setFont(font)
-    
+        
+    else:
+        font = QFont(['Ubuntu', 'Arial'], 10, QFont.Weight.Normal)
+        app.setFont(font)
     
     App.show()
 

@@ -80,40 +80,14 @@ class Ui_MainWindow(object):
 
         self.verticalLayout.addWidget(self.pushButton_openremotefolder)
 
-        self.horizontalLayout_8 = QHBoxLayout()
-        self.horizontalLayout_8.setObjectName(u"horizontalLayout_8")
-        self.horizontalLayout_8.setContentsMargins(-1, 0, -1, -1)
-        self.label_4 = StrongBodyLabel(self.tool)
-        self.label_4.setObjectName(u"label_4")
-        sizePolicy2 = QSizePolicy(QSizePolicy.Fixed, QSizePolicy.Preferred)
-        sizePolicy2.setHorizontalStretch(0)
-        sizePolicy2.setVerticalStretch(0)
-        sizePolicy2.setHeightForWidth(self.label_4.sizePolicy().hasHeightForWidth())
-        self.label_4.setSizePolicy(sizePolicy2)
-        self.label_4.setStyleSheet(u"color: rgb(238, 238, 238);")
-
-        self.horizontalLayout_8.addWidget(self.label_4)
-
-        self.horizontalSpacer_6 = QSpacerItem(40, 20, QSizePolicy.Expanding, QSizePolicy.Minimum)
-
-        self.horizontalLayout_8.addItem(self.horizontalSpacer_6)
-
-        self.checkBox_axis = SwitchButton(self.tool)
-        self.checkBox_axis.setObjectName(u"checkBox_axis")
-        sizePolicy1.setHeightForWidth(self.checkBox_axis.sizePolicy().hasHeightForWidth())
-        self.checkBox_axis.setSizePolicy(sizePolicy1)
-        self.checkBox_axis.setChecked(True)
-
-        self.horizontalLayout_8.addWidget(self.checkBox_axis)
-
-
-        self.verticalLayout.addLayout(self.horizontalLayout_8)
-
         self.horizontalLayout_9 = QHBoxLayout()
         self.horizontalLayout_9.setObjectName(u"horizontalLayout_9")
         self.horizontalLayout_9.setContentsMargins(-1, 0, -1, -1)
         self.label_5 = StrongBodyLabel(self.tool)
         self.label_5.setObjectName(u"label_5")
+        sizePolicy2 = QSizePolicy(QSizePolicy.Fixed, QSizePolicy.Preferred)
+        sizePolicy2.setHorizontalStretch(0)
+        sizePolicy2.setVerticalStretch(0)
         sizePolicy2.setHeightForWidth(self.label_5.sizePolicy().hasHeightForWidth())
         self.label_5.setSizePolicy(sizePolicy2)
         self.label_5.setStyleSheet(u"color: rgb(238, 238, 238);")
@@ -379,8 +353,6 @@ class Ui_MainWindow(object):
         MainWindow.setWindowTitle(QCoreApplication.translate("MainWindow", u"MainWindow", None))
         self.pushButton_openfolder.setText(QCoreApplication.translate("MainWindow", u"Local Folder", None))
         self.pushButton_openremotefolder.setText(QCoreApplication.translate("MainWindow", u"Remote Folder", None))
-        self.label_4.setText(QCoreApplication.translate("MainWindow", u"Grid", None))
-        self.checkBox_axis.setText(QCoreApplication.translate("MainWindow", u"CheckBox", None))
         self.label_5.setText(QCoreApplication.translate("MainWindow", u"Arrow", None))
         self.checkBox_arrow.setText(QCoreApplication.translate("MainWindow", u"CheckBox", None))
         self.label_3.setText(QCoreApplication.translate("MainWindow", u"Slice", None))

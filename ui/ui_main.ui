@@ -123,58 +123,6 @@ border-radius:10px;
           </widget>
          </item>
          <item>
-          <layout class="QHBoxLayout" name="horizontalLayout_8">
-           <property name="topMargin">
-            <number>0</number>
-           </property>
-           <item>
-            <widget class="StrongBodyLabel" name="label_4">
-             <property name="sizePolicy">
-              <sizepolicy hsizetype="Fixed" vsizetype="Preferred">
-               <horstretch>0</horstretch>
-               <verstretch>0</verstretch>
-              </sizepolicy>
-             </property>
-             <property name="styleSheet">
-              <string notr="true">color: rgb(238, 238, 238);</string>
-             </property>
-             <property name="text">
-              <string>Grid</string>
-             </property>
-            </widget>
-           </item>
-           <item>
-            <spacer name="horizontalSpacer_6">
-             <property name="orientation">
-              <enum>Qt::Horizontal</enum>
-             </property>
-             <property name="sizeHint" stdset="0">
-              <size>
-               <width>40</width>
-               <height>20</height>
-              </size>
-             </property>
-            </spacer>
-           </item>
-           <item>
-            <widget class="SwitchButton" name="checkBox_axis">
-             <property name="sizePolicy">
-              <sizepolicy hsizetype="Minimum" vsizetype="Fixed">
-               <horstretch>0</horstretch>
-               <verstretch>0</verstretch>
-              </sizepolicy>
-             </property>
-             <property name="text">
-              <string>CheckBox</string>
-             </property>
-             <property name="checked">
-              <bool>true</bool>
-             </property>
-            </widget>
-           </item>
-          </layout>
-         </item>
-         <item>
           <layout class="QHBoxLayout" name="horizontalLayout_9">
            <property name="topMargin">
             <number>0</number>

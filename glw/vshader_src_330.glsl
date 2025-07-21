@@ -16,6 +16,7 @@ uniform mat4 u_ModelMatrix;
 
 uniform vec3 u_CamPos;
 uniform int u_farPlane;
+uniform float u_farPlane_ratio;
 
 out vec3 v_Position;
 out vec3 v_Normal;
@@ -36,7 +37,8 @@ void main() {
 
         if (u_farPlane == 1) {
             vec3 vertex_distance = vec3(u_ModelMatrix * a_Position) - u_CamPos;
-            v_Color = a_Color - (vec4(0.0, 0.0, 0.0, 1.0) * length(vertex_distance)* 0.02);
+            float distance_factor = 1.0 - clamp(length(vertex_distance) * u_farPlane_ratio, 0.0, 1.0);
+            v_Color = a_Color * distance_factor;
         }
     }
     else {

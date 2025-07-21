@@ -1,26 +1,26 @@
 '''
 copyright: (c) 2024 by KaifengTang, TingruiGuo
 '''
+import sys, os
+sys.path.append(os.path.abspath('.'))
+sys.path.append(os.path.abspath('..'))
 import math
 import time
 import traceback
 import numpy as np
-from PySide6.QtCore import (QTimer, Qt, QRect, QRectF, Signal, QSize, QObject, QPoint)
-from PySide6.QtGui import (QBrush, QColor,QWheelEvent,QMouseEvent, QPainter, QPen, QFont)
-from PySide6.QtWidgets import (QApplication, QWidget, QLabel, QCheckBox, QSizePolicy, QVBoxLayout)
+from PySide6.QtCore import (QTimer, Qt, QRect, QRectF, Signal, QSize, QObject, QPoint, QKeyCombination)
+from PySide6.QtGui import (QBrush, QColor,QWheelEvent,QMouseEvent, QPainter, QPen, QFont, QKeySequence)
+from PySide6.QtWidgets import (QApplication, QWidget, QLabel, QCheckBox, QSizePolicy, QVBoxLayout, QFrame, QHBoxLayout, QSpacerItem)
 from OpenGL.GL import *
 from OpenGL.GLU import *
 from OpenGL.GL import shaders
 from PySide6.QtOpenGLWidgets import QOpenGLWidget
 from OpenGL.arrays import vbo
-# import cv2
+from types import NoneType
 import trimesh.visual
-
+from tools.overload import singledispatchmethod
 from .utils.transformations import rotation_matrix, rpy2hRT, invHRT
 from .utils.kalman import kalmanFilter
-import sys, os
-sys.path.append(os.path.abspath('.'))
-sys.path.append(os.path.abspath('..'))
 from typing import Tuple
 import copy
 from .mesh import Mesh, PointCloud, Grid, Axis, BoundingBox, Lines, Arrow, BaseObject
@@ -32,51 +32,9 @@ import trimesh
 from enum import Enum
 # from memory_profiler import profile
 
-from qfluentwidgets import CheckBox, setCustomStyleSheet, ComboBox, Slider, SegmentedWidget
-
-_AmbientLight  = [0.8, 0.8, 0.8, 1.0]
-_DiffuseLight  = [0.5, 0.5, 0.5, 1.0]
-_SpecularLight = [0.4, 0.4, 0.4, 1.0]
-_PositionLight = [20.0, 20.0, 20.0, 0.0]
-
-current_platform = sys.platform
-
-def_color =  np.array([    
-        # [217, 217, 217],
-        [233, 119, 119],
-        [65 , 157, 129],
-        [156, 201, 226],
-        [228, 177, 240],
-        [252, 205, 42 ],
-        [240, 90 , 126],
-        [33 , 155, 157],
-        [114, 191, 120],
-        [199, 91 , 122],
-        [129, 180, 227],
-        [115, 154, 228],
-        [119, 228, 200],
-        [243, 231, 155],
-        [248, 160, 126],
-        [206, 102, 147],
-        
-        ]) / 255.
-
-# rgb(217, 217, 217),  
-# rgb(233, 119, 119),        
-# rgb(65 , 157, 129),
-# rgb(156, 201, 226),
-# rgb(228, 177, 240),
-# rgb(252, 205, 42 ),
-# rgb(240, 90 , 126),
-# rgb(33 , 155, 157),
-# rgb(114, 191, 120),
-# rgb(199, 91 , 122),
-# rgb(129, 180, 227),
-# rgb(115, 154, 228),
-# rgb(119, 228, 200),
-# rgb(243, 231, 155),
-# rgb(248, 160, 126),
-# rgb(206, 102, 147),
+from qfluentwidgets import CheckBox, setCustomStyleSheet, ComboBox, Slider, SegmentedWidget, DropDownToolButton, \
+    RoundMenu, Action, BodyLabel, SpinBox, DoubleSpinBox, ToggleButton, SwitchButton
+from qfluentwidgets import FluentIcon as FIF
 
 
 
@@ -86,7 +44,7 @@ def_color =  np.array([
 class GLCamera(QObject):
     
     class controlType(Enum):
-        archball = 0
+        arcball = 0
         trackball = 1
         
     class projectionMode(Enum):
@@ -109,7 +67,7 @@ class GLCamera(QObject):
         super().__init__()
             
         self.azimuth=135
-        self.elevation=-60
+        self.elevation=-55
         self.viewPortDistance = 10
         self.CameraTransformMat = np.identity(4)
         self.lookatPoint = np.array([0., 0., 0.,])
@@ -120,7 +78,7 @@ class GLCamera(QObject):
         self.near = 0.1
         self.far = 4000.0
         
-        self.controltype = self.controlType.archball
+        self.controltype = self.controlType.arcball
         
         self.archball_rmat = None
         self.target = None
@@ -138,7 +96,15 @@ class GLCamera(QObject):
         self.filterRotaion = kalmanFilter(4, R=0.4)
         self.filterAngle = kalmanFilter(1)
         
-        self.filterPersp = kalmanFilter(16)
+        # 投影相关的滤波器
+        self.filterPersp = kalmanFilter(16, R=0.5)  # 4x4 投影矩阵
+        self.filterViewAngle = kalmanFilter(1, R=0.1)  # FOV角度
+        self.filterNear = kalmanFilter(1, R=0.1)  # 近平面
+        self.filterFar = kalmanFilter(1, R=0.1)  # 远平面
+        
+        # 投影矩阵缓存
+        self.currentProjMatrix = None
+        self.targetProjMatrix = None
         
         self.projection_mode = self.projectionMode.perspective
         
@@ -150,25 +116,38 @@ class GLCamera(QObject):
         self.timer.setSingleShot(False)
         self.timer.setInterval(7)
         self.timer.start()
+
+
+        self.timer_proj = QTimer()
+        self.timer_proj.timeout.connect(self.updateProjTransform)
+        self.timer_proj.setSingleShot(False)
+        self.timer_proj.setInterval(7)
         
-        
-    def setCamera(self, azimuth=0, elevation=45, distance=10, lookatPoint=np.array([0., 0., 0.,])) -> np.ndarray:
+        self.aspect = 1.0
+
+    def setCamera(self, azimuth=0, elevation=50, distance=10, lookatPoint=np.array([0., 0., 0.,])) -> np.ndarray:
         if self.controltype == self.controlType.trackball:
             self.azimuth=azimuth
             self.elevation=elevation
             self.viewPortDistance = distance
             self.lookatPoint = lookatPoint
             
+            
         else:
-            ...
             rmat = rpy2hRT(0, 0, 0, 0, 0, azimuth/180.*math.pi)
             rmat =  rpy2hRT(0, 0, 0, elevation/180.*math.pi, 0, 0) @ invHRT(rmat)
             self.arcboall_quat = quaternion_from_matrix(rmat)
 
-        self.viewPortDistance = distance    
-        self.lookatPoint = lookatPoint
+            self.viewPortDistance = distance    
+            self.lookatPoint = lookatPoint
+            
+            
         return self.updateTransform()
     
+    def setCameraTransform(self, transform: np.ndarray) -> np.ndarray:
+        self.arcball_quat = quaternion_from_matrix(transform)
+        return self.updateTransform()
+
     def updateIntr(self, window_h, window_w, PixelRatio=1.):
         
         self.fy = int(window_h * PixelRatio)/ 2 / math.tan(self.viewAngle /360 * math.pi)
@@ -196,7 +175,7 @@ class GLCamera(QObject):
             counta = self.azimuth // -360
             self.azimuth -= counta * -360.
         
-    def map_to_sphere(self, x, y, height, width):
+    def map2Sphere(self, x, y, height, width):
         cx, cy = width / 2, height / 2  # center of the window
         norm_x = (x - cx) / cx
         norm_y = (cy - y) / cy
@@ -212,7 +191,7 @@ class GLCamera(QObject):
 
         return np.array([norm_x, norm_y, z])
 
-    def calculate_rotation(self, start=[0, 0], end=[0, 0]):
+    def calculateRotation(self, start=[0, 0], end=[0, 0]):
         # params:
         # start: 1x2 norm array, start point of the mouse drag, [x1, y1]
         # end: 1x2 norm array, end point of the mouse drag, [x2, y2]
@@ -226,7 +205,7 @@ class GLCamera(QObject):
             axis = axis / np.linalg.norm(axis)
             return axis, angle
 
-    def rotation_matrix_from_axis_angle(self, axis, angle):
+    def rotationMatrixFromAxisAngle(self, axis, angle):
         c = math.cos(angle)
         s = math.sin(angle)
         t = 1 - c
@@ -238,7 +217,7 @@ class GLCamera(QObject):
             [t*x*z - s*y, t*y*z + s*x, t*z*z + c]
         ])
 
-    def rpy_from_rotation_matrix(self, R):
+    def rpyFromRotationMatrix(self, R):
         sy = math.sqrt(R[0, 0] * R[0, 0] + R[1, 0] * R[1, 0])
         singular = sy < 1e-6
 
@@ -252,7 +231,6 @@ class GLCamera(QObject):
             z = 0
 
         return np.degrees(np.array([x, y, z]))
-
 
     def rotate(self, start=0, end=0, window_h=0, window_w=0):
         # params:
@@ -268,9 +246,9 @@ class GLCamera(QObject):
             self.elevation  += float(end) * 0.15
 
         else:
-            start_norm = self.map_to_sphere(start[0], start[1], window_h, window_w)
-            end_norm = self.map_to_sphere(end[0], end[1], window_h, window_w)
-            axis, angle = self.calculate_rotation(start_norm, end_norm)
+            start_norm = self.map2Sphere(start[0], start[1], window_h, window_w)
+            end_norm = self.map2Sphere(end[0], end[1], window_h, window_w)
+            axis, angle = self.calculateRotation(start_norm, end_norm)
             # print('axis, angle', axis, angle)
             # transform screen space to world space
             angle *= 16
@@ -278,7 +256,7 @@ class GLCamera(QObject):
             if angle == 0:
                 rmat = np.eye(3)
             else:
-                rmat = self.rotation_matrix_from_axis_angle(axis, angle)
+                rmat = self.rotationMatrixFromAxisAngle(axis, angle)
             # transform 3x3 rmat to 4x4 rmat
             temp_rmat = np.zeros((4,4))
             if rmat.shape == (3, 3, 3):
@@ -307,7 +285,6 @@ class GLCamera(QObject):
             
             self.arcboall_t = targetTransformMat[:3,3]
             
-        
     def zoom(self, ddistance=0):
         self.viewPortDistance -= ddistance * self.viewPortDistance * 0.1
         
@@ -327,7 +304,7 @@ class GLCamera(QObject):
         self.lookatPoint = np.array([x, y, z,], dtype=np.float32)
         self.updateTransform(isAnimated=isAnimated, isEmit=isEmit)
         
-    def rotation_matrix_to_quaternion(self, R):
+    def rotationMatrix2Quaternion(self, R):
         tr = R[0, 0] + R[1, 1] + R[2, 2]
 
         if tr > 0:
@@ -357,7 +334,7 @@ class GLCamera(QObject):
 
         return np.array([qw, qx, qy, qz])
 
-    def quaternion_to_rotation_matrix(self, q):
+    def quaternion2RotationMatrix(self, q):
         q = q / np.linalg.norm(q)
         qw, qx, qy, qz = q
 
@@ -372,7 +349,8 @@ class GLCamera(QObject):
     def updateTransform(self, isAnimated=True, isEmit=True) -> np.ndarray:
         # TODO:
         # add timer.stop() when the screen is not moving
-        if self.controltype == self.controlType.archball:
+        
+        if self.controltype == self.controlType.arcball:
     
             if isAnimated:
                 
@@ -408,49 +386,6 @@ class GLCamera(QObject):
                 
                 self.CameraTransformMat = self.CameraTransformMat @ invHRT(tmat)
                 
-                # self.CameraTransformMat[:3, 3] = self.arcboall_t
-                # ------- Origin -----
-                
-                # aev_in = np.array([self.azimuth, self.elevation, self.viewPortDistance])
-                # aev = self.filterAEV.forward(aev_in)
-                # lookatPoint = self.filterlookatPoint.forward(self.lookatPoint)
-                
-                # if self.archball_rmat is not None:
-                #     self.target = self.CameraTransformMat[:3, :3] @ self.archball_rmat[:3, :3].T
-                # elif self.target is None:
-                #     self.target = self.CameraTransformMat[:3, :3]
-                # if np.arccos((np.trace(self.CameraTransformMat[:3, :3] @ self.target.T) - 1) / 2.) < 1e-3:
-                #     self.timer.stop()
-                
-                # if self.reset_flag:
-                #     self.filterlookatPoint.stable(self.lookatPoint)
-                
-                #     rmat = rpy2hRT(0,0,0,0,0,self.azimuth/180.*math.pi)
-                #     self.CameraTransformMat = rpy2hRT(0,0,0,self.elevation/180.*math.pi,0,0) @ np.linalg.inv(rmat)
-                #     self.CameraTransformMat[2, 3] = -self.viewPortDistance
-                
-                #     tmat = np.identity(4)
-                #     tmat[:3,3] = self.lookatPoint.T
-                #     self.CameraTransformMat = self.CameraTransformMat @ invHRT(tmat)
-                #     self.reset_flag = False
-                # else:
-                #     # archball rotation log
-                #     # aev[:2] is no longer in use
-                #     # only use for screen init
-                #     self.CameraTransformMat[:3, 3] = [0, 0, 0]
-                #     if self.archball_rmat is not None:
-                #         self.CameraTransformMat = self.CameraTransformMat @ self.archball_rmat.T
-                #         self.archball_rmat = None
-                
-                #     self.CameraTransformMat[2, 3] = -aev[2] # zoom
-                #     tmat = np.identity(4)
-                #     tmat[:3,3] = lookatPoint.T
-                #     # print(tmat)
-                #     self.CameraTransformMat = self.CameraTransformMat @ invHRT(tmat)
-
-                # self.CameraTransformMat_qua = self.rotation_matrix_to_quaternion(self.CameraTransformMat[:3,:3])
-                # self.CameraTransformMat_qua = self.filterRotaion.forward(self.CameraTransformMat_qua)
-                # self.CameraTransformMat[:3,:3] = self.quaternion_to_rotation_matrix(self.CameraTransformMat_qua)
 
             else:
                 
@@ -510,8 +445,6 @@ class GLCamera(QObject):
                 self.updateSignal.emit()
             return self.CameraTransformMat
             
-    
-
     def rayVector(self, ViewPortX=0, ViewPortY=0, dis=1) -> np.ndarray:
         '''
         return: np.ndarray(3, )
@@ -522,27 +455,28 @@ class GLCamera(QObject):
         pvec = np.array([-xymap[0],-xymap[1],xymap[2],1]).T
         return np.linalg.inv(self.CameraTransformMat) @ pvec
 
-       
-    def updateProjTransform(self, aspect=1.) -> np.ndarray:
+    def updateProjTransform(self, isAnimated=True, isEmit=True) -> np.ndarray:
+        # 计算目标投影矩阵
         if self.projection_mode == self.projectionMode.perspective:
             
             right = np.tan(np.radians(self.viewAngle/2)) * self.near
             left = -right
-            top = right/aspect
-            bottom = left/aspect
+            top = right/self.aspect
+            bottom = left/self.aspect
             rw, rh, rd = 1/(right-left), 1/(top-bottom), 1/(self.far-self.near)
     
-            return np.array([
+            target_matrix = np.array([
                 [2 * self.near * rw, 0, 0, 0],
                 [0, 2 * self.near * rh, 0, 0],
                 [(right+left) * rw, (top+bottom) * rh, -(self.far+self.near) * rd, -1],
                 [0, 0, -2 * self.near * self.far * rd, 0]
             ], dtype=np.float32)
             
-        elif self.projection_mode == self.projectionMode.orthographic:
             
-            height = self.viewPortDistance * 0.2 
-            width = height * aspect
+        elif self.projection_mode == self.projectionMode.orthographic:
+
+            height = self.viewPortDistance * 0.2
+            width = height * self.aspect
             right = width
             left = -width
             top = height
@@ -550,16 +484,346 @@ class GLCamera(QObject):
             
             rw, rh, rd = 1/(right-left), 1/(top-bottom), 1/(self.far-self.near)
 
-            return np.array([
+            target_matrix = np.array([
                 [1 * rw, 0, 0, 0],
                 [0, 1 * rh, 0, 0],
                 [0, 0, -1 * rd, -(self.far+self.near) * rd],
                 [0, 0, 0, 1]
             ], dtype=np.float32).T
             
+            
         else:
             raise ValueError(f'Unknown projection mode: {self.projection_mode}')
-               
+        
+        if isAnimated:
+            if self.currentProjMatrix is None:
+                self.currentProjMatrix = target_matrix.copy()
+                self.filterPersp.stable(target_matrix.flatten())
+                return target_matrix
+            
+            smoothed_matrix = self.filterPersp.forward(target_matrix.flatten())
+            self.currentProjMatrix = smoothed_matrix.reshape(4, 4)
+            
+            if np.allclose(self.currentProjMatrix, target_matrix, atol=1e-4):
+                if self.timer_proj.isActive():
+                    self.timer_proj.stop()
+                    self.filterPersp.stable(self.currentProjMatrix.flatten())
+                    # print('Projection matrix animation stopped.')
+                return self.currentProjMatrix.astype(np.float32)
+            
+            if not self.timer_proj.isActive():
+                self.timer_proj.start()
+                # print('Projection matrix animation started.')
+                
+            if isEmit:
+                self.updateSignal.emit()
+            
+            return self.currentProjMatrix.astype(np.float32)
+        else:
+            self.currentProjMatrix = target_matrix.copy()
+            self.filterPersp.stable(target_matrix.flatten())
+            if self.timer_proj.isActive():
+                self.timer_proj.stop()
+            return target_matrix
+
+    def setFOV(self, fov=60.0):
+        self.viewAngle = fov
+        # if not self.timer_proj.isActive():
+        #     self.timer_proj.start()
+        self.updateSignal.emit()
+        
+    def setNear(self, near=0.1):
+        if near <= 0.0001:
+            near = 0.0001
+        self.near = near
+        self.updateSignal.emit()
+        
+    def setFar(self, far=4000.0):
+        if far >= 100000:
+            far = 100000
+        if far <= self.near + 0.0001:
+            far = self.near + 0.0001
+        self.far = far
+        self.updateSignal.emit()
+
+    def setAspectRatio(self, aspect_ratio):
+        self.aspect = aspect_ratio
+        # self.updateSignal.emit()
+
+    def setViewPreset(self, preset=0):
+
+        presets = {
+            0: (90,  -90, self.viewPortDistance), # +X
+            1: (-90, -90, self.viewPortDistance), # -X
+            2: (180, -90, self.viewPortDistance), # +Y
+            3: (0,   -90, self.viewPortDistance), # -Y
+            4: (0,     0, self.viewPortDistance), # +Z
+            5: (0,   180, self.viewPortDistance), # -Z
+        }
+        
+        
+        if preset in presets:
+            azimuth, elevation, distance = presets[preset]
+            self.setCamera(azimuth=azimuth, elevation=elevation, 
+                         distance=distance, lookatPoint=self.lookatPoint)
+
+
+     
+
+class GLSettingWidget(QObject):
+
+
+    def __init__(self, parent=None, 
+                 render_mode_callback=None, 
+                 camera_control_callback=None, 
+                 camera_persp_callback=None,
+                 camera_view_callback=None,
+                 reset_camera_callback=None, 
+                 fov_callback=None,
+                 far_callback=None,
+                 near_callback=None,
+                 grid_vis_callback=None,
+                 axis_vis_callback=None,
+                 axis_length_callback=None,):
+        super().__init__()
+        
+        self.parent = parent
+        self.render_mode_callback = render_mode_callback
+        self.camera_control_callback = camera_control_callback
+        self.camera_persp_callback = camera_persp_callback
+        self.camera_view_callback = camera_view_callback
+        self.reset_camera_callback = reset_camera_callback
+        self.fov_callback = fov_callback
+        self.far_callback = far_callback
+        self.near_callback = near_callback
+        self.grid_vis_callback = grid_vis_callback
+        self.axis_vis_callback = axis_vis_callback
+        self.axis_length_callback = axis_length_callback
+
+        self._setup_ui()
+        
+    def _setup_ui(self):
+        
+        self.gl_setting_button = DropDownToolButton(FIF.SETTING, self.parent)
+        
+        self.gl_setting_Menu = RoundMenu(parent=self.parent)
+        
+        frame = QFrame()
+        frame.setLayout(QVBoxLayout())
+        frame.layout().setContentsMargins(0, 10, 0, 15)
+        frame.layout().setSpacing(10)
+
+        self.gl_render_mode_combobox = SegmentedWidget(parent=self.gl_setting_Menu)
+        self.gl_render_mode_combobox.addItem('0', ' Line ', lambda: self._on_render_mode_changed(0))
+        self.gl_render_mode_combobox.addItem('1', 'Simple', lambda: self._on_render_mode_changed(1))
+        self.gl_render_mode_combobox.addItem('2', 'Normal', lambda: self._on_render_mode_changed(2))
+        self.gl_render_mode_combobox.addItem('3', 'Texture', lambda: self._on_render_mode_changed(3))
+        self.gl_render_mode_combobox.setCurrentItem('1')
+        self.gl_render_mode_combobox.setSizePolicy(QSizePolicy.MinimumExpanding, QSizePolicy.Minimum)
+        
+        self.gl_camera_control_combobox = SegmentedWidget(parent=self.gl_setting_Menu)
+        self.gl_camera_control_combobox.addItem('0', 'Arcball', lambda: self._on_camera_control_changed(0))
+        self.gl_camera_control_combobox.addItem('1', ' Orbit ', lambda: self._on_camera_control_changed(1))
+        self.gl_camera_control_combobox.setCurrentItem('0')
+        self.gl_camera_control_combobox.setSizePolicy(QSizePolicy.MinimumExpanding, QSizePolicy.Minimum)
+        
+        self.gl_camera_perp_combobox = SegmentedWidget(parent=self.gl_setting_Menu)
+        self.gl_camera_perp_combobox.addItem('0', 'Perspective', lambda: self._on_camera_persp_changed(0))
+        self.gl_camera_perp_combobox.addItem('1', 'Orthographic', lambda: self._on_camera_persp_changed(1))
+        self.gl_camera_perp_combobox.setCurrentItem('0')    
+        self.gl_camera_perp_combobox.setSizePolicy(QSizePolicy.MinimumExpanding, QSizePolicy.Minimum)
+        
+        
+        self.gl_camera_view_combobox = SegmentedWidget(parent=self.gl_setting_Menu)
+        self.gl_camera_view_combobox.addItem('0', '+X', lambda: self._on_camera_view_changed(0))
+        self.gl_camera_view_combobox.addItem('1', '-X', lambda: self._on_camera_view_changed(1))
+        self.gl_camera_view_combobox.addItem('2', '+Y', lambda: self._on_camera_view_changed(2))
+        self.gl_camera_view_combobox.addItem('3', '-Y', lambda: self._on_camera_view_changed(3))
+        self.gl_camera_view_combobox.addItem('4', '+Z', lambda: self._on_camera_view_changed(4))
+        self.gl_camera_view_combobox.addItem('5', '-Z', lambda: self._on_camera_view_changed(5))
+        self.gl_camera_view_combobox.setCurrentItem('0')    
+        self.gl_camera_view_combobox.setSizePolicy(QSizePolicy.MinimumExpanding, QSizePolicy.Minimum)
+        
+        
+        
+        
+        frame.layout().addWidget(BodyLabel("Render Mode", parent=self.gl_setting_Menu))
+        frame.layout().addWidget(self.gl_render_mode_combobox)
+        frame.layout().addWidget(BodyLabel("Camera Control", parent=self.gl_setting_Menu))
+        frame.layout().addWidget(self.gl_camera_control_combobox)
+        frame.layout().addWidget(BodyLabel("Camera Projection", parent=self.gl_setting_Menu))
+        frame.layout().addWidget(self.gl_camera_perp_combobox)
+        frame.layout().addWidget(BodyLabel("Camera View", parent=self.gl_setting_Menu))
+        frame.layout().addWidget(self.gl_camera_view_combobox)
+        frame.adjustSize()
+
+        self.gl_setting_Menu.addWidget(frame, selectable=False)
+        self.gl_setting_Menu.addSeparator()
+        
+        frame = QFrame()
+        frame.setLayout(QHBoxLayout())
+        frame.layout().setContentsMargins(0, 10, 0, 10)
+        frame.layout().setSpacing(20)
+        self.fov_spinbox = SpinBox(parent=self.gl_setting_Menu)
+        self.fov_spinbox.setSizePolicy(QSizePolicy.MinimumExpanding, QSizePolicy.Minimum)
+        self.fov_spinbox.setRange(1, 180)
+        self.fov_spinbox.setValue(60)
+        self.fov_spinbox.setSuffix('°')
+        self.fov_spinbox.valueChanged.connect(self._on_fov_changed)
+        fov_label = BodyLabel("FOV", parent=self.gl_setting_Menu)
+        fov_label.setSizePolicy(QSizePolicy.Minimum, QSizePolicy.Minimum)
+        frame.layout().addWidget(fov_label)
+        frame.layout().addWidget(self.fov_spinbox)
+        frame.adjustSize()
+        
+        self.gl_setting_Menu.addWidget(frame, selectable=False)
+        
+        frame = QFrame()
+        frame.setLayout(QHBoxLayout())
+        frame.layout().setContentsMargins(0, 10, 0, 10)
+        frame.layout().setSpacing(20)
+        self.far_spinbox = SpinBox(parent=self.gl_setting_Menu)
+        self.far_spinbox.setSizePolicy(QSizePolicy.MinimumExpanding, QSizePolicy.Minimum)
+        self.far_spinbox.setRange(1, 100000)
+        self.far_spinbox.setValue(4000)
+        self.far_spinbox.setSuffix('m')
+        self.far_spinbox.valueChanged.connect(self._on_far_changed)
+        far_label = BodyLabel("Far", parent=self.gl_setting_Menu)
+        far_label.setSizePolicy(QSizePolicy.Minimum, QSizePolicy.Minimum)
+
+        self.near_spinbox = DoubleSpinBox(parent=self.gl_setting_Menu)
+        self.near_spinbox.setSizePolicy(QSizePolicy.MinimumExpanding, QSizePolicy.Minimum)
+        self.near_spinbox.setRange(0.001, 10)
+        self.near_spinbox.setValue(0.100)
+        self.near_spinbox.setSingleStep(0.001)
+        self.near_spinbox.setSuffix('m')
+        self.near_spinbox.valueChanged.connect(self._on_near_changed)
+        near_label = BodyLabel("Near", parent=self.gl_setting_Menu)
+        near_label.setSizePolicy(QSizePolicy.Minimum, QSizePolicy.Minimum)
+        frame.layout().addWidget(near_label)
+        frame.layout().addWidget(self.near_spinbox)
+        
+        frame.layout().addWidget(far_label)
+        frame.layout().addWidget(self.far_spinbox)
+        frame.adjustSize()
+        
+        self.gl_setting_Menu.addWidget(frame, selectable=False)
+        
+        self.gl_setting_Menu.addSeparator()
+        
+        frame = QFrame()
+        frame.setLayout(QHBoxLayout())
+        frame.layout().setContentsMargins(0, 10, 0, 10)
+        frame.layout().setSpacing(20)
+        grid_control_toggle = SwitchButton(parent=self.gl_setting_Menu)
+        grid_control_toggle.setChecked(True)
+        grid_control_toggle.checkedChanged.connect(self._on_grid_visibility_changed)
+        grid_control_label = BodyLabel("Grid Visibility", parent=self.gl_setting_Menu)
+        frame.layout().addWidget(grid_control_label)
+        frame.layout().addItem(QSpacerItem(40, 20, QSizePolicy.Expanding, QSizePolicy.Minimum))
+        frame.layout().addWidget(grid_control_toggle)
+        frame.adjustSize()
+        self.gl_setting_Menu.addWidget(frame, selectable=False)
+        
+        
+        frame = QFrame()
+        frame.setLayout(QHBoxLayout())
+        frame.layout().setContentsMargins(0, 10, 0, 10)
+        frame.layout().setSpacing(20)
+        axis_control_toggle = SwitchButton(parent=self.gl_setting_Menu)
+        axis_control_toggle.setChecked(True)
+        axis_control_toggle.checkedChanged.connect(self._on_axis_visibility_changed)
+        axis_control_label = BodyLabel("Axis Visibility", parent=self.gl_setting_Menu)
+        frame.layout().addWidget(axis_control_label)
+        frame.layout().addItem(QSpacerItem(40, 20, QSizePolicy.Expanding, QSizePolicy.Minimum))
+        frame.layout().addWidget(axis_control_toggle)
+        frame.adjustSize()
+        self.gl_setting_Menu.addWidget(frame, selectable=False)
+
+        frame = QFrame()
+        frame.setLayout(QHBoxLayout())
+        frame.layout().setContentsMargins(0, 10, 0, 10)
+        frame.layout().setSpacing(20)
+        axis_size_slider = Slider(parent=self.gl_setting_Menu)
+        axis_size_slider.setOrientation(Qt.Horizontal)
+        axis_size_slider.setRange(1, 100)
+        axis_size_slider.setValue(1)
+        axis_size_slider.valueChanged.connect(self._on_axis_length_changed)
+        axis_size_label = BodyLabel("Axis Size", parent=self.gl_setting_Menu)
+        frame.layout().addWidget(axis_size_label)
+        frame.layout().addWidget(axis_size_slider)
+        frame.adjustSize()
+        self.gl_setting_Menu.addWidget(frame, selectable=False)
+
+
+        self.gl_setting_Menu.addSeparator()
+
+        action_resetCamera = Action('Reset Camera')
+        action_resetCamera.triggered.connect(self._on_reset_camera)
+        # action_resetCamera.setShortcut(QKeySequence("DoubleClick"))
+        
+        self.gl_setting_Menu.addActions([
+            action_resetCamera,
+        ])
+        
+        self.gl_setting_button.setMenu(self.gl_setting_Menu)
+        self.gl_setting_button.adjustSize()
+    
+    def _on_render_mode_changed(self, mode):
+        if self.render_mode_callback:
+            self.render_mode_callback(mode)
+    
+    def _on_camera_control_changed(self, index):
+        if self.camera_control_callback:
+            self.camera_control_callback(index)
+    
+    def _on_camera_persp_changed(self, index):
+        if self.camera_persp_callback:
+            self.camera_persp_callback(index)
+            
+    def _on_camera_view_changed(self, index):
+        if self.camera_view_callback:
+            self.camera_view_callback(index)
+            
+        self.gl_camera_perp_combobox.setCurrentItem('1')
+        self._on_camera_persp_changed(1)  # Set to ortho mode when changing view
+
+    def _on_fov_changed(self, value):
+        if self.fov_callback:
+            self.fov_callback(value)
+            
+    def _on_far_changed(self, value):
+        if self.far_callback:
+            self.far_callback(value)
+            
+    def _on_near_changed(self, value):
+        if self.near_callback:
+            self.near_callback(value)
+            
+    def _on_grid_visibility_changed(self, state):
+        if self.grid_vis_callback:
+            self.grid_vis_callback(state)
+
+    def _on_axis_visibility_changed(self, state):
+        if self.axis_vis_callback:
+            self.axis_vis_callback(state)
+            
+    def _on_axis_length_changed(self, length):
+        if self.axis_length_callback:
+            self.axis_length_callback(length)
+            
+    def _on_reset_camera(self):
+        if self.reset_camera_callback:
+            self.reset_camera_callback()
+    
+    def move(self, x, y):
+        self.gl_setting_button.move(x, y)
+    
+    def get_button(self):
+        return self.gl_setting_button
+    
+    def get_menu(self):
+        return self.gl_setting_Menu
 
 
 class GLWidget(QOpenGLWidget):
@@ -580,12 +844,12 @@ class GLWidget(QOpenGLWidget):
 
 
         # For macOS
-        if current_platform == 'darwin':
+        if sys.platform == 'darwin':
             background_color = [45, 45, 50, 255]
             self.font = QFont(['SF Pro Display', 'Helvetica Neue', 'Arial'], 10, QFont.Weight.Normal)
         
         # For Windows
-        elif current_platform == 'win32':
+        elif sys.platform == 'win32':
             background_color = [0, 0, 0, 0]
             self.font = QFont([u'Cascadia Mono', u'Microsoft Yahei UI'], 9, )
 
@@ -618,11 +882,13 @@ class GLWidget(QOpenGLWidget):
         
         self.MouseClickPointinWorldCoordinate = np.array([0,0,0,1])
 
-        self.baseTransform = np.identity(4, dtype=np.float32)
+        self.canonicalModelMatrix = np.identity(4, dtype=np.float32)
         
         self.filter = kalmanFilter(7)
         
         self.scale = 1.0
+        
+        self.axis_scale = 1.0
                 
         self.tempMat = np.identity(4, dtype=np.float32)
         
@@ -636,9 +902,9 @@ class GLWidget(QOpenGLWidget):
         self.labelSwitchList = {}
         self.labelSwitchStatue = {}
         
-        #----- MSAA 0X -----#
+        #----- MSAA 4X -----#
         GLFormat = self.format()
-        GLFormat.setSamples(4)  # 4x抗锯齿
+        GLFormat.setSamples(4)
         self.setFormat(GLFormat)
         
         self.objMap = {
@@ -650,26 +916,22 @@ class GLWidget(QOpenGLWidget):
         }
         
         self.isAxisVisable = True
+        self.isGridVisable = True
         
-        # 主光源（Key Light）
-        self.key_light_dir = np.array([1.2, 1.5, 1.1], dtype=np.float32) * 10000  # 光源方向
-        self.key_light_color = np.array([0.3, 0.4, 0.4], dtype=np.float32)  # 光源颜色
+        self.key_light_dir = np.array([1.2, 1.5, 1.1], dtype=np.float32) * 10000
+        self.key_light_color = np.array([0.3, 0.4, 0.4], dtype=np.float32)
 
-        # 填充光源（Fill Light）
-        self.fill_light_dir = np.array([1, 0.2, 0.1], dtype=np.float32) * 10000  # 光源方向
-        self.fill_light_color = np.array([0.3, 0.4, 0.3], dtype=np.float32)  # 光源颜色
+        self.fill_light_dir = np.array([1, 0.2, 0.1], dtype=np.float32) * 10000
+        self.fill_light_color = np.array([0.3, 0.4, 0.3], dtype=np.float32)
 
-        # 背光源（Back Light）
-        self.back_light_dir = np.array([-0.5, -0.5, -0.2], dtype=np.float32) * 10000  # 光源方向
-        self.back_light_color = np.array([0.4, 0.4, 0.3], dtype=np.float32)  # 光源颜色
+        self.back_light_dir = np.array([-0.5, -0.5, -0.2], dtype=np.float32) * 10000
+        self.back_light_color = np.array([0.4, 0.4, 0.3], dtype=np.float32)
 
-        # 顶光源（Top Light）
-        self.top_light_dir = np.array([0.2, 0.3, 1], dtype=np.float32) * 10000  # 光源方向
-        self.top_light_color = np.array([0.2, 0.2, 0.2], dtype=np.float32)  # 光源颜色
+        self.top_light_dir = np.array([0.2, 0.3, 1], dtype=np.float32) * 10000
+        self.top_light_color = np.array([0.2, 0.2, 0.2], dtype=np.float32)
 
-        # 底光源（Bottom Light）
-        self.bottom_light_dir = np.array([0.4, 0.1, -1.2], dtype=np.float32) * 10000  # 光源方向
-        self.bottom_light_color = np.array([0.2, 0.2, 0.2], dtype=np.float32)  # 光源颜色        
+        self.bottom_light_dir = np.array([0.4, 0.1, -1.2], dtype=np.float32) * 10000
+        self.bottom_light_color = np.array([0.2, 0.2, 0.2], dtype=np.float32)        
         
         self.light_dir = np.array([1, 1, 0], dtype=np.float32)     # 光线照射方向
         self.light_color = np.array([1, 1, 1], dtype=np.float32)    # 光线颜色
@@ -680,241 +942,93 @@ class GLWidget(QOpenGLWidget):
         self.pellucid = 0.5                                         # 透光度
 
         self.gl_render_mode = 1
-        
-        self.gl_render_mode_combobox = SegmentedWidget(parent=self,)
-        self.gl_render_mode_combobox.setFixedWidth(210)
-        
-        self.gl_render_mode_combobox.addItem('0', ' Line ', lambda:self.changeRenderMode(0))
-        self.gl_render_mode_combobox.addItem('1', 'Simple', lambda:self.changeRenderMode(1))
-        self.gl_render_mode_combobox.addItem('2', 'Normal', lambda:self.changeRenderMode(2))
-        self.gl_render_mode_combobox.addItem('3', 'Texture', lambda:self.changeRenderMode(3))
-        self.gl_render_mode_combobox.setCurrentItem('1')
-        # self.gl_render_mode_combobox.currentIndexChanged.connect(self.changeRenderMode)
-        
         self.point_line_size = 3
         
-        self.gl_camera_control_combobox = SegmentedWidget(parent=self,)
-        self.gl_camera_control_combobox.setFixedWidth(118)
-        self.gl_camera_control_combobox.addItem('0', 'Arcball', lambda:self.changeCameraControl(0))
-        self.gl_camera_control_combobox.addItem('1', ' Orbit ', lambda:self.changeCameraControl(1))
-        self.gl_camera_control_combobox.setCurrentItem('0')
 
+        self.gl_settings = GLSettingWidget(
+            parent=self,
+            render_mode_callback=self.setRenderMode,
+            camera_control_callback=self.setCameraControl,
+            camera_persp_callback=self.setCameraPerspMode,
+            camera_view_callback=self.setCameraViewPreset,
+            reset_camera_callback=self.resetCamera,
+            fov_callback=self.camera.setFOV,
+            near_callback=self.camera.setNear,
+            far_callback=self.camera.setFar,
+            grid_vis_callback=self.setGridVisibility,
+            axis_vis_callback=self.setAxisVisibility,
+            axis_length_callback=self.setAxisScale,
+        )
+        
+        self.gl_setting_button = self.gl_settings.get_button()
+        self.gl_setting_Menu = self.gl_settings.get_menu()
+        self.gl_render_mode_combobox = self.gl_settings.gl_render_mode_combobox
+        self.gl_camera_control_combobox = self.gl_settings.gl_camera_control_combobox
+        self.gl_camera_perp_combobox = self.gl_settings.gl_camera_perp_combobox
+        self.fov_spinbox = self.gl_settings.fov_spinbox
 
-        self.gl_camera_perp_combobox = SegmentedWidget(parent=self,)
-        self.gl_camera_perp_combobox.setFixedWidth(118)
-        self.gl_camera_perp_combobox.addItem('0', 'Persp', lambda:self.changeCameraPerspMode(0))
-        self.gl_camera_perp_combobox.addItem('1', ' Ortho ', lambda:self.changeCameraPerspMode(1))
-        self.gl_camera_perp_combobox.setCurrentItem('0')        
-        # self.gl_slider = Slider(Qt.Orientation.Vertical, parent=self)
-        # self.gl_slider.setFixedHeight(200)
-        # self.gl_slider.setFixedWidth(20)
-        # self.gl_slider.setMaximum(10)
-        # self.gl_slider.setMinimum(1)
-        # self.gl_slider.setValue(self.point_line_size)
-        # self.gl_slider.valueChanged.connect(self.setGlobalSize)
-        
-        # sizePolicy = QSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-        # self.SwitchLabel_box = QWidget(self)
-        
-        # self.SwitchLabel_box.move(360, 15)
-        
-        # self.SwitchLabel_box_layout = QVBoxLayout(self.SwitchLabel_box)
-        # self.SwitchLabel_box.setLayout(self.SwitchLabel_box_layout)
-        # self.SwitchLabel_box.setSizePolicy(sizePolicy)
-        # self.SwitchLabel_box.setStyleSheet('background-color: rgba(123,123,123, 50);')
-        
-        # self.indicator = GLAddon_ind(self)
-        # self.indicator.move(200, 200)
-        # self.indicator.setFixedSize(200, 200)
-        # self.indicator.show()
-        
         self.setMinimumSize(200, 200)
+            
+    def setCameraControl(self, index):
         
-        
-    # def updateIndicator(self, ):
-        
-    #     hrt = np.eye(4)
-    #     hrt[:3,:3] = self.camera.CameraTransformMat[:3,:3]
-    #     # self.indicator.set_pose(hrt)
-    
-    def changeCameraControl(self, index):
         self.camera.controltype = self.camera.controlType(index)
         self.resetCamera()
         
-    def changeCameraPerspMode(self, index):
+    def setCameraPerspMode(self, index):
         self.camera.projection_mode = self.camera.projectionMode(index)
-        # self.camera.updateProjTransform(aspect=self.window_w/self.window_h)
-        # self.resetCamera()
+        if not self.camera.timer_proj.isActive():
+            self.camera.timer_proj.start()
         self.update()
         
-    def setGlobalSize(self, size):
-        self.point_line_size = size
+    def setAxisVisibility(self, isVisible=True):
+        self.isAxisVisable = isVisible
         self.update()
         
-    def chooseColor(self):
-        id = len(self.objectList.keys())
-        lc = len(def_color)
-        id = id % lc
-        return def_color[id]
-
-    def trigger_flush(self):
+    def setAxisScale(self, scale=1.0):
+        self.axis_scale = scale
+        scaledMatrix = np.identity(4, dtype=np.float32)
+        scaledMatrix[:3,:3] *= self.axis_scale
+        self.axis.setTransform(scaledMatrix)
         self.update()
     
+    def setGridVisibility(self, isVisible=True):
+        self.isGridVisable = isVisible
+        self.update()
 
+    def triggerFlush(self):
+        self.update()
+    
     def resetCamera(self):
-        self.camera.setCamera(azimuth=135, elevation=-60, distance=10, lookatPoint=np.array([0., 0., 0.,]))
-        
-    def _decode_HexColor_to_RGB(self, hexcolor):
-        if len(hexcolor) == 6:
-            return tuple(int(hexcolor[i:i+2], 16) / 255. for i in (0, 2, 4))
-        elif len(hexcolor) == 8:
-            return tuple(int(hexcolor[i:i+2], 16) / 255. for i in (0, 2, 4, 6))
-        else:
-            return (0.9, 0.9, 0.9, 0.9)
+        self.camera.setCamera(azimuth=135, elevation=-55, distance=10, lookatPoint=np.array([0., 0., 0.,]))
+        if hasattr(self, 'grid'):
+            self.grid.setTransform(self.grid.transformList[5])
+        if hasattr(self, 'smallGrid'):
+            self.smallGrid.setTransform(self.smallGrid.transformList[5])
 
-
-    # def _vector_to_transform_matrix(self, vector):
-    #     R = cv2.Rodrigues(vector)
-    #     rt = np.identity(4, dtype=np.float32)
-    #     rt[:3,:3] = R[0]
-    #     return rt
+    def setCameraViewPreset(self, preset=0):
+        """
+        设置相机视角预设的便捷方法
         
-        
-    # def removeSwitchLabel(self, name=None):
-    #     if name is None:
-    #         for k, v in self.labelSwitchList.items():
-    #             v.deleteLater()
-    #         self.labelSwitchList = {}
-        
-    #     if name in self.labelSwitchList.keys():
-    #         self.SwitchLabel_box_layout.removeWidget(self.labelSwitchList[name])
-    #         self.labelSwitchList[name].deleteLater()
-    #         self.labelSwitchList.pop(name)
-        
-    #     # self.SwitchLabel_box.update()
-    #     # self.SwitchLabel_box.adjustSize()
-    #     self.SwitchLabel_box_layout.invalidate()
-    #     self.SwitchLabel_box_layout.activate()
-    #     self.SwitchLabel_box.adjustSize()
-        
-        
-    # def addSwitchLabel(self, name, color=None):
-        
-    #     # print(color)
-    #     def _isHexColorinName(name) -> str:
-    #         if '#' in name:
-    #             name = name.split('#', 2)[1]
-    #             name = name.split('_', 2)[0]
-    #             if len(name) == 6 or len(name) == 8:
-    #                 return name
-    #             else:
-    #                 return '808080'
-    #         else:
-    #             return '808080'
-
-        
-    #     def HEXRGBA2QTHEX(hex:str):
-    #         if len(hex) == 6:
-    #             return '#' + hex
-    #         elif len(hex) == 8:
-    #             return '#' + hex[-2:] + hex[:-2]
-    #         else:
-    #             return '#808080'
+        Parameters:
+            preset (int): 预设编号 0-5
+                0: 前视图 (Front)
+                1: 后视图 (Back) 
+                2: 左视图 (Left)
+                3: 右视图 (Right)
+                4: 上视图 (Top)
+                5: 下视图 (Bottom)
+        """
+        self.camera.setViewPreset(preset)
+        self.grid.setTransform(self.grid.transformList[preset])
+        self.smallGrid.setTransform(self.smallGrid.transformList[preset])
             
-    #     def RGBA2HEXRGBA(rgb):
-    #         if len(rgb) == 3:
-    #             return '%02x%02x%02xff' % (int(rgb[0]*255), int(rgb[1]*255), int(rgb[2]*255))
-    #         elif len(rgb) == 4:
-    #             return '%02x%02x%02x%02x' % (int(rgb[0]*255), int(rgb[1]*255), int(rgb[2]*255), int(rgb[3]*255))
-    #         else:
-    #             return '808080'
-            
-    #     def getColor(name):
-    #         return HEXRGBA2QTHEX(_isHexColorinName(name)) if color is None else HEXRGBA2QTHEX(RGBA2HEXRGBA(color))
-            
-    #     # print(HEXRGBA2QTHEX(color))
-        
-    #     labelObject = CheckBox(parent=self.SwitchLabel_box, text=name,)
-    #     self.SwitchLabel_box_layout.addWidget(labelObject)
-    #     labelObject.setChecked(True)
-        
-    #     _qss = checkboxStyle.format(hexcolor=getColor(name))
-    #     setCustomStyleSheet(labelObject, _qss, _qss)
-        
-        
-    #     if name in self.labelSwitchList.keys():
-    #         self.labelSwitchList[name].deleteLater()
-    #         self.labelSwitchList.pop(name)
-            
-    #     self.labelSwitchList.update({name:labelObject})
-
-    #     # labelObject.setStyleSheet(checkboxStyle.format(hexcolor=getColor(name)))
-    #     labelObject.setFont(self.font)
-    #     labelObject.show()
-    #     # labelObject.move(360+15, 15 + 30 * (len(self.labelSwitchList)-1))
-    #     labelObject.stateChanged.connect(lambda: self.showORHideObject(name, self.labelSwitchList[name].isChecked()))
-        
-    #     if name in self.labelSwitchStatue.keys():
-    #         labelObject.setChecked(self.labelSwitchStatue[name])
-            
-            
-    #     self.update()
-    #     self.SwitchLabel_box_layout.invalidate()
-    #     self.SwitchLabel_box_layout.activate()
-
-    #     self.SwitchLabel_box.adjustSize()
-        
-    def showORHideObject(self, name, isShow=True):
-        if name in self.objectList.keys():
-            
-            self.labelSwitchStatue.update({name:isShow})
-            
-            self.objectList[name].show(isShow)
-            # if 'arrow'+name in self.objectList.keys():
-            #     self.objectList['arrow'+name].isShow = isShow
-                
-            self.update()
-            
-
-    def updateObjectProps(self, key, props:dict):
+    def setObjectProps(self, key, props:dict):
         if key in self.objectList.keys():
             self.objectList[key].updateProps(props)
             
             
         self.update()
 
-    # ``````````````
-    def updateObject_API(self, ID=1, objType=None, **kwargs) -> None:
-        '''
-        Deprecated
-        '''
-        _ID = str(ID)
-        availObjTypes = self.objMap.keys()
-        assert objType in availObjTypes, f'type must in {availObjTypes}'
-        if objType in availObjTypes:
-
-            self.objectList.update({_ID:self.objMap[objType](**kwargs)})
-            
-            # self.addSwitchLabel(_ID)
-        elif objType == 'trimesh':
-            self.updateTrimeshObject(ID, **kwargs)
-            
-        elif objType == 'clean':
-            keys = list(self.objectList.keys())
-            for id in keys:
-                self.objectList.pop(id)
-                
-        else:
-            if _ID in self.objectList.keys():
-                
-                if 'transform' in kwargs.keys():
-                    self.objectList[_ID].setTransform(kwargs['transform'])
-                else:
-                    self.objectList.pop(_ID)
-                    # self.removeSwitchLabel(_ID)
-                
-        self.update()
-        
     def setObjTransform(self, ID=1, transform=None) -> None:
         _ID = str(ID)
         if _ID in self.objectList.keys():
@@ -925,106 +1039,21 @@ class GLWidget(QOpenGLWidget):
         
         self.update()
 
-
-    def updateObject(self, ID=1, obj:BaseObject=None, labelColor=None) -> None:
+    def updateObject(self, ID=1, obj:BaseObject=None) -> None:
         _ID = str(ID)
         if obj is not None:
             self.objectList.update({_ID:obj})
             
-            # self.addSwitchLabel(_ID, labelColor)
         else:
             if _ID in self.objectList.keys():
                 self.objectList.pop(_ID)
                 
-                # self.removeSwitchLabel(_ID)
-                
         self.update()
 
-
-    def updateTrimeshObject(self, ID=1, obj=None) -> None:
-        
-        
-        def updateTrimesh(ID, obj:trimesh.Trimesh=None) -> None:
-            # mo = Mesh(obj.vertices.view(np.ndarray).astype(np.float32),
-            #           obj.faces.view(np.ndarray).astype(np.int32),
-            #           norm=obj.vertex_normals.view(np.ndarray).astype(np.float32),
-            #           color=obj.visual.vertex_colors /255. if isinstance(obj.visual, trimesh.visual.color.ColorVisuals) else None,
-            #           texture=obj.visual.material.image if isinstance(obj.visual, trimesh.visual.texture.TextureVisuals) else None,
-            #           texcoord=obj.visual.uv.view(np.ndarray).astype(np.float32) if isinstance(obj.visual, trimesh.visual.texture.TextureVisuals) and hasattr(obj.visual, 'uv') and hasattr(obj.visual.uv, 'view') else None,
-            #           )
-            if hasattr(obj.visual, 'material'):
-                if isinstance(obj.visual.material, trimesh.visual.material.SimpleMaterial):
-                    tex = obj.visual.material.image
-                elif isinstance(obj.visual.material, trimesh.visual.material.PBRMaterial):
-                    tex = obj.visual.material.baseColorTexture
-                else:
-                    tex = None
-            else:
-                tex = None
-            
-            mo = Mesh(obj.vertices.view(np.ndarray).astype(np.float32),
-                      obj.faces.view(np.ndarray).astype(np.int32),
-                      norm=obj.face_normals.view(np.ndarray).astype(np.float32),
-                      color=obj.visual.vertex_colors /255. if isinstance(obj.visual, trimesh.visual.color.ColorVisuals) else None,
-                      texture=tex,
-                      texcoord=obj.visual.uv.view(np.ndarray).astype(np.float32) if isinstance(obj.visual, trimesh.visual.texture.TextureVisuals) and hasattr(obj.visual, 'uv') and hasattr(obj.visual.uv, 'view') else None,
-                      faceNorm=True
-                      )
-            
-            self.objectList.update({_ID:mo})
-            
-            # self.addSwitchLabel(_ID)
-
-        
-        _ID = str(ID)
-        if obj is not None:
-            
-            if isinstance(obj, trimesh.Scene):
-                meshlist = []
-                for k, mesh in obj.geometry.items():
-                    # print(mesh.vertices.shape, mesh.faces.shape, mesh.face_normals.shape, mesh.vertex_normals.shape)
-                    # print(k)
-                    meshlist.append(mesh)
-                    
-                mesh = trimesh.util.concatenate(meshlist)
-                    
-                updateTrimesh(ID, mesh)
-                    
-            elif isinstance(obj, trimesh.Trimesh):
-                
-                updateTrimesh(ID, obj)
-                
-            elif isinstance(obj, trimesh.PointCloud):
-                mo = PointCloud(obj.vertices, obj.colors / 255.)
-                self.objectList.update({_ID:mo})
-                
-                # self.addSwitchLabel(_ID)
-                
-                    
-        else:
-            if _ID in self.objectList.keys():
-                self.objectList.pop(_ID)
-                
-                # self.removeSwitchLabel(_ID)
-                
-        self.update()
-        
-        
-    def changeRenderMode(self, mode):
+    def setRenderMode(self, mode):
         self.gl_render_mode = mode
         self.update()
         
-        
-
-    def updateframe(self, ID=1, vertex:np.ndarray=None, ccolor=None):
-        _ID = 'frame' + str(ID)
-        if vertex is not None:
-            
-            self.objectList.update({_ID:OBJ('./axis.obj', transform=vertex), })
-            
-        else:
-            if _ID in self.objectList.keys():
-                self.objectList.pop(_ID)
 
 
     def initializeGL(self):
@@ -1071,7 +1100,7 @@ class GLWidget(QOpenGLWidget):
         self.resetCamera()
         
         self.grid = Grid()
-        # self.axis = OBJ('./axis.obj')
+        self.smallGrid = Grid(n=510, scale=0.1)
         self.axis = Axis()
                 
         
@@ -1113,6 +1142,7 @@ class GLWidget(QOpenGLWidget):
                                 'u_Lights[4].position', 'u_Lights[4].color', \
                                     'u_Texture','render_mode',
                                     'u_farPlane',
+                                    'u_farPlane_ratio',
         ]
 
         self.shaderLocMap = {}
@@ -1131,37 +1161,38 @@ class GLWidget(QOpenGLWidget):
         
         glUseProgram(self.program)
         
+        # reset ModelMatrix
+        loc = self.shaderLocMap.get('u_ModelMatrix')
+        glUniformMatrix4fv(loc, 1, GL_FALSE, self.canonicalModelMatrix, None)
         
+        # set Projection and View Matrices
         loc = self.shaderLocMap.get('u_ProjMatrix')
-        glUniformMatrix4fv(loc, 1, GL_FALSE, self.camera.updateProjTransform(float(self.window_w) / float(self.window_h)), None)
+        self.camera.setAspectRatio(float(self.window_w) / float(self.window_h))
+        projMatrix = self.camera.updateProjTransform(isEmit=False)
+        glUniformMatrix4fv(loc, 1, GL_FALSE, projMatrix, None)
 
         loc = self.shaderLocMap.get('u_ViewMatrix')
         camtrans = self.camera.updateTransform(isEmit=False)
         campos = np.linalg.inv(camtrans)[:3,3]
-        # glUniform3f(self.shaderLocMap.get('u_CamPos'), *self.camera.lookatPoint[:3])
+        
         glUniform3f(self.shaderLocMap.get('u_CamPos'), *campos)
         glUniformMatrix4fv(loc, 1, GL_FALSE, camtrans.T, None)
 
-        loc = self.shaderLocMap.get('u_ModelMatrix')
-        modelMatrix = np.identity(4, dtype=np.float32)
-        scaledMatrix = np.identity(4, dtype=np.float32)
-        scaledMatrix[:3,:3] *= self.scale
-        
-        glUniformMatrix4fv(loc, 1, GL_FALSE, modelMatrix, None)
         
         if self.isAxisVisable:
             self.axis.renderinShader(locMap=self.shaderLocMap)
             
-        # print(campos)
-        glUniformMatrix4fv(loc, 1, GL_FALSE, scaledMatrix, None)
-        if self.isAxisVisable:
+        # glUniformMatrix4fv(loc, 1, GL_FALSE, modelMatrix, None)
+        if self.isGridVisable:
             glUniform1i(self.shaderLocMap.get('u_farPlane'), 1)
+            glUniform1f(self.shaderLocMap.get('u_farPlane_ratio'), 0.02)
+
             self.grid.renderinShader(locMap=self.shaderLocMap)
+            glUniform1f(self.shaderLocMap.get('u_farPlane_ratio'), 0.15)
+            self.smallGrid.renderinShader(locMap=self.shaderLocMap)
             glUniform1i(self.shaderLocMap.get('u_farPlane'), 0)
         
  
-        # loc = self.shaderLocMap.get('u_LightDir')
-        # glUniform3f(loc, *self.light_dir)
         
         glUniform3f(self.shaderLocMap.get('u_Lights[0].position'), *self.key_light_dir)
         glUniform3f(self.shaderLocMap.get('u_Lights[0].color'),    *self.key_light_color)
@@ -1198,14 +1229,8 @@ class GLWidget(QOpenGLWidget):
 
         
         
-        
-        
-        
         for k, v in self.objectList.items():
             if hasattr(v, 'renderinShader'):
-                
-                glUniformMatrix4fv(self.shaderLocMap.get('u_ModelMatrix'), 1, GL_FALSE, v.transform.T, None)
-                
                 v.renderinShader(ratio=10./self.camera.viewPortDistance, locMap=self.shaderLocMap, render_mode=self.gl_render_mode, size=self.point_line_size)
 
 
@@ -1235,22 +1260,15 @@ class GLWidget(QOpenGLWidget):
         self.window_h = h
 
         self.PixelRatio = self.devicePixelRatioF()
-        # glViewport(0,0,int(self.window_w * self.PixelRatio),int(self.window_h * self.PixelRatio))
 
         self.camera.updateIntr(self.window_h, self.window_w, self.PixelRatio)
         
         self.statusbar.move(0, h-self.statusbar.height())
         self.statusbar.resize(w, h)
 
-        self.gl_render_mode_combobox.move((self.window_w - self.gl_render_mode_combobox.width())//2 , 15)
+        self.gl_settings.move((self.window_w - self.gl_setting_button.width()) - 20, 15)
         
-        self.gl_camera_control_combobox.move((self.window_w - self.gl_camera_control_combobox.width())-20 , 15)
-        
-        self.gl_camera_perp_combobox.move((self.window_w - self.gl_camera_perp_combobox.width())-150 , 15)
-        
-        # self.indicator.move(QPoint(self.window_w - self.indicator.width()-20,self.window_h - self.indicator.height() - 20))
-        # self.gl_slider.move(self.window_w - self.gl_slider.width() - 15, 75)
-
+        # print(f'GLWidget resized to {w}x{h}, PixelRatio: {self.PixelRatio}')
         return super().resizeGL(w, h)
 
 
@@ -1343,7 +1361,7 @@ class GLWidget(QOpenGLWidget):
 
         if event.buttons() & Qt.LeftButton:
                     
-            if self.camera.controltype == self.camera.controlType.archball:
+            if self.camera.controltype == self.camera.controlType.arcball:
                 # archball rotation
                 self.camera.rotate(
                     [event.x(), event.y()],
@@ -1361,20 +1379,21 @@ class GLWidget(QOpenGLWidget):
 
         self.lastPos = event.pos()
 
-        self.trigger_flush()
+        self.triggerFlush()
 
     def wheelEvent(self, event:QWheelEvent):
         angle = event.angleDelta()
             
         self.camera.zoom(angle.y()/200.)
 
-        self.trigger_flush()
+        self.triggerFlush()
 
     def mouseDoubleClickEvent(self, event:QMouseEvent) -> None:
         super().mouseDoubleClickEvent(event)
         self.resetCamera()
 
-        self.trigger_flush()
+        self.triggerFlush()
         
-
+    # def contextMenuEvent(self, event):
+    #     return self.gl_setting_Menu.exec(event.globalPos())
 

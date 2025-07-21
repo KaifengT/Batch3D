@@ -12,6 +12,113 @@ from .utils.transformations import invHRT, rotation_matrix, rotationMatrixY, rpy
 from PIL import Image
 
 
+class colorManager:
+    _color =  np.array([    
+        # [217, 217, 217], # rgb(217, 217, 217),
+        [233, 119, 119], # rgb(233, 119, 119),
+        [65 , 157, 129], # rgb(65 , 157, 129),
+        [156, 201, 226], # rgb(156, 201, 226),
+        [228, 177, 240], # rgb(228, 177, 240),
+        [252, 205, 42 ], # rgb(252, 205, 42 ),
+        [240, 90 , 126], # rgb(240, 90 , 126),
+        [33 , 155, 157], # rgb(33 , 155, 157),
+        [114, 191, 120], # rgb(114, 191, 120),
+        [199, 91 , 122], # rgb(199, 91 , 122),
+        [129, 180, 227], # rgb(129, 180, 227),
+        [115, 154, 228], # rgb(115, 154, 228),
+        [119, 228, 200], # rgb(119, 228, 200),
+        [243, 231, 155], # rgb(243, 231, 155),
+        [248, 160, 126], # rgb(248, 160, 126),
+        [206, 102, 147], # rgb(206, 102, 147),
+
+        ]) / 255.
+        
+    def __init__(self):
+        self.current_index = 0
+
+    def get_next_color(self):
+        color = self._color[self.current_index]
+        self.current_index = (self.current_index + 1) % len(self._color)
+        return color
+    
+    def reset(self):
+        self.current_index = 0
+        
+    @staticmethod
+    def u8color(color: np.ndarray) -> np.ndarray:
+        """Convert float color to uint8 color."""
+        return (color * 255).astype(np.uint8)
+    
+    @staticmethod
+    def float_color(color: np.ndarray) -> np.ndarray:
+        """Convert uint8 color to float color."""
+        return color.astype(np.float32) / 255.0
+    
+    @staticmethod
+    def extract_dominant_colors(colors, n_colors=2, **kwargs):
+        return colorManager._extract_histogram(colors, n_colors, **kwargs)
+
+    
+    @staticmethod
+    def _extract_histogram(colors, n_colors, bins=16, **kwargs):
+
+        if np.max(colors) > 1:
+            colors = colors / 255.0
+        
+        colors_reshaped = colors[..., :3]
+        colors_reshaped = colors_reshaped.reshape(-1, 3)
+
+        valid_mask = ~np.any(np.isnan(colors_reshaped), axis=1)
+        colors_valid = colors_reshaped[valid_mask]
+        
+        if len(colors_valid) == 0:
+            return np.zeros((n_colors, 3)), np.zeros(n_colors)
+        
+        quantized = np.floor(colors_valid * bins).astype(int)
+        quantized = np.clip(quantized, 0, bins - 1)
+        
+        indices = (quantized[:, 0] * bins * bins + 
+                  quantized[:, 1] * bins + 
+                  quantized[:, 2])
+        
+        unique_indices, counts = np.unique(indices, return_counts=True)
+        
+        top_n = min(n_colors, len(unique_indices))
+        top_indices = np.argsort(counts)[-top_n:][::-1]
+        
+        dominant_colors = []
+        for i in top_indices:
+            idx = unique_indices[i]
+            r = (idx // (bins * bins)) / bins + 1/(2*bins)
+            g = ((idx % (bins * bins)) // bins) / bins + 1/(2*bins)
+            b = (idx % bins) / bins + 1/(2*bins)
+            dominant_colors.append([r, g, b])
+        
+        dominant_colors = np.array(dominant_colors)
+        percentages = counts[top_indices] / len(colors_valid)
+        
+        return dominant_colors, percentages
+    
+    @staticmethod
+    def get_color_from_tex(tex: Image.Image, texcoord: np.ndarray) -> np.ndarray:
+        """
+        Get color from texture image based on texture coordinates.
+        
+        Args:
+            tex (PIL.Image): Texture image.
+            texcoord (np.ndarray): Texture coordinates in range [0, 1].
+        
+        Returns:
+            np.ndarray: Color at the specified texture coordinates.
+        """
+        if isinstance(tex, im.Image):
+            image = np.array(tex)
+        
+        tex_h, tex_w = image.shape[:2]
+        texcoord_int = (texcoord * np.array([tex_w, tex_h])).astype(np.int32)
+        indices_clipped = np.clip(texcoord_int, [0, 0], [tex_w-1, tex_h-1])
+        return image[indices_clipped[:, 1], indices_clipped[:, 0]] / 255.0
+
 
 class BaseObject:
     def __init__(self) -> None:
@@ -90,25 +197,25 @@ class BaseObject:
     def renderinShader(self, ratio=1., locMap:dict={}, render_mode=0, size=None):
         
         if hasattr(self, '_vboid') and self.props['isShow']:
-            self._vboid.bind()
             
+            model_matrix_loc = locMap.get('u_ModelMatrix', None)
+            if model_matrix_loc:
+                glUniformMatrix4fv(model_matrix_loc, 1, GL_FALSE, self.transform.T, None)
+            
+            
+            self._vboid.bind()
             
             if self.props['size'] is not None:
                 size = self.props['size']
+            else:
+                size = 3
             # elif size is None:
             #     size = 3
             # if size:
-                if self.pointSize:
-                    glPointSize(size)
-                elif self.lineWidth:
-                    glLineWidth(size)
-
-            else:
-                if ratio > 3: ratio = 3
-                if self.pointSize:
-                    glPointSize(self.pointSize * ratio)
-                elif self.lineWidth:
-                    glLineWidth(self.lineWidth * ratio)
+                # if self.pointSize:
+            glPointSize(size)
+                # elif self.lineWidth:
+            glLineWidth(size)
 
             
             for attr, args in self._vboMap.items():
@@ -368,6 +475,17 @@ class UnionObject(BaseObject):
     def renderinShader(self, **kwargs):
         for obj in self.objs:
             obj.renderinShader(**kwargs)
+            
+    def updateProps(self, props:dict):
+        for obj in self.objs:
+            if hasattr(obj, 'props'):
+                obj.props.update(props)
+                
+    def updateTransform(self, transform:np.ndarray):
+        for obj in self.objs:
+            obj.setTransform(transform)
+
+            
 
 class PointCloud(BaseObject):
     def __init__(self, vertex:np.ndarray, color=[1., 0., 0.], norm=None, size=3, transform=None) -> None:
@@ -394,8 +512,8 @@ class Arrow(BaseObject):
         self.renderType = GL_TRIANGLES
         
     @staticmethod
-    def getTemplate():
-        
+    def getTemplate(size=0.001) -> np.ndarray:
+
         vertex = np.array([
             [0, 0, 1],
             [0.5, 0.5, 0],
@@ -412,7 +530,7 @@ class Arrow(BaseObject):
             [0, 0, 1],
             [-0.5, -0.5, 0],
             [0.5, -0.5, 0],
-        ])*0.001
+        ])*size
         
         return vertex
         
@@ -429,44 +547,9 @@ class Arrow(BaseObject):
         
         
     def load(self, vertex:np.ndarray, color=[1., 0., 0.], size=3, transform=None):
-        
-        # vertex = np.array([
-        #     [0, 0, 1],
-        #     [0.5, 0.5, 0],
-        #     [0.5, -0.5, 0],
-            
-        #     [0, 0, 1],
-        #     [-0.5, 0.5, 0],
-        #     [0.5, 0.5, 0],
-            
-        #     [0, 0, 1],
-        #     [-0.5, 0.5, 0],
-        #     [-0.5, -0.5, 0],
-
-        #     [0, 0, 1],
-        #     [-0.5, -0.5, 0],
-        #     [0.5, -0.5, 0],
-        # ])*0.001
-        
-        # vertex = transform[:3,:3] @ vertex.T
-        # vertex = vertex.T + transform[:3,3]
-        # pcd = pcd.T
         self.reset()
-        
         self.setTransform(transform)
-        
         self._vboid, vboArray, self._vboInfo, self._vboMap, self._indid, self._texid = BaseObject.buildVBO(vertex, color)
-        
-        # if hasattr(color, 'shape') and color.shape==vertex.shape:
-        #      vboArray = np.concatenate((color, vertex), axis=1, dtype=np.float32)
-        # else:
-        #     colorArray = np.array([color]).repeat(vertex.shape[0], 0)
-        #     vboArray = np.concatenate((colorArray, vertex), axis=1, dtype=np.float32)
-        
-        # self.reset()
-        # self.l = len(vboArray)
-        # self._vboid = vbo.VBO(vboArray.flatten())
-        
         self.pointSize = size
 
 class Grid_old(BaseObject):
@@ -505,37 +588,37 @@ class Grid_old(BaseObject):
         self.renderType = GL_LINES
 
 class Grid(BaseObject):
-    def __init__(self) -> None:
+    def __init__(self, n=51, scale=1.0) -> None:
         super().__init__()
         z = 0
-        N = 51
+        N = n
+        NUM = (2*N+1)
 
-
-        x = np.linspace(-N, N, 2*N+1)
-        y = np.linspace(-N, N, 2*N+1)
-
+        x = np.linspace(-N, N, NUM)
+        y = np.linspace(-N, N, NUM)
+        
         xv, yv = np.meshgrid(x, y)
 
         lineX = np.array(
             [[[0, 0, z, 0, 0, z]]]
-        ).repeat(2*N+1, 1).repeat(2*N+1, axis=0)
+        ).repeat(NUM, 1).repeat(NUM, axis=0)
 
         # lineX = lineX[None, :, :]
 
         lineX[:, :, 0] = yv 
         lineX[:, :, 3] = yv                                             
         lineX[:, :, 1] = xv
-        lineX[:, :, 4] = xv + 1        
+        lineX[:, :, 4] = xv + 1
         
 
         lineY = np.array(
             [[[0, 0, z, 0, 0, z]]]
-        ).repeat(2*N+1, 1).repeat(2*N+1, axis=0)
+        ).repeat(NUM, 1).repeat(NUM, axis=0)
 
         # lineX = lineX[None, :, :]
 
         lineY[:, :, 0] = xv 
-        lineY[:, :, 3] = xv + 1                                             
+        lineY[:, :, 3] = xv + 1
         lineY[:, :, 1] = yv
         lineY[:, :, 4] = yv     
 
@@ -550,13 +633,40 @@ class Grid(BaseObject):
         
         self.reset()
         
-        # t = time.time()
+        self.transformList = [
+            np.array([[0, 0, 1, 0],
+                    [0, 1, 0, 0],
+                    [1, 0, 0, 0],
+                    [0, 0, 0, 1]], dtype=np.float32),
+            np.array([[0, 0, 1, 0],
+                    [0, 1, 0, 0],
+                    [1, 0, 0, 0],
+                    [0, 0, 0, 1]], dtype=np.float32),
+            np.array([[1, 0, 0, 0],
+                    [0, 0, 1, 0],
+                    [0, 1, 0, 0],
+                    [0, 0, 0, 1]], dtype=np.float32),
+            np.array([[1, 0, 0, 0],
+                    [0, 0, 1, 0],
+                    [0, 1, 0, 0],
+                    [0, 0, 0, 1]], dtype=np.float32),
+
+            np.eye(4, dtype=np.float32),
+            np.eye(4, dtype=np.float32),
+        ]
+        
+        scaleMatrix = np.eye(4, dtype=np.float32)
+        scaleMatrix[:3, :3] *= scale
+        for i in range(len(self.transformList)):
+            self.transformList[i] = scaleMatrix @ self.transformList[i]
+            
+        self.transform = self.transformList[5]
         
         self._vboid, vboArray, self._vboInfo, self._vboMap, self._indid, self._texid = BaseObject.buildVBO(line, color)
         
         # print('build vbo time:', time.time()-t)
 
-        self.lineWidth = 2
+        self.props['size'] = 2
         self.renderType = GL_LINES
 
 
@@ -569,11 +679,11 @@ class Axis(BaseObject):
         
         line = np.array(
             [
-                [0.001,0,0],
+                [0.000,0,0],
                 [length,0,0],
-                [0,0.001,0],
+                [0,0.000,0],
                 [0,length, 0],
-                [0,0,0.001],
+                [0,0,0.000],
                 [0,0,length],
             ]
         )
@@ -615,7 +725,7 @@ class Axis(BaseObject):
         
         self.renderType = GL_LINES
         
-        self.lineWidth = 8
+        self.props['size'] = 6
 
 class BoundingBox(BaseObject):
     def __init__(self, vertex:np.ndarray, color=[1., 0., 0.], norm=None, size=3, transform=None) -> None:
@@ -624,8 +734,11 @@ class BoundingBox(BaseObject):
         lineIndex = [0,1, 1,2, 2,3, 3,0, 4,5, 5,6, 6,7, 7,4, 0,4, 1,5, 2,6, 3,7]
 
         lineArray = vertex[..., lineIndex, :].reshape(-1, 3)
-        self.reset()
         
+        if hasattr(color, 'shape') and color.shape[:-1] == vertex.shape[:-1]:
+            color = color[..., lineIndex, :].reshape(-1, color.shape[-1])
+        
+        self.reset()
         self.setTransform(transform)
         
         self._vboid, vboArray, self._vboInfo, self._vboMap, self._indid, self._texid = BaseObject.buildVBO(lineArray, color, norm)
@@ -639,13 +752,14 @@ class Lines(BaseObject):
 
         self.reset()
         self.setTransform(transform)
-        # assert hasattr(vertex, 'shape') and len(vertex.shape)==3 and vertex.shape[1]==2 and vertex.shape[2]==3, 'line vertex format error, must be (n, 2, 3)'
+                
+        if hasattr(color, 'shape') and color.shape[:-1] == vertex.shape[:-1]:
+            color = color.reshape(-1, color.shape[-1])
+            
         vertex = vertex.reshape(-1, 3)
-        # vboArray, self.vbotype, self.l = BaseObject.buildVBO(vertex, color, norm)
+                
         self._vboid, vboArray, self._vboInfo, self._vboMap, self._indid, self._texid = BaseObject.buildVBO(vertex, color, norm)
         
-        # self.l = len(vboArray)
-        # self._vboid = vbo.VBO(vboArray.flatten())
         self.renderType = GL_LINES
         self.lineWidth = size
 

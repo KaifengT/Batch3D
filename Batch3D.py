@@ -12,7 +12,7 @@ from PySide6.QtCore import  QSize, QThread, Signal, Qt, QPropertyAnimation, QEas
 from PySide6.QtGui import QCloseEvent, QIcon, QFont, QAction, QColor, QSurfaceFormat
 from ui.PopMessageWidget import PopMessageWidget_fluent as PopMessageWidget
 import multiprocessing
-
+import io
 from ui.addon import GLAddon_ind
 from ui.ui_main_ui import Ui_MainWindow
 from ui.ui_remote_ui import Ui_RemoteWidget
@@ -306,6 +306,7 @@ class App(QMainWindow):
         self.PopMessageWidgetObj = PopMessageWidget(self)
         self.windowBlocker = windowBlocker(self) 
         
+        self.colormanager = colorManager()
         
         self.resize(1600,900)
         
@@ -328,22 +329,16 @@ class App(QMainWindow):
         self.ui.tableWidget.setBorderVisible(True)
         self.ui.tableWidget.setBorderRadius(6)
 
-
         self.ui.pushButton_openfolder.clicked.connect(self.openFolder)
         self.ui.pushButton_openfolder.setIcon(FIF.FOLDER)
         self.ui.pushButton_openremotefolder.setIcon(FIF.CLOUD_DOWNLOAD)
         self.ui.tableWidget.currentCellChanged.connect(self.cellClickedCallback)
         self.ui.tableWidget.cellDoubleClicked.connect(self.cellClickedCallback)
-        # self.ui.checkBox.stateChanged.connect(self.switchExtCallback)
-        # self.ui.checkBox_2.stateChanged.connect(self.switchOblyBwCallback)
-        # self.ui.doubleSpinBox.valueChanged.connect(self.setGLScale)
 
         self.ui.pushButton_openscript.clicked.connect(self.openScript)
         self.ui.pushButton_openscript.setIcon(FIF.CODE)
         self.ui.pushButton_runscript.clicked.connect(self.runScript)
         
-        # self.ui.pushButton_openremotefolder.applyStyleSheet(**Button_Style_GS)
-
 
         self.backendEngine = backendEngine()
         self.backend = QThread(self, )
@@ -371,9 +366,6 @@ class App(QMainWindow):
         self.backendEngine.infoSignal.connect(self.PopMessageWidgetObj.add_message_stack)
         self.sendCodeSignal.connect(self.backendEngine.run)
         
-
-        # self.ui.pushButton_runscript.applyStyleSheet(**Button_Style_G)
-
         self.backendEngine.started.connect(self.runScriptStateChangeRunning)
         self.backendEngine.finished.connect(self.runScriptStateChangeFinish)
         self.quitBackendSignal.connect(self.backendEngine.quitLoop)
@@ -381,21 +373,12 @@ class App(QMainWindow):
         self.backend.start()
         self.backendSFTPThread.start()
 
-        # self.switchExtCallback()
-
         self.isTrackObject = False
-        # self.ui.checkBox.setChecked(self.isTrackObject)
-        # self.ui.checkBox.setOnText('开')
-        # self.ui.checkBox.setOffText('关')
-        # self.ui.checkBox.checkedChanged.connect(self.setTrackObject)
-        self.ui.checkBox_axis.checkedChanged.connect(self.setGLAxisVisable)
-        self.ui.checkBox_axis.setOnText('On')
-        self.ui.checkBox_axis.setOffText('Off')
+        
         self.ui.checkBox_arrow.setOnText('On')
         self.ui.checkBox_arrow.setOffText('Off')
 
         self.center_all = None
-        
         
         self.ui.pushButton_openremotefolder.clicked.connect(self.openRemoteUI)
         
@@ -404,11 +387,6 @@ class App(QMainWindow):
         self.backendSFTP.listFolderContextSignal.connect(self.remoteUI.setFolderContents)
         
         self.ui.pushButton_runscript.setIcon(FIF.SEND)
-        
-        
-        
-        
-        
         
         
         self.themeToolButtonMenu = RoundMenu(parent=self)
@@ -448,7 +426,6 @@ class App(QMainWindow):
         self.GL = self.ui.openGLWidget
         self.reset_script_namespace()
     
-
     def reset_script_namespace(self, ):
         # delete objects in script namespace
         try:
@@ -473,7 +450,6 @@ class App(QMainWindow):
         finally:
             self.script_namespace = {'Batch3D':self,}
     
-        
     def moveToolWidget(self, hide=True):
         self.tool_anim.stop()
         self.tool_b_anim.stop()
@@ -488,8 +464,6 @@ class App(QMainWindow):
         self.tool_anim.start()
         self.tool_b_anim.start()
         self.update()
-        
-        
         
     def openFolder(self, path=None):
         
@@ -572,9 +546,9 @@ class App(QMainWindow):
                 'isShow':isShow,
                 'size':size,
             }
-            self.ui.openGLWidget.updateObjectProps(key, props)
+            self.ui.openGLWidget.setObjectProps(key, props)
 
-    def add2ObjPropsTable(self, obj, name:str, color=None, adjustable=False):
+    def add2ObjPropsTable(self, obj, name:str, colors=None, adjustable=False):
         
         def add_slider(row_num):
             sl = Slider(Qt.Orientation.Horizontal, None)
@@ -585,26 +559,42 @@ class App(QMainWindow):
             sl.setValue(DEFAULT_SIZE)
             sl.valueChanged.connect(self.changeObjectProps)
             self.ui.tableWidget_obj.setCellWidget(row_num, 2, sl)
+            
+        def parseColors2grad(colors:tuple|np.ndarray):
+            head = 'qlineargradient(x1:0, y1:0, x2:1, y2:0'
+            end = ')'
+            total = len(colors)
+            if total <=1 : total=2
+            for i in range(len(colors)):
+                color = [int(c*255) for c in colors[i]]
+                head += f', stop:{i/(total-1):.2f} rgb({color[0]}, {color[1]}, {color[2]})'
+            return head + end
 
-        if color is None:
-            color = (0.9, 0.9, 0.9)
-        elif isinstance(obj, str):
-            color = self._decode_HexColor_to_RGB(color)[:3]
-        elif isinstance(obj, (np.ndarray, list, tuple)):
-            color = color[:3]
-        color = [int(c*255) for c in color]
+        color_str = parseColors2grad(colors)
+        first_color = colors[0]
+        r, g, b = first_color[0]*255, first_color[1]*255, first_color[2]*255
+        luminance = 0.2126 * r + 0.7152 * g + 0.0722 * b
+        font_color = 'black' if luminance > 135 else 'white'
         
+            
+        styleSheet = f'''
+            background-color: {color_str};
+            color: {font_color};
+            border-radius: 6px;
+            padding: 2px;
+            margin: 6px;
+            '''
         
         # print('add2ObjPropsTable:', name)
         row_count = self.ui.tableWidget_obj.rowCount()
-        # print('row_count', row_count)
-        i = 0
+
         for i in range(row_count):
             item = self.ui.tableWidget_obj.cellWidget(i, 1)
+            
             if item.text() == name:
                 # print('find exist name:', name)
                 item.needsRemove = False
-                
+                item.setStyleSheet(styleSheet)
                 if adjustable:
                     if self.ui.tableWidget_obj.cellWidget(i, 2) is None:
                         add_slider(i)
@@ -614,32 +604,14 @@ class App(QMainWindow):
                 
                 return
             
-        # print('i:', i)
-        
-        # print('add new name:', name)
+
         self.ui.tableWidget_obj.insertRow(row_count)
-        # tt = QTableWidgetItem(name)
-        # tt.setForeground(QColor(*color))
-        # tt.setBackground(QColor(*color))
-        # tt = RoundedRectTableItem(name, radius=5, margin=2, bg_color=QColor(*color))
+
         tt = QLabel(name)
-        r, g, b = color
-        luminance = 0.2126 * r + 0.7152 * g + 0.0722 * b
-        font_color = 'black' if luminance > 128 else 'white'
-        tt.setStyleSheet(f'''
-            background-color: rgb({r}, {g}, {b});
-            color: {font_color};
-            border-radius: 6px;
-            padding: 2px;
-            margin: 6px;
-            ''')
+        tt.setStyleSheet(styleSheet)
         tt.setFont(font)
 
-
-
-        # tt.setFont(font)
         tt.needsRemove = False
-        # self.ui.tableWidget_obj.setItem(row_count, 1, tt)
         self.ui.tableWidget_obj.setCellWidget(row_count, 1, tt)
 
         tb = ToggleToolButton(FIF.VIEW)
@@ -651,28 +623,7 @@ class App(QMainWindow):
         if adjustable:
             add_slider(row_count)
             
-        
-        
-        # if name in self.obj_properties.keys():
-        #     properties = self.obj_properties[name]
-        # else:
-        #     properties = {'isShow':True, 'size':3}
-        #     self.obj_properties[name] = properties
-        
-        # self.ui.tableWidget_obj.insertRow(0)
-        # self.ui.tableWidget_obj.removeRow()
-        
-        # self.ui.tableWidget_obj.item
-        
-        # tt = QTableWidgetItem(name)
-        # tt.setForeground(QColor(123, 231, 255))
-        
-        # self.ui.tableWidget_obj.setItem(0, 1, tt)
-        # # self.ui.tableWidget_obj.setItem(0, 0, cellWidget_toggle(FIF.PIN))
-        # tb = ToggleToolButton(FIF.PIN)
-        # tb.setMaximumSize(24, 24)
 
-        # self.ui.tableWidget_obj.setCellWidget(0, 0, tb)
         
     def formatContentInfo(self, obj):
         # textInfo = ' FILE CONTENT: '.center(50, '-') + '\n\n'
@@ -874,7 +825,7 @@ class App(QMainWindow):
     def loadObj(self, fullpath:str, extName=''):
         
         
-        def get_R_between_two_vec(src, dst):
+        def _get_R_between_two_vec(src, dst):
             """ src: (B, 3)
                 dst: (B, 3)
                 
@@ -894,6 +845,34 @@ class App(QMainWindow):
             r = f_dst @ f_src # (B, 3, 3)
             return r
         
+        def _getArrowfromLine(v:np.ndarray, color:np.ndarray):
+            
+            
+            if hasattr(color, 'ndim') and color.ndim > 1:
+                color = color[..., 1, :]
+                color = color.repeat(12, axis=0).reshape(-1, color.shape[-1])
+                            
+            verctor_line = v[:, 1] - v[:, 0]
+            verctor_len = np.linalg.norm(verctor_line, axis=-1, keepdims=True)
+            vaild_mask = np.where(verctor_len > 1e-7)
+            v = v[vaild_mask[0]]
+            verctor_line = v[:, 1] - v[:, 0]
+            
+            B = len(verctor_line)
+            BR = _get_R_between_two_vec(np.array([[0, 0, 1]]).repeat(len(verctor_line), axis=0), verctor_line) # (B, 3, 3)
+            temp = Arrow.getTemplate(size=0.01) # (12, 3)
+            temp = temp[None, ...].repeat(len(verctor_line), axis=0) # (B, 12, 3)
+            BR = BR[:, None, ...].repeat(12, axis=1)
+            BR = BR.reshape(-1, 3, 3) # (B*12, 3, 3)
+            temp = temp.reshape(-1, 1, 3)
+            temp = BR @ temp.transpose(0, 2, 1)
+            T = v[:, 1, :][:,None,:]
+            T = T.repeat(12, axis=1).reshape(-1, 3)
+            vertex = temp.transpose(0, 2, 1).reshape(-1, 3)
+            vertex = vertex + T
+            
+            return Arrow(vertex=vertex, color=color)
+
         def _rmnan(v):
             v = np.array(v, dtype=np.float32)
             nan_mask = np.logical_not(np.isnan(v))
@@ -909,7 +888,7 @@ class App(QMainWindow):
                 self.center_all = np.vstack((self.center_all, center))
             # print(self.center_all)
 
-        def _dealArray(k:str, v:np.ndarray):
+        def _parseArray(k:str, v:np.ndarray):
             
             v = np.nan_to_num(v)
             v = np.float32(v)
@@ -920,67 +899,59 @@ class App(QMainWindow):
             assert v.nbytes < 1e8, 'array too large, must slice to show'
             
             n_color = self._decode_HexColor_to_RGB(self._isHexColorinName(k))
-            user_color = n_color if n_color is not None else self.ui.openGLWidget.chooseColor()
+            user_color = n_color if n_color is not None else self.colormanager.get_next_color()
             
             # -------- lines with arrows
-            if (len(v.shape) >= 2 and v.shape[-2] == 2 and v.shape[-1] == 3 and 'line' in k): # (..., 2, 3)
+            if (len(v.shape) >= 2 and v.shape[-2] == 2 and v.shape[-1] in (3, 6, 7) and 'line' in k): # (..., 2, 3)
+                
+                if v.shape[-1] in (6, 7):
+                    user_color = v[..., 3:].reshape(-1, 2, v.shape[-1]-3)
+                    v = v[..., :3]
+            
                 
                 v = v.reshape(-1, 2, 3)
                 lines = Lines(vertex=v, color=user_color)
                 
                 #-----# Arrow
                 if self.ui.checkBox_arrow.isChecked():
-                    verctor_line = v[:, 1] - v[:, 0]
-                    verctor_len = np.linalg.norm(verctor_line, axis=-1, keepdims=True)
-                    vaild_mask = np.where(verctor_len > 1e-7)
-                    v = v[vaild_mask[0]]
-                    verctor_line = v[:, 1] - v[:, 0]
-                    
-                    B = len(verctor_line)
-                    BR = get_R_between_two_vec(np.array([[0, 0, 1]]).repeat(len(verctor_line), axis=0), verctor_line) # (B, 3, 3)
-                    temp = Arrow.getTemplate() # (12, 3)
-                    
-                    temp = temp[None, ...].repeat(len(verctor_line), axis=0) # (B, 12, 3)
-                    
-                    
-                    BR = BR[:, None, ...].repeat(12, axis=1)
-                    
-                    BR = BR.reshape(-1, 3, 3) # (B*12, 3, 3)
-                    
-                    temp = temp.reshape(-1, 1, 3)
-                    
-                    temp = BR @ temp.transpose(0, 2, 1)
-                    T = v[:, 1, :][:,None,:]
-                    T = T.repeat(12, axis=1).reshape(-1, 3)
-                    
-                    vertex = temp.transpose(0, 2, 1).reshape(-1, 3)
-                    vertex = vertex + T
-                    
-                    arrow = Arrow(vertex=vertex, color=user_color)
-                    
+                    arrow = _getArrowfromLine(v, user_color)
                     obj = UnionObject()
                     obj.add(arrow)
                     obj.add(lines)
                     
-                    self.ui.openGLWidget.updateObject(ID=k, obj=obj, labelColor=user_color)
                 else:
-                    self.ui.openGLWidget.updateObject(ID=k, obj=lines, labelColor=user_color)
+                    obj = lines
+                    
+                if hasattr(user_color, 'ndim') and user_color.ndim > 1:
+                    user_color = colorManager.extract_dominant_colors(user_color, n_colors=3)[0]
+                else:
+                    user_color = (user_color,)
 
             # -------- bounding box
-            elif (len(v.shape) >= 2 and v.shape[-2] == 8 and v.shape[-1] == 3 and 'bbox' in k): # (..., 8, 3)
+            elif (len(v.shape) >= 2 and v.shape[-2] == 8 and v.shape[-1] in (3, 6, 7) and 'bbox' in k): # (..., 8, 3)
+                
+                if v.shape[-1] in (6, 7):
+                    user_color = v[..., 3:].reshape(-1, 8, v.shape[-1]-3)
+                    v = v[..., :3]
+                
                 v = v.reshape(-1, 8, 3)
                 obj = BoundingBox(vertex=v, color=user_color)
-                self.ui.openGLWidget.updateObject(ID=k, obj=obj, labelColor=user_color)
+                
+                if hasattr(user_color, 'ndim') and user_color.ndim > 1:
+                    user_color = colorManager.extract_dominant_colors(user_color, n_colors=3)[0]
+                else:
+                    user_color = (user_color,)
+
             
             # -------- pointcloud
             elif len(v.shape) >= 2 and v.shape[-1] == 3: # (..., 3)
                 v = v.reshape(-1, 3)
                 obj = PointCloud(vertex=v, color=user_color, size=self._isSizeinName(k))
-                self.ui.openGLWidget.updateObject(ID=k, obj=obj, labelColor=user_color)
-                # _getCenter(v)
+                
+                user_color = (user_color,)
                     
             # -------- pointcloud with point-wise color
-            elif len(v.shape) >= 2 and v.shape[-1] in [6, 7]: # (..., 6)
+            elif len(v.shape) >= 2 and v.shape[-1] in (6, 7): # (..., 6)
                 vertex = v[..., :3].reshape(-1, 3)
                 if v.shape[-1] == 6:
                     color = v[..., 3:6].reshape(-1, 3)
@@ -988,11 +959,10 @@ class App(QMainWindow):
                     color = v[..., 3:7].reshape(-1, 4)
                     
                 obj = PointCloud(vertex=vertex, color=color, size=self._isSizeinName(k))
-                self.ui.openGLWidget.updateObject(ID=k, obj=obj)
-                # self.ui.openGLWidget.updateObject(ID=k, vertex=vertex, color=color, size=self._isSizeinName(k), type='pointcloud')
                 
-                _getCenter(vertex)
-            
+                user_color, per = colorManager.extract_dominant_colors(color, n_colors=3)
+                
+                
             # -------- coordinate axis
             elif len(v.shape) >= 3 and v.shape[-1] == 4 and v.shape[-2] == 4: # (..., 4, 4)
                 v = v.reshape(-1, 4, 4)
@@ -1024,12 +994,13 @@ class App(QMainWindow):
                 color = np.tile(color, (B, 1)).reshape(-1, 4)
                 line_trans = line_trans.reshape(-1, 3)
                 obj = Lines(vertex=line_trans, color=color)
+
                 
-                self.ui.openGLWidget.updateObject(ID=k, obj=obj)
+                user_color, per = colorManager.extract_dominant_colors(color, n_colors=3)
+                
+            return obj, k, user_color, True
 
-            self.add2ObjPropsTable(v, k, user_color, adjustable=True)
-
-        def _dealDict(k:str, v:dict):
+        def _parseDict(k:str, v:dict):
             assert 'vertex' in v.keys(), 'mesh missing vertex(vertex)'
             assert 'face' in v.keys(), 'mesh missing face(face)'
             if v['vertex'].shape[-1] == 3:
@@ -1043,12 +1014,79 @@ class App(QMainWindow):
             else:
                 assert 'vertex format error'
 
-            self.ui.openGLWidget.updateObject(ID=k, obj=obj)
+            return obj, k, ((0.9, 0.9, 0.9),), False
+                        
+        def _parseTrimesh(k:str, v:trimesh.parent.Geometry3D):
             
-            self.add2ObjPropsTable(v, k)
-            
+            if isinstance(v, trimesh.Scene):
+                print(f'parse Trimesh.Scene, {len(v.geometry)} meshes found')
+                _meshlist = []
+                for _k, mesh in v.geometry.items():
+                    _meshlist.append(mesh)
+                v = trimesh.util.concatenate(_meshlist)
 
-        def _load_np_file(file):
+                
+            
+            if isinstance(v, (trimesh.Trimesh)):
+
+                if hasattr(v, 'scale') and v.scale > 100:
+                    v.apply_scale(1 / v.scale * 10)
+                    self.PopMessageWidgetObj.add_message_stack((('mesh is too large, auto scaled', ''), 'warning'))
+
+                if hasattr(v, 'visual') and hasattr(v.visual, 'material'):
+                    if isinstance(v.visual.material, trimesh.visual.material.SimpleMaterial):
+                        tex = v.visual.material.image
+                    elif isinstance(v.visual.material, trimesh.visual.material.PBRMaterial):
+                        tex = v.visual.material.baseColorTexture
+                    else:
+                        tex = None
+                else:
+                    tex = None
+
+                vertex_color = v.visual.vertex_colors /255. if isinstance(v.visual, trimesh.visual.color.ColorVisuals) else None
+                texcoord = v.visual.uv.view(np.ndarray).astype(np.float32) if isinstance(v.visual, trimesh.visual.texture.TextureVisuals) and hasattr(v.visual, 'uv') and hasattr(v.visual.uv, 'view') else None
+
+                obj = Mesh(v.vertices.view(np.ndarray).astype(np.float32),
+                        v.faces.view(np.ndarray).astype(np.int32),
+                        norm=v.face_normals.view(np.ndarray).astype(np.float32),
+                        color=vertex_color,
+                        texture=tex,
+                        texcoord=texcoord,
+                        faceNorm=True
+                        )
+
+                try:
+                    if tex is not None and texcoord is not None:
+                        texcolor = colorManager.get_color_from_tex(tex, texcoord[:, ::-1])
+                        main_colors, per = colorManager.extract_dominant_colors(texcolor, n_colors=3)
+                    elif vertex_color is not None:
+                        main_colors, per = colorManager.extract_dominant_colors(vertex_color, n_colors=3)
+                    else:
+                        main_colors = ((0.9, 0.9, 0.9),)
+                except:
+                    main_colors = ((0.9, 0.9, 0.9),)
+                
+                return obj, k, main_colors, False
+
+
+
+            elif isinstance(v, trimesh.PointCloud):
+                if hasattr(v, 'colors') and hasattr(v, 'vertices') and len(v.colors.shape) > 1 and v.colors.shape[0] == v.vertices.shape[0]:
+                    if np.max(v.colors) > 1:
+                        colors = v.colors / 255.
+                    else:
+                        colors = v.colors
+                    array = np.concatenate((v.vertices, colors), axis=-1)
+                    return _parseArray(k, array)
+                else:
+                    return _parseArray(k, np.array(v.vertices))
+
+                # self.add2ObjPropsTable(v, k, adjustable=True)
+                
+            else:
+                raise ValueError(f'unsupported Trimesh object, {v.__class__.__name__}')
+
+        def _loadNpFile(file):
 
             obj = np.load(file, allow_pickle=True)
                 
@@ -1064,106 +1102,79 @@ class App(QMainWindow):
 
             return obj
 
-
-        # self.ui.tableWidget_obj.setRowCount(0)
-        self.resetObjPropsTable()
-        try:
-            # with open(fullpath, 'rb') as f:
+        def _loadFromAny(fullpath, extName):
             if isinstance(fullpath, str) and os.path.isfile(fullpath):
-                extName = os.path.splitext(fullpath)[-1][1:]
-                # if extName == '...':
-                    # f = PLYLoader(fullpath)
-                    # obj = f.data
-                if extName in ['npz', 'npy', 'NPY', 'NPZ',]:
-                    obj = _load_np_file(fullpath)
-
-                elif extName in ['obj', 'ply', 'stl', 'pcd', 'glb', 'xyz', 'OBJ', 'PLY', 'STL', 'PCD', 'XYZ', 'GLB']:
+                _extName = os.path.splitext(fullpath)[-1][1:]
+                
+                if _extName in ['npz', 'npy', 'NPY', 'NPZ',]:
+                    obj = _loadNpFile(fullpath)
+                elif _extName in ['obj', 'ply', 'stl', 'pcd', 'glb', 'xyz', 'OBJ', 'PLY', 'STL', 'PCD', 'XYZ', 'GLB']:
                     obj = trimesh.load(fullpath, process=False)
-                elif extName in ['h5', 'H5']:
+                elif _extName in ['h5', 'H5']:
                     obj = h5py.File(fullpath, 'r', track_order=True)
-                    
-                    
                 else:
                     obj = pickle.load(open(fullpath, 'rb'))
                     
                 self.setWorkspaceObj(obj)
    
+            # load file from API or slice
             elif isinstance(fullpath, (dict)):
                 obj = fullpath
    
-            # for remote file
-            else:
+            # load file from remote 
+            elif isinstance(fullpath, (io.BytesIO, io.BufferedReader, io.BufferedWriter)):
                 if extName in ['npz', 'npy', 'NPY', 'NPZ',]:
-                    obj = _load_np_file(fullpath)
+                    obj = _loadNpFile(fullpath)
                 else:
                     obj = pickle.load(fullpath)
                 
                 self.setWorkspaceObj(obj)
                 
+            else:
+                raise ValueError(f'Unknown file type: {type(fullpath)}')
+            
+            return obj
+
+        
+        self.resetObjPropsTable()
+        self.colormanager.reset()
+        
+        try:
+            
+            # load file from local path
+            obj = _loadFromAny(fullpath, extName)
             info = self.formatContentInfo(obj)
             self.ui.label_info.setMarkdown(info)
+            self.ui.openGLWidget.reset()
             
             if isinstance(obj, dict):
                 
-                self.center_all = None
-                
-                self.ui.openGLWidget.reset()
                 for k, v in obj.items():
                     k = str(k)
                     if hasattr(v, 'shape'):
-                        
-                        # if len(v.shape) in [3, 2]:
-                        _dealArray(k, v)
+                        _v, _k, _c, _isadj = _parseArray(k, v)
                             
                     elif isinstance(v, dict):
-                        _dealDict(k, v)
+                        _v, _k, _c, _isadj = _parseDict(k, v)
                         
                     elif isinstance(v, (trimesh.parent.Geometry3D)):
-                        self.ui.openGLWidget.updateTrimeshObject(ID=k, obj=v)
-
-                        self.add2ObjPropsTable(v, k)
+                        _v, _k, _c, _isadj = _parseTrimesh(k, v)
+                        
+                    self.ui.openGLWidget.updateObject(ID=_k, obj=_v)
+                    self.add2ObjPropsTable(_v, _k, _c, _isadj)
                     
-                if self.isTrackObject and self.center_all is not None:
-                    self.center_all = self.center_all.mean(axis=0) * self.ui.openGLWidget.scale
-                    # print(self.center_all)
-                    self.ui.openGLWidget.camera.translateTo(*self.center_all, )
 
             elif isinstance(obj, (trimesh.parent.Geometry3D)):
-                self.ui.openGLWidget.reset()
+
                 baseName = os.path.basename(fullpath)
                 fileName = os.path.splitext(baseName)[0]
                 
-                if isinstance(obj, (trimesh.Scene, trimesh.Trimesh)):
+                _v, _k, _c, _isadj = _parseTrimesh(fileName, obj)
+                self.ui.openGLWidget.updateObject(ID=_k, obj=_v)
+                self.add2ObjPropsTable(_v, _k, _c, _isadj)
 
-                    if hasattr(obj, 'scale') and obj.scale > 100:
-                        obj.apply_scale(1 / obj.scale * 10)
-                        self.PopMessageWidgetObj.add_message_stack((('mesh is too large, auto scaled', ''), 'warning'))
-                        
-                    self.ui.openGLWidget.updateTrimeshObject(ID=fileName, obj=obj)
-                    
-                    self.add2ObjPropsTable(obj, fileName)
-
-                elif isinstance(obj, trimesh.PointCloud):
-                    if hasattr(obj, 'colors') and hasattr(obj, 'vertices') and len(obj.colors.shape) > 1 and obj.colors.shape[0] == obj.vertices.shape[0]:
-                        if np.max(obj.colors) > 1:
-                            colors = obj.colors / 255.
-                        else:
-                            colors = obj.colors
-                        array = np.concatenate((obj.vertices, colors), axis=-1)
-                        _dealArray(fileName, array)
-                    else:
-                        _dealArray(fileName, np.array(obj.vertices))
-
-                    self.add2ObjPropsTable(obj, fileName, adjustable=True)
-                    
-                else:
-                    self.PopMessageWidgetObj.add_message_stack((('unsupported Trimesh object', obj.__class__.__name__), 'error'))
-                    
-                # self.add2ObjPropsTable(obj, fileName)
-                
-                
             elif isinstance(obj, h5py.File):
-                self.ui.openGLWidget.reset()
+
                 baseName = os.path.basename(fullpath)
                 fileName = os.path.splitext(baseName)[0]
                 
@@ -1207,13 +1218,6 @@ class App(QMainWindow):
         if self.isTrackObject and self.center_all is not None:
             
             self.ui.openGLWidget.camera.translateTo(*self.center_all, isAnimated=True, isEmit=True)
-
-    def setGLAxisVisable(self, ):
-        self.ui.openGLWidget.isAxisVisable = self.ui.checkBox_axis.isChecked()
-        self.ui.openGLWidget.update()
-        
-    def switchOblyBwCallback(self, ):
-        self.isNolyBw = self.ui.checkBox_2.isChecked()
 
     def backendExeGLCallback(self, func, kwargs):
         getattr(self.ui.openGLWidget, func)(**kwargs)
@@ -1330,6 +1334,8 @@ class App(QMainWindow):
         self.backendSFTPThread.wait(200)
         self.backendSFTPThread.terminate()
         
+        self.reset_script_namespace()
+        
         return super().closeEvent(event)
     
 
@@ -1371,11 +1377,11 @@ class App(QMainWindow):
     def serverConnected(self, ):
         self.remoteUI.serverConnected()
         
-    def setUpWatchForThemeChange(self, ):
-        self.watchForThemeTimer = QTimer()
-        self.watchForThemeTimer.timeout.connect(self.watchForThemeChange)
-        self.watchForThemeTimer.start(500)
-        self.watchForThemeTimer.setSingleShot(False)
+    # def setUpWatchForThemeChange(self, ):
+    #     self.watchForThemeTimer = QTimer()
+    #     self.watchForThemeTimer.timeout.connect(self.watchForThemeChange)
+    #     self.watchForThemeTimer.start(500)
+    #     self.watchForThemeTimer.setSingleShot(False)
         # self.currentTheme = qconfig.theme
     
     def watchForThemeChange(self, ):
@@ -1452,7 +1458,7 @@ class App(QMainWindow):
                 self.tgtTheme = m[settings['theme']]
                 
                 self.ui.openGLWidget.gl_camera_control_combobox.setCurrentItem(settings['camera'])
-                self.ui.openGLWidget.changeCameraControl(int(settings['camera']))
+                self.ui.openGLWidget.setCameraControl(int(settings['camera']))
 
                 self.currentScriptPath = settings['lastScript']
                 if len(self.currentScriptPath) and os.path.isfile(self.currentScriptPath):

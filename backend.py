@@ -331,7 +331,7 @@ class backendSFTP(QObject):
             # direct cache to memory
             # print(remoteName, '->', 'memory')
             tmpfile = io.BytesIO()
-            self.sftp.getfo(remoteName, tmpfile, callback=self._downloadProgress, max_concurrent_prefetch_requests=64)
+            self.sftp.getfo(remoteName, tmpfile, callback=self._downloadProgress)
             tmpfile.seek(0)
 
             self.executeSignal.emit('setDownloadProgressHidden', {'hidden':True, })

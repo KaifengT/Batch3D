@@ -845,23 +845,23 @@ class GLWidget(QOpenGLWidget):
 
         # For macOS
         if sys.platform == 'darwin':
-            background_color = [45, 45, 50, 255]
+            background_color = [0.109, 0.117, 0.125, 1.0]
             self.font = QFont(['SF Pro Display', 'Helvetica Neue', 'Arial'], 10, QFont.Weight.Normal)
         
         # For Windows
         elif sys.platform == 'win32':
-            background_color = [0, 0, 0, 0]
+            background_color = [0., 0., 0., 0.]
             self.font = QFont([u'Cascadia Mono', u'Microsoft Yahei UI'], 9, )
 
         else:
-            background_color = [0, 0, 0, 0]
+            background_color = [0.109, 0.117, 0.125, 1.0]
             self.font = QFont([u'Cascadia Mono', u'Microsoft Yahei UI'], 9, )
 
 
 
-        self.bg_color = (background_color[i] / 255 for i in range(len(background_color)))
-        
-        
+        self.bg_color = background_color
+
+
         self.objectList = {}
 
         self.worldTextList = {}
@@ -969,6 +969,27 @@ class GLWidget(QOpenGLWidget):
 
         self.setMinimumSize(200, 200)
             
+            
+    def setBackgroundColor(self, color: Tuple[float, float, float, float]):
+        '''
+        this method sets the background color of the OpenGL widget.
+        no need to use this func for Windows platform
+        Args:
+            color (tuple): A tuple of 4 floats representing the RGBA color values, each in the range 0-1.
+        Returns:
+            None
+        '''
+        assert len(color) == 4, "Color must be a tuple of 4 floats (R, G, B, A) in range 0-1."
+        if all(0 <= c <= 1. for c in color):
+            self.bg_color = color
+            print(f'Setting background color to: {self.bg_color}')
+            self.makeCurrent()
+            glClearColor(*self.bg_color)
+            self.update()
+        else:
+            raise ValueError("Color values must be in the range 0-1.")
+
+
     def setCameraControl(self, index):
         
         self.camera.controltype = self.camera.controlType(index)
@@ -1063,37 +1084,23 @@ class GLWidget(QOpenGLWidget):
         glEnable(GL_POINT_SMOOTH)
         glHint(GL_POINT_SMOOTH_HINT, GL_NICEST)
 
-        
-        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
         glEnable(GL_BLEND)
+        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
+        
 
-        # glLightfv(GL_LIGHT0, GL_AMBIENT, _AmbientLight)
-        # glLightfv(GL_LIGHT0, GL_DIFFUSE, _DiffuseLight)
-        # glLightfv(GL_LIGHT0, GL_SPECULAR, _SpecularLight)
-        # glLightfv(GL_LIGHT0, GL_POSITION, _PositionLight)
-
-        # glLightModelf(GL_LIGHT_MODEL_TWO_SIDE, 1.0)
         glRenderMode(GL_RENDER)
 
-        # glEnable(GL_LIGHTING)
-        # glEnable(GL_LIGHT0)
-        # glEnable(GL_LIGHT1)
         glPointSize(3)
         glEnable(GL_NORMALIZE)
         glEnable(GL_LINE_SMOOTH)
         
-        # glEnable(GL_SAMPLER_2D_SHADOW)
-        # glEnable(GL_POINT_SMOOTH)
-        # glHint(GL_POINT_SMOOTH_HINT, GL_NICEST)
         
         glEnable(GL_MULTISAMPLE)
         glShadeModel(GL_SMOOTH)
         
-
-        # glEnable(GL_POINT_SMOOTH)
         glClearColor(*self.bg_color)
         glEnable(GL_COLOR_MATERIAL)
-        # glColorMaterial(GL_FRONT, GL_AMBIENT_AND_DIFFUSE)
+
         glColorMaterial(GL_FRONT_AND_BACK, GL_AMBIENT_AND_DIFFUSE)
 
         
@@ -1158,7 +1165,6 @@ class GLWidget(QOpenGLWidget):
     def paintGL(self):
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
         
-        
         glUseProgram(self.program)
         
         # reset ModelMatrix
@@ -1179,18 +1185,17 @@ class GLWidget(QOpenGLWidget):
         glUniformMatrix4fv(loc, 1, GL_FALSE, camtrans.T, None)
 
         
-        if self.isAxisVisable:
-            self.axis.renderinShader(locMap=self.shaderLocMap)
+        # if self.isAxisVisable:
+        #     self.axis.renderinShader(locMap=self.shaderLocMap)
             
-        # glUniformMatrix4fv(loc, 1, GL_FALSE, modelMatrix, None)
-        if self.isGridVisable:
-            glUniform1i(self.shaderLocMap.get('u_farPlane'), 1)
-            glUniform1f(self.shaderLocMap.get('u_farPlane_ratio'), 0.02)
+        # if self.isGridVisable:
+        #     glUniform1i(self.shaderLocMap.get('u_farPlane'), 1)
+        #     glUniform1f(self.shaderLocMap.get('u_farPlane_ratio'), 0.02)
 
-            self.grid.renderinShader(locMap=self.shaderLocMap)
-            glUniform1f(self.shaderLocMap.get('u_farPlane_ratio'), 0.15)
-            self.smallGrid.renderinShader(locMap=self.shaderLocMap)
-            glUniform1i(self.shaderLocMap.get('u_farPlane'), 0)
+        #     self.grid.renderinShader(locMap=self.shaderLocMap)
+        #     glUniform1f(self.shaderLocMap.get('u_farPlane_ratio'), 0.15)
+        #     self.smallGrid.renderinShader(locMap=self.shaderLocMap)
+        #     glUniform1i(self.shaderLocMap.get('u_farPlane'), 0)
         
  
         
@@ -1233,6 +1238,23 @@ class GLWidget(QOpenGLWidget):
             if hasattr(v, 'renderinShader'):
                 v.renderinShader(ratio=10./self.camera.viewPortDistance, locMap=self.shaderLocMap, render_mode=self.gl_render_mode, size=self.point_line_size)
 
+
+        glDepthMask(GL_FALSE)
+
+
+        if self.isAxisVisable:
+            self.axis.renderinShader(locMap=self.shaderLocMap)
+            
+        if self.isGridVisable:
+            glUniform1i(self.shaderLocMap.get('u_farPlane'), 1)
+            glUniform1f(self.shaderLocMap.get('u_farPlane_ratio'), 0.02)
+
+            self.grid.renderinShader(locMap=self.shaderLocMap)
+            glUniform1f(self.shaderLocMap.get('u_farPlane_ratio'), 0.15)
+            self.smallGrid.renderinShader(locMap=self.shaderLocMap)
+            glUniform1i(self.shaderLocMap.get('u_farPlane'), 0)
+
+        glDepthMask(GL_TRUE)
 
 
         glUseProgram(0)

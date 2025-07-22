@@ -241,7 +241,8 @@ class fileDetailInfoUI(QDialog):
     
     def __init__(self, parent:QWidget=None) -> None:
         super().__init__(parent,)
-        self.setAttribute(Qt.WA_TranslucentBackground)
+        if sys.platform == 'win32':
+            self.setAttribute(Qt.WA_TranslucentBackground)
         self.resize(500, 700)
         self.setWindowTitle('File Contents')
         
@@ -1335,6 +1336,8 @@ class App(QMainWindow):
         self.backendSFTPThread.terminate()
         
         self.reset_script_namespace()
+        self.fileDetailUI.close()
+        self.remoteUI.close()
         
         return super().closeEvent(event)
     
@@ -1357,9 +1360,9 @@ class App(QMainWindow):
         self.remoteUI.show()
         
     def openDetailUI(self, ):
+        self.fileDetailUI.close()
         self.applyMicaTheme(self.fileDetailUI.winId())
         self.fileDetailUI.show()
-        
         
     def setDownloadProgress(self, dbytes:int, totalbytes:int, isBytes=True):
         self.ui.openGLWidget.statusbar.setProgress(dbytes, totalbytes, isBytes)
@@ -1442,6 +1445,12 @@ class App(QMainWindow):
         
         self.saveSettings()
         
+        if not sys.platform == 'win32':
+            t = {
+                Theme.LIGHT:(0.95,0.95,0.95,1.0),
+                Theme.DARK:(0.109, 0.117, 0.125, 1.0),
+            }
+            self.ui.openGLWidget.setBackgroundColor(t[theme])
             
     def loadSettings(self, ):
         

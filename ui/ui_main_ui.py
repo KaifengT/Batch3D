@@ -22,7 +22,6 @@ from PySide6.QtWidgets import (QAbstractItemView, QApplication, QHBoxLayout, QHe
 from glw.GLWidget import GLWidget
 from qfluentwidgets import (DropDownToolButton, PrimaryPushButton, PushButton, SpinBox,
     StrongBodyLabel, SwitchButton, TableWidget)
-from ui.addon import GLAddon_circling
 
 class Ui_MainWindow(object):
     def setupUi(self, MainWindow):
@@ -145,21 +144,6 @@ class Ui_MainWindow(object):
 
         self.horizontalLayout_3.addWidget(self.pushButton_openscript)
 
-        self.horizontalSpacer_2 = QSpacerItem(40, 20, QSizePolicy.Expanding, QSizePolicy.Minimum)
-
-        self.horizontalLayout_3.addItem(self.horizontalSpacer_2)
-
-        self.label_script = StrongBodyLabel(self.tool)
-        self.label_script.setObjectName(u"label_script")
-        sizePolicy2.setHeightForWidth(self.label_script.sizePolicy().hasHeightForWidth())
-        self.label_script.setSizePolicy(sizePolicy2)
-        self.label_script.setMaximumSize(QSize(130, 16777215))
-        self.label_script.setStyleSheet(u"color: rgb(238, 238, 238);\n"
-"font: 7pt;")
-        self.label_script.setWordWrap(True)
-
-        self.horizontalLayout_3.addWidget(self.label_script)
-
 
         self.verticalLayout.addLayout(self.horizontalLayout_3)
 
@@ -172,16 +156,6 @@ class Ui_MainWindow(object):
         self.pushButton_runscript.setMinimumSize(QSize(100, 0))
 
         self.horizontalLayout_4.addWidget(self.pushButton_runscript)
-
-        self.horizontalSpacer_3 = QSpacerItem(40, 20, QSizePolicy.Expanding, QSizePolicy.Minimum)
-
-        self.horizontalLayout_4.addItem(self.horizontalSpacer_3)
-
-        self.widget_circle = GLAddon_circling(self.tool)
-        self.widget_circle.setObjectName(u"widget_circle")
-        self.widget_circle.setMinimumSize(QSize(24, 24))
-
-        self.horizontalLayout_4.addWidget(self.widget_circle)
 
 
         self.verticalLayout.addLayout(self.horizontalLayout_4)
@@ -357,7 +331,6 @@ class Ui_MainWindow(object):
         self.checkBox_arrow.setText(QCoreApplication.translate("MainWindow", u"CheckBox", None))
         self.label_3.setText(QCoreApplication.translate("MainWindow", u"Slice", None))
         self.pushButton_openscript.setText(QCoreApplication.translate("MainWindow", u"Open Script", None))
-        self.label_script.setText(QCoreApplication.translate("MainWindow", u"...", None))
         self.pushButton_runscript.setText(QCoreApplication.translate("MainWindow", u"Exec Script ", None))
         ___qtablewidgetitem = self.tableWidget.horizontalHeaderItem(0)
         ___qtablewidgetitem.setText(QCoreApplication.translate("MainWindow", u"File", None));

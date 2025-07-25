@@ -1,17 +1,7 @@
-from PySide6.QtCore import (QCoreApplication, QDate, QDateTime, QLocale,
-    QMetaObject, QObject, QPoint, QRect, QTimer, QPropertyAnimation, QEasingCurve, QAbstractAnimation,
-    QSize, QTime, QUrl, Qt)
-from PySide6.QtGui import (QBrush, QColor, QConicalGradient, QCursor, QPen,
-    QFont, QFontDatabase, QGradient, QIcon,
-    QImage, QKeySequence, QLinearGradient, QPainter,
-    QPalette, QPixmap, QRadialGradient, QTransform)
-from PySide6.QtWidgets import (QApplication, QHBoxLayout, QLabel, QSizePolicy, QFormLayout, QLineEdit, QPushButton, QVBoxLayout,QScrollArea,QProgressBar,QSpacerItem,
-    QWidget, QGraphicsOpacityEffect, QGraphicsDropShadowEffect)
+from PySide6.QtCore import QPropertyAnimation
 
-from PySide6 import QtWidgets, QtSvg, QtSvgWidgets
-from PySide6.QtSvgWidgets import QSvgWidget
-import sys, os
-
+from PySide6.QtWidgets import (QHBoxLayout, QSizePolicy, QSpacerItem,
+    QWidget, QGraphicsOpacityEffect)
 
 from qfluentwidgets import BodyLabel, ProgressBar
 

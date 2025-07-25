@@ -108,6 +108,8 @@ class backendSFTP(QObject):
         self.currentDir = '/'
         
         self.localCacheDir = './cache'
+        
+        self._downloadCancelFlag = False
 
     def quitLoop(self):
         self.quitFlag = True
@@ -232,10 +234,23 @@ class backendSFTP(QObject):
             self.executeSignal.emit('setDownloadProgressHidden', {'hidden':True, })
         
         self.finished.emit()
-        
+
+    def _checkDownloadCancel(self):
+        if self._downloadCancelFlag:
+            self._downloadCancelFlag = False
+            # self.executeSignal.emit('setDownloadProgressHidden', {'hidden':True, })
+            # self.infoSignal.emit((('Download Cancelled', 'The download has been cancelled by user.'), 'warning'))
+            print('raise error')
+            raise IOError('Download Cancelled')
     
     def _downloadProgress(self, a, b):
+        QApplication.processEvents()
         self.executeSignal.emit('setDownloadProgress', {'dbytes':a, 'totalbytes':b})
+        self._checkDownloadCancel()
+        
+    def cancelDownload(self):
+        self._downloadCancelFlag = True
+        print('cancel download')
         
     def _exist(self, filename):
         try:
@@ -327,7 +342,7 @@ class backendSFTP(QObject):
         remoteName = self.currentDir + '/' + filename
         extName, _ = self._getExtname(filename)
         
-        if extName in ['pkl', 'cug', 'npy', 'npz', 'PKL', 'CUG', 'NPY', 'NPZ']:
+        if extName.lower() in ['pkl', 'cug', 'npy', 'npz']:
             # direct cache to memory
             # print(remoteName, '->', 'memory')
             tmpfile = io.BytesIO()
@@ -349,14 +364,15 @@ class backendSFTP(QObject):
                 
             self.executeSignal.emit('setDownloadProgressHidden', {'hidden':True, })
             return 'loadObj', {'fullpath':os.path.join(self.localCacheDir, assetFileListRelative[0]), 'extName':extName}
-        
-    
-        elif extName in ['ply', 'txt', 'stl', 'pcd', 'glb', 'xyz', 'PLY', 'TXT', 'STL', 'PCD', 'XYZ', 'GLB']:
+
+
+        elif extName.lower() in ['ply', 'txt', 'stl', 'pcd', 'glb', 'xyz']:
             self._deleteCache()
             self._downLoadtoLoacl(remoteName, filename)
 
             self.executeSignal.emit('setDownloadProgressHidden', {'hidden':True, })
             return 'loadObj', {'fullpath':os.path.join(self.localCacheDir, filename), 'extName':extName}
+            
             
                 
             

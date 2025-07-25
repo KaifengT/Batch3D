@@ -7,18 +7,18 @@ sys.path.append(wdir)
 import numpy as np
 import numpy.linalg as linalg
 from enum import Enum
+import copy
 from PySide6.QtWidgets import ( QApplication, QMainWindow, QTableWidgetItem, QWidget, QFileDialog, QDialog, QGraphicsOpacityEffect, QGraphicsDropShadowEffect, QFrame, QVBoxLayout, QLabel)
 from PySide6.QtCore import  QSize, QThread, Signal, Qt, QPropertyAnimation, QEasingCurve, QPoint, QRect, QObject
 from PySide6.QtGui import QCloseEvent, QIcon, QFont, QAction, QColor, QSurfaceFormat
 from ui.PopMessageWidget import PopMessageWidget_fluent as PopMessageWidget
 import multiprocessing
 import io
-from ui.addon import GLAddon_ind
 from ui.ui_main_ui import Ui_MainWindow
 from ui.ui_remote_ui import Ui_RemoteWidget
 import pickle
 from backend import backendEngine, backendSFTP
-
+import hashlib
 import traceback
 from ui.windowBlocker import windowBlocker
 import json
@@ -129,35 +129,35 @@ class RemoteUI(QDialog):
     def loadSettings(self, ):
         
         try:
-            with open(self.configPath, 'rb') as f:
-                settings = pickle.load(f)
+            with open(self.configPath, 'r') as f:
+                settings = json.load(f)
                 
             self.ui.lineEdit_host.setText(settings['host'])
             self.ui.lineEdit_port.setText(settings['port'])
             self.ui.lineEdit_username.setText(settings['username'])
-            self.ui.lineEdit_passwd.setText(settings['passwd'])
             self.ui.lineEdit_dir.setText(settings['dir'])
         except:
-            ...
+            print('loadSettings error, using default settings')
+            traceback.print_exc()
 
     def saveSettings(self, ):
         
+
         try:
             settings = {
                 'host':self.ui.lineEdit_host.text(),
                 'port':self.ui.lineEdit_port.text(),
                 'username':self.ui.lineEdit_username.text(),
-                'passwd':self.ui.lineEdit_passwd.text(),
                 'dir':self.ui.lineEdit_dir.text(),
             }
             
-            with open(self.configPath, 'wb') as f:
-                pickle.dump(settings, f)
-                # json.dump(settings, f, indent=4)
+            with open(self.configPath, 'w') as f:
+                # pickle.dump(settings, f)
+                json.dump(settings, f, indent=4)
         except:
-            ...
-        
-        
+            print('saveSettings error')
+            traceback.print_exc()
+
     def connectSFTP(self, ):
         self.executeSignal.emit('connectSFTP', {
             'host':self.ui.lineEdit_host.text(), 
@@ -186,6 +186,7 @@ class RemoteUI(QDialog):
         
     def setFolderContents(self, files_dict:dict, dirname:str):
         self.ui.tableWidget.setRowCount(0)
+        self.ui.tableWidget.scrollToTop()
         # self.ui.tableWidget.setHorizontalHeaderLabels([dirname])
         self.ui.lineEdit_dir.setText(dirname)
 
@@ -256,6 +257,7 @@ class App(QMainWindow):
     sendCodeSignal = Signal(str, str)
     sftpSignal = Signal(str, dict)
     quitBackendSignal = Signal()
+    sftpDownloadCancelSignal = Signal()
 
     def __init__(self,):
         """"""
@@ -317,7 +319,7 @@ class App(QMainWindow):
         
         self.currentScriptPath = ''
         
-        self.workspace_obj = None
+        self._workspace_obj = None
         
         self.obj_properties = {}
 
@@ -351,10 +353,12 @@ class App(QMainWindow):
         self.backendSFTP.moveToThread(self.backendSFTPThread)
         self.backendSFTP.executeSignal.connect(self.backendExeUICallback)
         self.backendSFTP.infoSignal.connect(self.PopMessageWidgetObj.add_message_stack)
+        self.sftpDownloadCancelSignal.connect(self.backendSFTP.cancelDownload)
 
         self.remoteUI = RemoteUI()
         self.remoteUI.executeSignal.connect(self.backendSFTP.run)
         self.sftpSignal.connect(self.backendSFTP.run)
+        
         
         self.fileDetailUI = fileDetailInfoUI()
         self.ui.label_info.setParent(self.fileDetailUI)
@@ -388,7 +392,7 @@ class App(QMainWindow):
         self.backendSFTP.listFolderContextSignal.connect(self.remoteUI.setFolderContents)
         
         self.ui.pushButton_runscript.setIcon(FIF.SEND)
-        
+        self.ui.pushButton_runscript.setEnabled(False)
         
         self.themeToolButtonMenu = RoundMenu(parent=self)
         self.themeLIGHTAction = QAction(FIF.BRIGHTNESS.icon(), 'Light')
@@ -412,7 +416,6 @@ class App(QMainWindow):
         # self.ui.tableWidget.menu = RoundMenu(parent=self.ui.tableWidget)
         # self.ui.tableWidget.menu.addAction(Action(FIF.SYNC, '刷新', triggered=lambda: self.remoteUI.openFolder_background()))
         # self.ui.tableWidget.contextMenuEvent = lambda event: self.ui.tableWidget.menu.exec_(event.globalPos())
-
 
         
         
@@ -624,8 +627,6 @@ class App(QMainWindow):
         if adjustable:
             add_slider(row_count)
             
-
-        
     def formatContentInfo(self, obj):
         # textInfo = ' FILE CONTENT: '.center(50, '-') + '\n\n'
         textInfo = '### FILE CONTENT: ' + '\n\n --- \n\n'
@@ -746,15 +747,19 @@ class App(QMainWindow):
             
         else:
             self.loadObj(fullpath)
+            
+    def sftpDownloadCancel(self, ):
+        self.sftpDownloadCancelSignal.emit()
+            
 
     def setWorkspaceObj(self, obj):
-        self.workspace_obj = obj
-        maxBatch = 999999999
+        self._workspace_obj = obj
+        maxBatch = 0
         if isinstance(obj, dict):
-            for k, v in self.workspace_obj.items():
+            for k, v in self._workspace_obj.items():
                 
                 if self.isSliceable(v):
-                    maxBatch = min(maxBatch, v.shape[0])
+                    maxBatch = max(maxBatch, v.shape[0])
                     
         elif isinstance(obj, h5py.File):
             maxBatch = len(obj)
@@ -773,57 +778,97 @@ class App(QMainWindow):
     def slicefromBatch(self, batch,):
         
         try:
-            if self.workspace_obj is not None:
+            if self._workspace_obj is not None:
                 
-                if isinstance(self.workspace_obj, dict):
+                if isinstance(self._workspace_obj, dict):
                 
                     if batch >= 0:
                         sliced = {}
                         
-                        for k, v in self.workspace_obj.items():
+                        for k, v in self._workspace_obj.items():
                             if self.isSliceable(v):
-                                sliced[k] = v[batch:batch+1]
+                                _max_batch = v.shape[0]
+                                op_batch = min(batch, _max_batch-1)
+                                sliced[k] = v[op_batch:op_batch+1]
                             else:
                                 sliced[k] = v
                     
-                        # print('Sliced:')
-                        # for k, v in sliced.items():
-                        #     print(k, ':', v.shape)
-                    
-                        self.loadObj(sliced)
+                        self.loadObj(sliced, setWorkspace=False)
                         
                     else:
-                        self.loadObj(self.workspace_obj)
+                        self.loadObj(self._workspace_obj, setWorkspace=False)
                         
-                elif isinstance(self.workspace_obj, h5py.File):
+                elif isinstance(self._workspace_obj, h5py.File):
                     if batch < 0:
                         batch = 0
                         
                     sliced = {}
                     
-                    group_names = list(self.workspace_obj.keys())
+                    group_names = list(self._workspace_obj.keys())
                     
-                    this_object = self.workspace_obj[group_names[batch]]
+                    this_object = self._workspace_obj[group_names[batch]]
                     
                     if isinstance(this_object, h5py.Group):
                         this_object.visititems(lambda name, obj: sliced.update({name:obj}))
                         sliced.update({'group':group_names[batch]})
-                        self.loadObj(sliced)
+                        self.loadObj(sliced, setWorkspace=False)
                         
                     elif isinstance(this_object, h5py.Dataset):
                         sliced.update({group_names[batch]:this_object})
 
-                        self.loadObj(sliced)
+                        self.loadObj(sliced, setWorkspace=False)
         
         except:
             traceback.print_exc()
             exc_type, exc_value, exc_traceback = sys.exc_info()
             self.PopMessageWidgetObj.add_message_stack((('slice error occurred', str(exc_value)), 'error'))
 
+    def resetSliceFunc(self, ):
+        self.ui.spinBox.valueChanged.disconnect(self.slicefromBatch)
+        self.ui.spinBox.setValue(-1)
+        self.ui.spinBox.valueChanged.connect(self.slicefromBatch)
+        
+        
     def addObj(self, data:dict):
-        self.loadObj(fullpath=data)
+        if not isinstance(data, dict):
+            raise RuntimeError('addObj(data): data must be a dict')
+        
+        obj = self.getWorkspaceObj()
+        obj.update(data)
+        self.loadObj(obj)
+      
+    def updateObj(self, data:dict):
+        self.addObj(data=data)
+        
+    def rmObj(self, key:str|list[str]):
+        """Remove object from OpenGLWidget"""
+        if isinstance(key, str):
+            key = [key, ]
+            
+        obj = self.getWorkspaceObj()
+        print({'obj':obj.keys()})
+        for k in key:
+            if k in obj.keys():
+                del obj[k]
+
+        print({'delete obj':obj.keys()})
+        self.loadObj(obj)
+
+        
+    def getWorkspaceObj(self) -> dict:
+        """Get the current workspace object"""
+        return copy.copy(self._workspace_obj)
+        
+        
+    def clear(self, ):
+        self.ui.openGLWidget.reset()
+        self.resetObjPropsTable()
+        self.clearObjPropsTable()
+        self.ui.label_info.setText('')
+        
+      
                 
-    def loadObj(self, fullpath:str, extName=''):
+    def loadObj(self, fullpath:str|dict, extName='', setWorkspace=True):
         
         
         def _get_R_between_two_vec(src, dst):
@@ -965,7 +1010,7 @@ class App(QMainWindow):
                 
                 
             # -------- coordinate axis
-            elif len(v.shape) >= 3 and v.shape[-1] == 4 and v.shape[-2] == 4: # (..., 4, 4)
+            elif len(v.shape) >= 2 and v.shape[-1] == 4 and v.shape[-2] == 4: # (..., 4, 4)
                 v = v.reshape(-1, 4, 4)
                 B = len(v)
                 length = 0.3
@@ -998,6 +1043,9 @@ class App(QMainWindow):
 
                 
                 user_color, per = colorManager.extract_dominant_colors(color, n_colors=3)
+                
+            else:
+                return None, k, ((0.9, 0.9, 0.9),), False
                 
             return obj, k, user_color, True
 
@@ -1087,7 +1135,7 @@ class App(QMainWindow):
             else:
                 raise ValueError(f'unsupported Trimesh object, {v.__class__.__name__}')
 
-        def _loadNpFile(file):
+        def _loadNpFile(file) -> dict:
 
             obj = np.load(file, allow_pickle=True)
                 
@@ -1106,18 +1154,27 @@ class App(QMainWindow):
         def _loadFromAny(fullpath, extName):
             if isinstance(fullpath, str) and os.path.isfile(fullpath):
                 _extName = os.path.splitext(fullpath)[-1][1:]
-                
-                if _extName in ['npz', 'npy', 'NPY', 'NPZ',]:
+
+                if _extName.lower() in ['npz', 'npy']:
                     obj = _loadNpFile(fullpath)
-                elif _extName in ['obj', 'ply', 'stl', 'pcd', 'glb', 'xyz', 'OBJ', 'PLY', 'STL', 'PCD', 'XYZ', 'GLB']:
-                    obj = trimesh.load(fullpath, process=False)
+                elif _extName.lower() in ['obj', 'ply', 'stl', 'pcd', 'glb', 'xyz']:
+                    baseName = os.path.basename(fullpath)
+                    fileName = os.path.splitext(baseName)[0]
+                    tobj = trimesh.load(fullpath, process=False)
+                    obj = {}
+                    if isinstance(tobj, trimesh.Scene):
+                        for _k, mesh in tobj.geometry.items():
+                            if isinstance(mesh, trimesh.parent.Geometry3D):
+                                obj[f'{fileName}.{_k}'] = mesh
+                    elif isinstance(tobj, trimesh.parent.Geometry3D):
+                        obj[fileName] = tobj
+                        
                 elif _extName in ['h5', 'H5']:
-                    obj = h5py.File(fullpath, 'r', track_order=True)
+                    # obj = h5py.File(fullpath, 'r', track_order=True)
+                    raise NotImplementedError('HDF5 file loading is not supported')
                 else:
                     obj = pickle.load(open(fullpath, 'rb'))
-                    
-                self.setWorkspaceObj(obj)
-   
+
             # load file from API or slice
             elif isinstance(fullpath, (dict)):
                 obj = fullpath
@@ -1128,70 +1185,88 @@ class App(QMainWindow):
                     obj = _loadNpFile(fullpath)
                 else:
                     obj = pickle.load(fullpath)
-                
-                self.setWorkspaceObj(obj)
-                
+
             else:
                 raise ValueError(f'Unknown file type: {type(fullpath)}')
             
+            
+            if not isinstance(obj, dict):
+                raise RuntimeError('data must be a dict')
+                            
             return obj
 
         
+        
         self.resetObjPropsTable()
         self.colormanager.reset()
+        self.ui.openGLWidget.reset()
+        
         
         try:
             
-            # load file from local path
+            # load file from multi source
             obj = _loadFromAny(fullpath, extName)
+            
+            print('loadobj:', obj.keys())
+            
+            # store raw obj to workspace_obj
+            if setWorkspace:
+                self.resetSliceFunc()
+                self.setWorkspaceObj(obj)
+
             info = self.formatContentInfo(obj)
             self.ui.label_info.setMarkdown(info)
-            self.ui.openGLWidget.reset()
+            
             
             if isinstance(obj, dict):
                 
                 for k, v in obj.items():
                     k = str(k)
-                    if hasattr(v, 'shape'):
-                        _v, _k, _c, _isadj = _parseArray(k, v)
                             
-                    elif isinstance(v, dict):
+                    if isinstance(v, dict):
                         _v, _k, _c, _isadj = _parseDict(k, v)
                         
                     elif isinstance(v, (trimesh.parent.Geometry3D)):
                         _v, _k, _c, _isadj = _parseTrimesh(k, v)
-                        
-                    self.ui.openGLWidget.updateObject(ID=_k, obj=_v)
-                    self.add2ObjPropsTable(_v, _k, _c, _isadj)
                     
+                    elif hasattr(v, 'shape'):
+                        _v, _k, _c, _isadj = _parseArray(k, v)
 
-            elif isinstance(obj, (trimesh.parent.Geometry3D)):
-
-                baseName = os.path.basename(fullpath)
-                fileName = os.path.splitext(baseName)[0]
-                
-                _v, _k, _c, _isadj = _parseTrimesh(fileName, obj)
-                self.ui.openGLWidget.updateObject(ID=_k, obj=_v)
-                self.add2ObjPropsTable(_v, _k, _c, _isadj)
-
-            elif isinstance(obj, h5py.File):
-
-                baseName = os.path.basename(fullpath)
-                fileName = os.path.splitext(baseName)[0]
-                
-                sliced = {}
-                group_names = list(obj.keys())
-                if len(group_names) > 0:
-                    first_object = obj[group_names[0]]
-                    if isinstance(first_object, h5py.Group):
-                        obj[group_names[0]].visititems(lambda name, obj: sliced.update({name:obj}))
-                        sliced.update({'group':group_names[0]})
-                        self.loadObj(sliced)
                         
-                    elif isinstance(first_object, h5py.Dataset):
+                    if _v:
+                        self.ui.openGLWidget.updateObject(ID=_k, obj=_v)
+                        self.add2ObjPropsTable(_v, _k, _c, _isadj)
+                    
+            else:
+                raise ValueError(f'Unsupported object type: {type(obj)}')
+
+            # elif isinstance(obj, (trimesh.parent.Geometry3D)):
+            #     raise NotImplementedError('This method is not implemented')
+            #     baseName = os.path.basename(fullpath)
+            #     fileName = os.path.splitext(baseName)[0]
+                
+            #     _v, _k, _c, _isadj = _parseTrimesh(fileName, obj)
+            #     self.ui.openGLWidget.updateObject(ID=_k, obj=_v)
+            #     self.add2ObjPropsTable(_v, _k, _c, _isadj)
+
+            # elif isinstance(obj, h5py.File):
+            #     raise NotImplementedError('HDF5 file loading is not supported')
+            #     baseName = os.path.basename(fullpath)
+            #     fileName = os.path.splitext(baseName)[0]
+                
+            #     sliced = {}
+            #     group_names = list(obj.keys())
+            #     if len(group_names) > 0:
+            #         first_object = obj[group_names[0]]
+            #         if isinstance(first_object, h5py.Group):
+            #             obj[group_names[0]].visititems(lambda name, obj: sliced.update({name:obj}))
+            #             sliced.update({'group':group_names[0]})
+            #             self.loadObj(sliced)
                         
-                        sliced.update({group_names[0]:first_object})
-                        self.loadObj(sliced)
+            #         elif isinstance(first_object, h5py.Dataset):
+                        
+            #             sliced.update({group_names[0]:first_object})
+            #             self.loadObj(sliced)
 
             
         except:
@@ -1227,26 +1302,30 @@ class App(QMainWindow):
         getattr(self, func)(**kwargs)
     
 
-    def openScript(self, ):
-        currentScriptPath = QFileDialog.getOpenFileName(self,"Select Script",self.currentPath, '*.py')[0] # 起始路径
+    def openScript(self, fullpath=None):
+        if fullpath:
+            currentScriptPath = fullpath
+        else:
+            currentScriptPath = QFileDialog.getOpenFileName(self,"Select Script",self.currentPath, '*.py')[0] # 起始路径
 
         # print(self.currentScriptPath)
 
         if len(currentScriptPath) and os.path.isfile(currentScriptPath):
-            self.ui.label_script.setText(os.path.basename(currentScriptPath))
+            self.ui.pushButton_runscript.setEnabled(True)
             self.currentScriptPath = currentScriptPath
+            self.ui.pushButton_runscript.setText('Run [ ' + os.path.basename(self.currentScriptPath) + ' ]')
             
     def runScript(self, ):
         self.reset_script_namespace()
-        self.ui.openGLWidget.reset()
-        self.resetObjPropsTable()
-        self.clearObjPropsTable()
+        # self.ui.openGLWidget.reset()
+        # self.resetObjPropsTable()
+        # self.clearObjPropsTable()
         
         if os.path.isfile(self.currentScriptPath):
             fname = os.path.basename(self.currentScriptPath)
             
             sys.path.append(os.path.dirname(self.currentScriptPath))
-            with open(self.currentScriptPath, ) as f:
+            with open(self.currentScriptPath, encoding='utf-8') as f:
 
                 code = f.read()
                 code = code.replace('from pcdviewerAPI import executeSignal', '') # Deprecated
@@ -1471,7 +1550,8 @@ class App(QMainWindow):
 
                 self.currentScriptPath = settings['lastScript']
                 if len(self.currentScriptPath) and os.path.isfile(self.currentScriptPath):
-                    self.ui.label_script.setText(os.path.basename(self.currentScriptPath))
+                    self.ui.pushButton_runscript.setEnabled(True)
+                    self.ui.pushButton_runscript.setText('Run [ ' + os.path.basename(self.currentScriptPath) + ' ]')
 
         except:
             ...
@@ -1501,8 +1581,19 @@ class App(QMainWindow):
         file = event.mimeData().urls()[0].toLocalFile()
         if os.path.isfile(file):
             folderPath = os.path.dirname(file)
-            self.openFolder(folderPath)
-            self.loadObj(file)
+            baseName = os.path.basename(file)
+            fileName, ext = os.path.splitext(baseName)
+            if ext.lower() in ('.py', '.txt'):
+                self.openScript(file)
+                self.runScript()
+            else:
+                self.openFolder(folderPath)
+                for i in range(self.ui.tableWidget.rowCount()):
+                    item = self.ui.tableWidget.item(i, 0)
+                    if os.path.basename(item.fullpath) == baseName:
+                        self.ui.tableWidget.setCurrentItem(item)
+                        break
+                self.loadObj(file)
         else:
             self.openFolder(file)
         

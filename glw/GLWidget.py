@@ -485,10 +485,10 @@ class GLCamera(QObject):
             rw, rh, rd = 1/(right-left), 1/(top-bottom), 1/(self.far-self.near)
 
             target_matrix = np.array([
-                [1 * rw, 0, 0, 0],
-                [0, 1 * rh, 0, 0],
-                [0, 0, -1 * rd, -(self.far+self.near) * rd],
-                [0, 0, 0, 1]
+                [2. * rw, 0, 0, 0],
+                [0, 2. * rh, 0, 0],
+                [0, 0, -2. * rd, -(self.far+self.near) * rd],
+                [0, 0, 0, 2.]
             ], dtype=np.float32).T
             
             

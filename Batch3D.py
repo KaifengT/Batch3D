@@ -319,7 +319,7 @@ class App(QMainWindow):
         
         self.currentScriptPath = ''
         
-        self._workspace_obj = None
+        self._workspace_obj = {}
         
         self.obj_properties = {}
 
@@ -826,6 +826,9 @@ class App(QMainWindow):
     def resetSliceFunc(self, ):
         self.ui.spinBox.valueChanged.disconnect(self.slicefromBatch)
         self.ui.spinBox.setValue(-1)
+        self.ui.spinBox.setDisabled(True)
+        self.ui.spinBox.setMaximum(-1)
+        self.ui.spinBox.setMinimum(-1)
         self.ui.spinBox.valueChanged.connect(self.slicefromBatch)
         
         
@@ -836,6 +839,10 @@ class App(QMainWindow):
         obj = self.getWorkspaceObj()
         obj.update(data)
         self.loadObj(obj)
+        
+    def add(self, data:dict):
+        self.addObj(data)
+        
       
     def updateObj(self, data:dict):
         self.addObj(data=data)
@@ -846,14 +853,15 @@ class App(QMainWindow):
             key = [key, ]
             
         obj = self.getWorkspaceObj()
-        print({'obj':obj.keys()})
         for k in key:
             if k in obj.keys():
                 del obj[k]
 
-        print({'delete obj':obj.keys()})
         self.loadObj(obj)
 
+    def rm(self, key:str|list[str]):
+        """Remove object from OpenGLWidget"""
+        self.rmObj(key=key)
         
     def getWorkspaceObj(self) -> dict:
         """Get the current workspace object"""
@@ -864,6 +872,8 @@ class App(QMainWindow):
         self.ui.openGLWidget.reset()
         self.resetObjPropsTable()
         self.clearObjPropsTable()
+        self.resetSliceFunc()
+        self._workspace_obj = {}
         self.ui.label_info.setText('')
         
       
@@ -1206,9 +1216,7 @@ class App(QMainWindow):
             
             # load file from multi source
             obj = _loadFromAny(fullpath, extName)
-            
-            print('loadobj:', obj.keys())
-            
+                        
             # store raw obj to workspace_obj
             if setWorkspace:
                 self.resetSliceFunc()
@@ -1628,7 +1636,7 @@ if __name__ == "__main__":
    
     App = App()
     # App.setStyleSheet(style)
-    App.setWindowTitle('Batch3D Viewer')
+    App.setWindowTitle('Batch3D Viewer build 1.5.1')
     App.setWindowIcon(QIcon('icon.ico'))
     
 

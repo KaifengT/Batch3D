@@ -32,10 +32,10 @@ import trimesh
 from enum import Enum
 # from memory_profiler import profile
 
-from qfluentwidgets import CheckBox, setCustomStyleSheet, ComboBox, Slider, SegmentedWidget, DropDownToolButton, \
+from qfluentwidgets import PushButton, setCustomStyleSheet, ComboBox, Slider, SegmentedWidget, DropDownToolButton, \
     RoundMenu, Action, BodyLabel, SpinBox, DoubleSpinBox, ToggleButton, SwitchButton
 from qfluentwidgets import FluentIcon as FIF
-
+import webbrowser
 
 
 
@@ -124,6 +124,12 @@ class GLCamera(QObject):
         self.timer_proj.setInterval(7)
         
         self.aspect = 1.0
+        
+        self.lockRotate = False
+        
+    def setLockRotate(self, isLock:bool):
+        self.lockRotate = isLock
+        
 
     def setCamera(self, azimuth=0, elevation=50, distance=10, lookatPoint=np.array([0., 0., 0.,])) -> np.ndarray:
         if self.controltype == self.controlType.trackball:
@@ -148,14 +154,49 @@ class GLCamera(QObject):
         self.arcball_quat = quaternion_from_matrix(transform)
         return self.updateTransform()
 
-    def updateIntr(self, window_h, window_w, PixelRatio=1.):
-        
-        self.fy = int(window_h * PixelRatio)/ 2 / math.tan(self.viewAngle /360 * math.pi)
+    def updateIntr(self, window_h, window_w):
+        """
+        update camera intrinsic matrix based on the window size and view angle
+        Args:
+            window_h (int): height of the window
+            window_w (int): width of the window
+        Returns:
+            intr (np.ndarray): camera intrinsic matrix
+        """
 
-        self.intr = np.array(
-            [[self.fy, 0,            (window_w * PixelRatio)//2],
-            [0,          self.fy,    (window_h * PixelRatio)//2],
-            [0,          0,            1]])
+        fov_half_rad = math.radians(self.viewAngle / 2)
+        cx = window_w / 2.0
+        cy = window_h / 2.0
+        # calculate focal length based on the window height and FOV
+        
+        if self.projection_mode == self.projectionMode.perspective:
+            self.fy = (window_h / 2.0) / math.tan(fov_half_rad)
+            self.fx = self.fy
+            
+            
+        elif self.projection_mode == self.projectionMode.orthographic:
+            # 正交投影：使用与updateProjTransform相同的视图体积定义
+            ortho_height = self.viewPortDistance * 0.5
+            ortho_width = ortho_height * self.aspect  # 使用相机宽高比
+            
+            # 正交投影的"焦距"是缩放因子，将世界坐标映射到像素坐标
+            self.fy = window_h / (2.0 * ortho_height)
+            self.fx = window_w / (2.0 * ortho_width)
+            
+        else:
+            raise ValueError(f'Unknown projection mode: {self.projection_mode}')
+
+
+
+        self.intr = np.array([
+            [self.fx, 0,      cx],
+            [0,       self.fy, cy],
+            [0,       0,       1.0]
+        ], dtype=np.float32)
+        
+        return self.intr
+        
+                
         
     def resetAE(self,):
         
@@ -233,14 +274,21 @@ class GLCamera(QObject):
         return np.degrees(np.array([x, y, z]))
 
     def rotate(self, start=0, end=0, window_h=0, window_w=0):
-        # params:
-        # start: 1x2 array, start point of the mouse drag, [x1, y1]
-        # end: 1x2 array, end point of the mouse drag, [x2, y2]
-        # window_h: int, height of the window
-        # window_w: int, width of the window
-        # reutrn: 4x4 np.ndarray, rotation matrix
+        '''
+        Rotate the camera based on mouse drag.
+        Args:
+            start: 1x2 array, start point of the mouse drag, [x1, y1]
+            end: 1x2 array, end point of the mouse drag, [x2, y2]
+            window_h: int, height of the window
+            window_w: int, width of the window
+        Returns: 
+            4x4 np.ndarray, rotation matrix
+        '''
 
         # map to sphere
+        if self.lockRotate:
+            return
+        
         if self.controltype == self.controlType.trackball:
             self.azimuth -= float(start) * 0.15
             self.elevation  += float(end) * 0.15
@@ -447,22 +495,49 @@ class GLCamera(QObject):
             
     def rayVector(self, ViewPortX=0, ViewPortY=0, dis=1) -> np.ndarray:
         '''
-        return: np.ndarray(3, )
+        Calculate the ray vector in world coordinates from screen pixel coordinates
+        Args:
+            ViewPortX(float): screen pixel X coordinates
+            ViewPortY(float): screen pixel Y coordinates
+            dis(float): along the ray direction distance
+        Returns:
+            world_point(np.ndarray(4,)): homogeneous coordinates in world space
         '''
         
-        xymap = np.linalg.inv(self.intr) @ np.array([ViewPortX, ViewPortY, 1]).T
-        xymap = np.multiply(xymap, -dis)
-        pvec = np.array([-xymap[0],-xymap[1],xymap[2],1]).T
-        return np.linalg.inv(self.CameraTransformMat) @ pvec
+        normalized_coords = np.linalg.inv(self.intr) @ np.array([ViewPortX, ViewPortY, 1.0])
+        
+        if self.projection_mode == self.projectionMode.perspective:
+            # 透视投影：射线从相机位置发出
+            camera_point = np.array([
+                normalized_coords[0] * dis,
+                normalized_coords[1] * dis,
+                -dis,
+                1.0
+            ])
+        elif self.projection_mode == self.projectionMode.orthographic:
+            # 正交投影：射线是平行的，直接使用标准化坐标
+            camera_point = np.array([
+                normalized_coords[0],
+                normalized_coords[1],
+                -dis,  # Z坐标表示距离
+                1.0
+            ])
+        else:
+            raise ValueError(f'Unknown projection mode: {self.projection_mode}')
+        
+        world_point = np.linalg.inv(self.CameraTransformMat) @ camera_point
+        return world_point
 
     def updateProjTransform(self, isAnimated=True, isEmit=True) -> np.ndarray:
-        # 计算目标投影矩阵
+        
         if self.projection_mode == self.projectionMode.perspective:
             
-            right = np.tan(np.radians(self.viewAngle/2)) * self.near
+            fov_half_rad = np.radians(self.viewAngle / 2)
+            top = np.tan(fov_half_rad) * self.near
+            bottom = -top
+            right = top * self.aspect
             left = -right
-            top = right/self.aspect
-            bottom = left/self.aspect
+            
             rw, rh, rd = 1/(right-left), 1/(top-bottom), 1/(self.far-self.near)
     
             target_matrix = np.array([
@@ -475,7 +550,7 @@ class GLCamera(QObject):
             
         elif self.projection_mode == self.projectionMode.orthographic:
 
-            height = self.viewPortDistance * 0.2
+            height = self.viewPortDistance * 0.5
             width = height * self.aspect
             right = width
             left = -width
@@ -488,7 +563,7 @@ class GLCamera(QObject):
                 [2. * rw, 0, 0, 0],
                 [0, 2. * rh, 0, 0],
                 [0, 0, -2. * rd, -(self.far+self.near) * rd],
-                [0, 0, 0, 2.]
+                [0, 0, 0, 1.]
             ], dtype=np.float32).T
             
             
@@ -549,6 +624,15 @@ class GLCamera(QObject):
     def setAspectRatio(self, aspect_ratio):
         self.aspect = aspect_ratio
         # self.updateSignal.emit()
+        
+    def setProjectionMode(self, mode):
+        if mode not in [self.projectionMode.perspective, self.projectionMode.orthographic]:
+            raise ValueError(f'Unknown projection mode: {mode}')
+        
+        if self.projection_mode != mode:
+            self.projection_mode = mode
+            if not self.timer_proj.isActive():
+                self.timer_proj.start()
 
     def setViewPreset(self, preset=0):
 
@@ -584,7 +668,9 @@ class GLSettingWidget(QObject):
                  near_callback=None,
                  grid_vis_callback=None,
                  axis_vis_callback=None,
-                 axis_length_callback=None,):
+                 axis_length_callback=None,
+                 capture_depth_callback=None,
+                 save_depth_callback=None,):
         super().__init__()
         
         self.parent = parent
@@ -599,6 +685,8 @@ class GLSettingWidget(QObject):
         self.grid_vis_callback = grid_vis_callback
         self.axis_vis_callback = axis_vis_callback
         self.axis_length_callback = axis_length_callback
+        self.capture_depth_callback = capture_depth_callback
+        self.save_depth_callback = save_depth_callback
 
         self._setup_ui()
         
@@ -641,6 +729,7 @@ class GLSettingWidget(QObject):
         self.gl_camera_view_combobox.addItem('3', '-Y', lambda: self._on_camera_view_changed(3))
         self.gl_camera_view_combobox.addItem('4', '+Z', lambda: self._on_camera_view_changed(4))
         self.gl_camera_view_combobox.addItem('5', '-Z', lambda: self._on_camera_view_changed(5))
+        self.gl_camera_view_combobox.addItem('6', 'Free', lambda: self._on_camera_view_changed(6))
         self.gl_camera_view_combobox.setCurrentItem('0')    
         self.gl_camera_view_combobox.setSizePolicy(QSizePolicy.MinimumExpanding, QSizePolicy.Minimum)
         
@@ -758,7 +847,7 @@ class GLSettingWidget(QObject):
 
         self.gl_setting_Menu.addSeparator()
 
-        action_resetCamera = Action('Reset Camera')
+        action_resetCamera = Action(FIF.CANCEL, 'Reset Camera')
         action_resetCamera.triggered.connect(self._on_reset_camera)
         # action_resetCamera.setShortcut(QKeySequence("DoubleClick"))
         
@@ -766,6 +855,33 @@ class GLSettingWidget(QObject):
             action_resetCamera,
         ])
         
+        self.gl_setting_Menu.addSeparator()
+        
+        # 深度图相关功能
+        action_captureDepth = Action(FIF.CAMERA, 'Capture Depth Map (Ctrl+D)')
+        action_captureDepth.triggered.connect(self._on_capture_depth)
+        
+        action_saveDepth = Action(FIF.SAVE, 'Save Depth Maps (Ctrl+Shift+S)')
+        action_saveDepth.triggered.connect(self._on_save_depth)
+        
+        action_depthInfo = Action(FIF.INFO, 'Show Depth Info (Ctrl+I)')
+        action_depthInfo.triggered.connect(self._on_show_depth_info)
+        
+        self.gl_setting_Menu.addActions([
+            action_captureDepth,
+            action_saveDepth,
+            action_depthInfo,
+        ])
+        
+        self.gl_setting_Menu.addSeparator()
+        
+        self.action_github = Action(FIF.GITHUB, 'GitHub')
+        self.action_github.triggered.connect(lambda: webbrowser.open('https://github.com/KaifengT/Batch3D'))
+
+        self.gl_setting_Menu.addActions([
+            self.action_github,
+        ])
+
         self.gl_setting_button.setMenu(self.gl_setting_Menu)
         self.gl_setting_button.adjustSize()
     
@@ -785,9 +901,6 @@ class GLSettingWidget(QObject):
         if self.camera_view_callback:
             self.camera_view_callback(index)
             
-        self.gl_camera_perp_combobox.setCurrentItem('1')
-        self._on_camera_persp_changed(1)  # Set to ortho mode when changing view
-
     def _on_fov_changed(self, value):
         if self.fov_callback:
             self.fov_callback(value)
@@ -816,6 +929,25 @@ class GLSettingWidget(QObject):
         if self.reset_camera_callback:
             self.reset_camera_callback()
     
+    def _on_capture_depth(self):
+        if self.capture_depth_callback:
+            self.capture_depth_callback()
+    
+    def _on_save_depth(self):
+        if self.save_depth_callback:
+            self.save_depth_callback()
+    
+    def _on_show_depth_info(self):
+        if hasattr(self.parent, 'getDepthStatistics'):
+            stats = self.parent.getDepthStatistics()
+            print("\n=== 深度图统计信息 ===")
+            print(f"图像尺寸: {stats.get('image_size', {}).get('width', 0)} x {stats.get('image_size', {}).get('height', 0)}")
+            print(f"投影模式: {stats.get('camera_params', {}).get('projection_mode', 'unknown')}")
+            print(f"相机参数: near={stats.get('camera_params', {}).get('near', 0):.3f}, far={stats.get('camera_params', {}).get('far', 0):.3f}, fov={stats.get('camera_params', {}).get('fov', 0):.1f}°")
+            print(f"线性深度: min={stats.get('linear_depth', {}).get('min', 0):.3f}, max={stats.get('linear_depth', {}).get('max', 0):.3f}, mean={stats.get('linear_depth', {}).get('mean', 0):.3f}")
+            print(f"NDC深度: min={stats.get('ndc_depth', {}).get('min', 0):.3f}, max={stats.get('ndc_depth', {}).get('max', 0):.3f}, mean={stats.get('ndc_depth', {}).get('mean', 0):.3f}")
+            print("========================\n")
+    
     def move(self, x, y):
         self.gl_setting_button.move(x, y)
     
@@ -828,6 +960,9 @@ class GLSettingWidget(QObject):
 
 class GLWidget(QOpenGLWidget):
 
+    mouseClickSignal = Signal(np.ndarray, np.ndarray)
+    mouseReleaseSignal = Signal(np.ndarray, np.ndarray)
+    mouseMoveSignal = Signal(np.ndarray, np.ndarray)
 
     def __init__(self, 
         parent: QWidget=None,
@@ -839,8 +974,10 @@ class GLWidget(QOpenGLWidget):
 
         self.parent = parent
         self.setMinimumSize(200, 200)
-        self.window_w = 0
-        self.window_h = 0
+        self.scaled_window_w = 0
+        self.scaled_window_h = 0
+        self.raw_window_w = 0
+        self.raw_window_h = 0
 
 
         # For macOS
@@ -880,7 +1017,8 @@ class GLWidget(QOpenGLWidget):
         self.textShift = 0
         self.lastPos = QPoint(0, 0)
         
-        self.MouseClickPointinWorldCoordinate = np.array([0,0,0,1])
+        self.mouseClickPointinWorldCoordinate = np.array([0,0,0,1])
+        self.mouseClickPointinUV = np.array([0, 0])
 
         self.canonicalModelMatrix = np.identity(4, dtype=np.float32)
         
@@ -958,6 +1096,7 @@ class GLWidget(QOpenGLWidget):
             grid_vis_callback=self.setGridVisibility,
             axis_vis_callback=self.setAxisVisibility,
             axis_length_callback=self.setAxisScale,
+            # capture_depth_callback=self.captureDepthMap,
         )
         
         self.gl_setting_button = self.gl_settings.get_button()
@@ -965,7 +1104,9 @@ class GLWidget(QOpenGLWidget):
         self.gl_render_mode_combobox = self.gl_settings.gl_render_mode_combobox
         self.gl_camera_control_combobox = self.gl_settings.gl_camera_control_combobox
         self.gl_camera_perp_combobox = self.gl_settings.gl_camera_perp_combobox
+        self.gl_camera_view_combobox = self.gl_settings.gl_camera_view_combobox
         self.fov_spinbox = self.gl_settings.fov_spinbox
+        
 
         self.setMinimumSize(200, 200)
             
@@ -996,9 +1137,8 @@ class GLWidget(QOpenGLWidget):
         self.resetCamera()
         
     def setCameraPerspMode(self, index):
-        self.camera.projection_mode = self.camera.projectionMode(index)
-        if not self.camera.timer_proj.isActive():
-            self.camera.timer_proj.start()
+        self.camera.setProjectionMode(self.camera.projectionMode(index))
+        self.camera.updateIntr(self.raw_window_h, self.raw_window_w)
         self.update()
         
     def setAxisVisibility(self, isVisible=True):
@@ -1021,6 +1161,10 @@ class GLWidget(QOpenGLWidget):
     
     def resetCamera(self):
         self.camera.setCamera(azimuth=135, elevation=-55, distance=10, lookatPoint=np.array([0., 0., 0.,]))
+        self.camera.updateIntr(self.raw_window_h, self.raw_window_w)
+        self.camera.setLockRotate(False)
+        self.gl_camera_view_combobox.setCurrentItem('6')
+        
         if hasattr(self, 'grid'):
             self.grid.setTransform(self.grid.transformList[5])
         if hasattr(self, 'smallGrid'):
@@ -1028,20 +1172,32 @@ class GLWidget(QOpenGLWidget):
 
     def setCameraViewPreset(self, preset=0):
         """
-        设置相机视角预设的便捷方法
+        Setting the camera view preset.
         
-        Parameters:
-            preset (int): 预设编号 0-5
-                0: 前视图 (Front)
-                1: 后视图 (Back) 
-                2: 左视图 (Left)
-                3: 右视图 (Right)
-                4: 上视图 (Top)
-                5: 下视图 (Bottom)
+        Args:
+            preset (int): index from 0-6
+                0: Front View
+                1: Back View
+                2: Left View
+                3: Right View
+                4: Top View
+                5: Bottom View
+                6: Free View
         """
-        self.camera.setViewPreset(preset)
-        self.grid.setTransform(self.grid.transformList[preset])
-        self.smallGrid.setTransform(self.smallGrid.transformList[preset])
+        if preset > 5:
+            self.resetCamera()
+            self.camera.setProjectionMode(GLCamera.projectionMode.perspective)
+            self.gl_camera_perp_combobox.setCurrentItem('0')
+            self.camera.setLockRotate(False)
+            self.camera.updateIntr(self.raw_window_h, self.raw_window_w)
+        else:
+            self.camera.setViewPreset(preset)
+            self.grid.setTransform(self.grid.transformList[preset])
+            self.smallGrid.setTransform(self.smallGrid.transformList[preset])
+            self.camera.setProjectionMode(GLCamera.projectionMode.orthographic)
+            self.gl_camera_perp_combobox.setCurrentItem('1')
+            self.camera.setLockRotate(True)
+            self.camera.updateIntr(self.raw_window_h, self.raw_window_w)
             
     def setObjectProps(self, key, props:dict):
         if key in self.objectList.keys():
@@ -1110,34 +1266,24 @@ class GLWidget(QOpenGLWidget):
         self.smallGrid = Grid(n=510, scale=0.1)
         self.axis = Axis()
                 
-        
+        print('Initializing OpenGL shaders...')
             
-        try:
-            if sys.platform == 'darwin':
-                print('Using OpenGL 1.2')
-                vshader_src = open('./glw/vshader_src_120.glsl', encoding='utf-8').read()
-                fshader_src = open('./glw/fshader_src_120.glsl', encoding='utf-8').read()
-                vshader = shaders.compileShader(vshader_src, GL_VERTEX_SHADER)
-                fshader = shaders.compileShader(fshader_src, GL_FRAGMENT_SHADER)
-                self.program = shaders.compileProgram(vshader, fshader, validate=False)
-            else:
-                print('Using OpenGL 3.3')
-                vshader_src = open('./glw/vshader_src_330.glsl', encoding='utf-8').read()
-                fshader_src = open('./glw/fshader_src_330.glsl', encoding='utf-8').read()
-                vshader = shaders.compileShader(vshader_src, GL_VERTEX_SHADER)
-                fshader = shaders.compileShader(fshader_src, GL_FRAGMENT_SHADER)
-                self.program = shaders.compileProgram(vshader, fshader)
+        # try:
+        if sys.platform == 'darwin':
+            print('Using OpenGL 1.2')
+            vshader_src = open('./glw/vshader_src_120.glsl', encoding='utf-8').read()
+            fshader_src = open('./glw/fshader_src_120.glsl', encoding='utf-8').read()
+            vshader = shaders.compileShader(vshader_src, GL_VERTEX_SHADER)
+            fshader = shaders.compileShader(fshader_src, GL_FRAGMENT_SHADER)
+            self.program = shaders.compileProgram(vshader, fshader, validate=False)
+        else:
+            print('Using OpenGL 3.3')
+            vshader_src = open('./glw/vshader_src_330.glsl', encoding='utf-8').read()
+            fshader_src = open('./glw/fshader_src_330.glsl', encoding='utf-8').read()
+            vshader = shaders.compileShader(vshader_src, GL_VERTEX_SHADER)
+            fshader = shaders.compileShader(fshader_src, GL_FRAGMENT_SHADER)
+            self.program = shaders.compileProgram(vshader, fshader)
              
-        except:
-            print('Shader compilation failed')
-
-
-        # For future use
-        # splat_vshader_src = open('./glw/splat_vshader.glsl', encoding='utf-8').read()
-        # splat_fshader_src = open('./glw/splat_fshader.glsl', encoding='utf-8').read()
-        # splat_vshader = shaders.compileShader(splat_vshader_src, GL_VERTEX_SHADER)
-        # splat_fshader = shaders.compileShader(splat_fshader_src, GL_FRAGMENT_SHADER)
-        # self.splat_program = shaders.compileProgram(splat_vshader, splat_fshader)
 
         self.shaderAttribList = ['a_Position', 'a_Color', 'a_Normal', 'a_Texcoord']
         self.shaderUniformList = ['u_ProjMatrix', 'u_ViewMatrix', 'u_ModelMatrix', 'u_CamPos', \
@@ -1173,7 +1319,7 @@ class GLWidget(QOpenGLWidget):
         
         # set Projection and View Matrices
         loc = self.shaderLocMap.get('u_ProjMatrix')
-        self.camera.setAspectRatio(float(self.window_w) / float(self.window_h))
+        self.camera.setAspectRatio(float(self.scaled_window_w) / float(self.scaled_window_h))
         projMatrix = self.camera.updateProjTransform(isEmit=False)
         glUniformMatrix4fv(loc, 1, GL_FALSE, projMatrix, None)
 
@@ -1182,21 +1328,7 @@ class GLWidget(QOpenGLWidget):
         campos = np.linalg.inv(camtrans)[:3,3]
         
         glUniform3f(self.shaderLocMap.get('u_CamPos'), *campos)
-        glUniformMatrix4fv(loc, 1, GL_FALSE, camtrans.T, None)
-
-        
-        # if self.isAxisVisable:
-        #     self.axis.renderinShader(locMap=self.shaderLocMap)
-            
-        # if self.isGridVisable:
-        #     glUniform1i(self.shaderLocMap.get('u_farPlane'), 1)
-        #     glUniform1f(self.shaderLocMap.get('u_farPlane_ratio'), 0.02)
-
-        #     self.grid.renderinShader(locMap=self.shaderLocMap)
-        #     glUniform1f(self.shaderLocMap.get('u_farPlane_ratio'), 0.15)
-        #     self.smallGrid.renderinShader(locMap=self.shaderLocMap)
-        #     glUniform1i(self.shaderLocMap.get('u_farPlane'), 0)
-        
+        glUniformMatrix4fv(loc, 1, GL_FALSE, camtrans.T, None)        
  
         
         glUniform3f(self.shaderLocMap.get('u_Lights[0].position'), *self.key_light_dir)
@@ -1238,7 +1370,6 @@ class GLWidget(QOpenGLWidget):
             if hasattr(v, 'renderinShader'):
                 v.renderinShader(ratio=10./self.camera.viewPortDistance, locMap=self.shaderLocMap, render_mode=self.gl_render_mode, size=self.point_line_size)
 
-
         glDepthMask(GL_FALSE)
 
 
@@ -1263,32 +1394,30 @@ class GLWidget(QOpenGLWidget):
 
     def reset(self, ):
         
-        
-        # for k, v in self.pointcloudList.items():
-        #     if hasattr(v, 'reset'):
-        #         v.reset()
-        # self.pointcloudList = {}
         for k, v in self.objectList.items():
             if hasattr(v, 'reset'):
                 v.reset()
         self.objectList = {}
         
-        # self.removeSwitchLabel()
         self.update()
         
 
     def resizeGL(self, w: int, h: int) -> None:
-        self.window_w = w
-        self.window_h = h
+        self.scaled_window_w = w
+        self.scaled_window_h = h
 
         self.PixelRatio = self.devicePixelRatioF()
+        
+        self.raw_window_w = int(w * self.PixelRatio)
+        self.raw_window_h = int(h * self.PixelRatio)
 
-        self.camera.updateIntr(self.window_h, self.window_w, self.PixelRatio)
+        self.camera.updateIntr(self.raw_window_h, self.raw_window_w)
+        print(f'Resizing GLWidget to {self.raw_window_w}x{self.raw_window_h}, PixelRatio: {self.PixelRatio}')
         
         self.statusbar.move(0, h-self.statusbar.height())
         self.statusbar.resize(w, h)
 
-        self.gl_settings.move((self.window_w - self.gl_setting_button.width()) - 20, 15)
+        self.gl_settings.move((self.scaled_window_w - self.gl_setting_button.width()) - 20, 15)
         
         # print(f'GLWidget resized to {w}x{h}, PixelRatio: {self.PixelRatio}')
         return super().resizeGL(w, h)
@@ -1318,39 +1447,33 @@ class GLWidget(QOpenGLWidget):
         camCoord = self.camera.updateTransform() @ p  
         projected_coordinates = self.camera.intr @ camCoord[:3]
         projected_coordinates = projected_coordinates[:2] / projected_coordinates[2]
-        projected_coordinates[0] = (self.window_w * self.PixelRatio) - projected_coordinates[0]
+        projected_coordinates[0] = (self.scaled_window_w * self.PixelRatio) - projected_coordinates[0]
         return int(projected_coordinates[1]//self.PixelRatio), int(projected_coordinates[0]//self.PixelRatio)
+    
+    
+    def UVtoWorldCoordinate(self, u, v, dis=10):
+        '''
+        Convert UV coordinates to 3D world coordinates.
+        u, v: int
+        dis: float, distance from camera
+        '''
+        camCoord = self.camera.rayVector(u, v, dis=dis)
+        p = camCoord[:3] / camCoord[3]
+        print(f'UV to 3D: {u}, {v} -> {p}')
+        return p
 
 
     def worldDrawText(self, p, h=18, w=0, msg='', txc='#EEEEEE', bgc='2e68c5', lenratio=8):
 
         v, u = self.worldCoordinatetoUV(p)
-        
-        # v += 6
-        # u += 15
-
-        # l = math.sqrt((u-self.lastU)**2 + (v-self.lastV)**2)
-        # if l < 12:
-        #     self.textShift += 20
-        # else: self.textShift = 0
-
-        # self.lastU = u
-        # self.lastV = v
-
-        # v += self.textShift
 
         glDisable(GL_DEPTH_TEST)
         self.textPainter.begin(self)
 
-        # self.textPainter.setPen(QColor('#'+bgc))
-        # self.textPainter.setBrush(QColor('#BB'+bgc))
         if not w:
             w = len(msg) * lenratio
-            
-        # print(u, v)
-        # self.textPainter.drawRoundedRect(u, v, w+10, h,  1, 1)
         
-        self.textPainter.setViewport(0, 0, self.window_w * self.PixelRatio, self.window_h * self.PixelRatio)
+        self.textPainter.setViewport(0, 0, self.scaled_window_w * self.PixelRatio, self.scaled_window_h * self.PixelRatio)
         self.textPainter.setFont(self.font)
         self.textPainter.setPen(QColor(txc))
         self.textPainter.drawText(u, v, msg, )
@@ -1369,10 +1492,17 @@ class GLWidget(QOpenGLWidget):
         
         self.camera.updateTransform()
         
-        MouseCoordinateinViewPortX = int((self.lastPos.x()) * self.PixelRatio )
-        MouseCoordinateinViewPortY = int((self.window_h -  self.lastPos.y()) * self.PixelRatio)
+        mouseCoordinateinViewPortX = int((self.lastPos.x()) * self.PixelRatio )
+        mouseCoordinateinViewPortY = int((self.scaled_window_h -  self.lastPos.y()) * self.PixelRatio)
 
-        self.MouseClickPointinWorldCoordinate = self.camera.rayVector(MouseCoordinateinViewPortX, MouseCoordinateinViewPortY, dis=10)
+        self.mouseClickPointinUV = np.array([mouseCoordinateinViewPortX, mouseCoordinateinViewPortY])
+        self.mouseClickPointinWorldCoordinate = self.camera.rayVector(mouseCoordinateinViewPortX, mouseCoordinateinViewPortY, dis=10)
+        
+        # self.updateObject(ID=1, obj=PointCloud(
+        #     vertex=np.array([self.mouseClickPointinWorldCoordinate[:3]]),
+        # ))
+        
+        self.mouseClickSignal.emit(self.mouseClickPointinUV, self.mouseClickPointinWorldCoordinate)
 
         self.update()
 
@@ -1388,8 +1518,8 @@ class GLWidget(QOpenGLWidget):
                 self.camera.rotate(
                     [event.x(), event.y()],
                     [self.lastPos.x(), self.lastPos.y()],
-                    self.window_h,
-                    self.window_w
+                    self.scaled_window_h,
+                    self.scaled_window_w
                 )
             else:
                 # Fix up rotation
@@ -1401,12 +1531,16 @@ class GLWidget(QOpenGLWidget):
 
         self.lastPos = event.pos()
 
+        self.mouseMoveSignal.emit(self.mouseClickPointinUV, self.mouseClickPointinWorldCoordinate)
+
         self.triggerFlush()
 
     def wheelEvent(self, event:QWheelEvent):
         angle = event.angleDelta()
             
         self.camera.zoom(angle.y()/200.)
+        
+        self.camera.updateIntr(self.raw_window_h, self.raw_window_w)
 
         self.triggerFlush()
 
@@ -1416,6 +1550,8 @@ class GLWidget(QOpenGLWidget):
 
         self.triggerFlush()
         
-    # def contextMenuEvent(self, event):
-    #     return self.gl_setting_Menu.exec(event.globalPos())
+    def mouseReleaseEvent(self, event):
+        self.mouseReleaseSignal.emit(self.mouseClickPointinUV, self.mouseClickPointinWorldCoordinate)
+        return super().mouseReleaseEvent(event)
+        
 

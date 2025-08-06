@@ -25,7 +25,7 @@ import json
 import natsort
 from glw.mesh import *
 import trimesh
-import h5py
+import numpy.core.multiarray
 
 if sys.platform == 'win32':
     try:
@@ -672,9 +672,7 @@ class App(QMainWindow):
                         
                     textInfo += '\n' + '-' * 50 + '\n\n'
                 
-            elif isinstance(obj, h5py.File):
-                #TODO
-                ...
+
             elif isinstance(obj, trimesh.parent.Geometry3D):
                 #TODO
                 textInfo += f'#### {obj.__class__.__name__} :\n\n'
@@ -757,20 +755,17 @@ class App(QMainWindow):
         maxBatch = 0
         if isinstance(obj, dict):
             for k, v in self._workspace_obj.items():
-                
                 if self.isSliceable(v):
                     maxBatch = max(maxBatch, v.shape[0])
                     
-        elif isinstance(obj, h5py.File):
-            maxBatch = len(obj)
+        else:
+            raise RuntimeError('setWorkspaceObj(obj): obj must be a dict')
         
         self.ui.spinBox.setDisabled(maxBatch == 0)
         self.ui.spinBox.setMaximum(maxBatch-1)
         
     def isSliceable(self, obj):
         if hasattr(obj, 'shape') and len(obj.shape) > 2:
-            return True
-        elif isinstance(obj, h5py.File) and len(obj) > 1:
             return True
         else:
             return False
@@ -798,25 +793,9 @@ class App(QMainWindow):
                     else:
                         self.loadObj(self._workspace_obj, setWorkspace=False)
                         
-                elif isinstance(self._workspace_obj, h5py.File):
-                    if batch < 0:
-                        batch = 0
+                else:
+                    raise RuntimeError('slicefromBatch(batch): _workspace_obj must be a dict')
                         
-                    sliced = {}
-                    
-                    group_names = list(self._workspace_obj.keys())
-                    
-                    this_object = self._workspace_obj[group_names[batch]]
-                    
-                    if isinstance(this_object, h5py.Group):
-                        this_object.visititems(lambda name, obj: sliced.update({name:obj}))
-                        sliced.update({'group':group_names[batch]})
-                        self.loadObj(sliced, setWorkspace=False)
-                        
-                    elif isinstance(this_object, h5py.Dataset):
-                        sliced.update({group_names[batch]:this_object})
-
-                        self.loadObj(sliced, setWorkspace=False)
         
         except:
             traceback.print_exc()
@@ -1636,7 +1615,7 @@ if __name__ == "__main__":
    
     App = App()
     # App.setStyleSheet(style)
-    App.setWindowTitle('Batch3D Viewer build 1.5.1')
+    App.setWindowTitle('Batch3D Viewer build 1.5.2')
     App.setWindowIcon(QIcon('icon.ico'))
     
 

@@ -64,7 +64,6 @@ void main() {
         if (render_mode == 3){
             vec4 color = texture2D(u_Texture, v_Texcoord);
             vec3 rgb = min(color.rgb * result, vec3(1.0));
-            // gl_FragColor = vec4(v_Texcoord *100 + 0.5 ,0, 1.0);
             gl_FragColor = vec4(rgb, 1.0);
             return;
         }

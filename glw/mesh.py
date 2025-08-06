@@ -627,9 +627,10 @@ class Grid(BaseObject):
         lineY = lineY.reshape(-1, 3)
         
         line = np.concatenate((lineX, lineY), 0)
-        
+        norm = np.zeros_like(line)
+        norm[:, 2] = 1.0
         # color = [0.2, 0.2, 0.2, .7]
-        color = [0.4, 0.4, 0.4, .8]
+        color = [0.35, 0.35, 0.35, .8]
         
         self.reset()
         
@@ -662,7 +663,7 @@ class Grid(BaseObject):
             
         self.transform = self.transformList[5]
         
-        self._vboid, vboArray, self._vboInfo, self._vboMap, self._indid, self._texid = BaseObject.buildVBO(line, color)
+        self._vboid, vboArray, self._vboInfo, self._vboMap, self._indid, self._texid = BaseObject.buildVBO(line, color, norm)
         
         # print('build vbo time:', time.time()-t)
 

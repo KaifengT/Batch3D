@@ -170,5 +170,5 @@ python310/**
 run_venv.bat
 *.build/
 *.dist/
-b3d/
+b3d*/
 .DS_Store

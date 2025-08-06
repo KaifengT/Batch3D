@@ -19,6 +19,7 @@ def compile_app():
         "--include-module=PySide6.QtWidgets",
         "--include-module=PySide6.QtCore",
         "--include-module=PySide6.QtGui",
+        "--include-module=numpy.core",
         "--include-package=OpenGL_accelerate",
 
         "--follow-import-to=OpenGL_accelerate",

@@ -30,7 +30,7 @@ There are two methods to launch Batch 3D Viewer:
 
 ### File Formats and Organization
 
-This viewer supports the following formats: `.pkl`, `.npy`, `.npz`, `.ply`, `.obj`, `.stl`, `.h5` etc.
+This viewer supports the following formats: `.pkl`, `.npy`, `.npz`, `.ply`, `.obj`, `.stl` etc.
 
 1. `.pkl`, `.npy`, `.npz` files should store dictionary-type data in binary format. Values should use `numpy.ndarray` or `dict` classes. Example:
 
@@ -62,30 +62,11 @@ with open("test.pkl", 'wb') as f:
 ```
 The viewer can then parse the `test.pkl` file.
 
-2. HDF5
-
-For HDF5 files, use the following organization. Please refer to [example](example\example_04_read_HDF5_file.py) for details:
-
-```
-+-- /（HDF5 root）
-|   +-- group_1
-|   |   +-- dataset_1_1
-|   |   |   +-- key1: np.ndarray
-|   |   |   +-- key2: np.ndarray
-|   |   +-- dataset_1_2
-|   |   |   +-- key1: np.ndarray
-|   |   |   +-- key2: np.ndarray
-|   |   |   +-- ...
-|   |   +-- ...
-|   +-- group_2
-|   |   +-- ...
-|   +-- ...
-```
 
 ### Data Dimensions
 #### Dimension and Type Recognition
 
-For `.pkl`, `.npy`, `.npz`, `.h5` files, the software automatically determines display methods based on array dimensions and key identifiers:
+For `.pkl`, `.npy`, `.npz` files, the software automatically determines display methods based on array dimensions and key identifiers:
 
 - Point Cloud: ndarray with shape `(..., N, 3)`, `(..., N, 6)` or `(..., N, 7)`，where $N > 2$；;
 
@@ -107,12 +88,10 @@ Other data types are currently unsupported.
 
 - For `.pkl`, `.npy`, `.npz` files: Higher-dimensional data is treated as batch data for sliced display. When the slice index is set to `-1`, the software merges all dimensions for display. For other slice values, the first dimension is sliced while others are merged.
 
-- For `.h5` files: Each group under the root directory is treated as a data group for sliced display. Use the slice index to select groups. When set to `-1`, the first group is displayed.
-
 Note: To ensure slice order matches the group-saving order, write HDF5 files with `track_order=True`.
 
 #### Color Specification
-For `.pkl`, `.npy`, `.npz`, `.h5` files, append `#HHHHHH` or `#HHHHHHHH` hexadecimal color codes to keys to specify colors for point clouds, lines, or bounding boxes. If unspecified, colors are automatically assigned.
+For `.pkl`, `.npy`, `.npz` files, append `#HHHHHH` or `#HHHHHHHH` hexadecimal color codes to keys to specify colors for point clouds, lines, or bounding boxes. If unspecified, colors are automatically assigned.
 
 For point clouds and mesh vertices, colors can also be embedded as `(x, y, z, r, g, b)` or `(x, y, z, r, g, b, a)` (i.e., dimensions `(..., N, 6)` or `(..., N, 7)`).
 

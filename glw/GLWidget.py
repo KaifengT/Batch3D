@@ -16,6 +16,7 @@ from OpenGL.GLU import *
 from OpenGL.GL import shaders
 from PySide6.QtOpenGLWidgets import QOpenGLWidget
 from OpenGL.arrays import vbo
+from OpenGL.GL.framebufferobjects import *
 from types import NoneType
 import trimesh.visual
 from tools.overload import singledispatchmethod
@@ -38,9 +39,134 @@ from qfluentwidgets import FluentIcon as FIF
 import webbrowser
 
 
+class FBOManager:
+    _instance = None
+    _fbo = None
+    _depth_texture = None
+    _color_texture = None
+    _width = 0
+    _height = 0
+    
+    def __new__(cls):
+        if cls._instance is None:
+            cls._instance = super(FBOManager, cls).__new__(cls)
+        return cls._instance
+    
+    def get_fbo(self, width, height):
+        """获取或创建FBO"""
+        # 如果尺寸改变或FBO不存在，重新创建
+        if (self._fbo is None or 
+            self._width != width or 
+            self._height != height):
+            print(f"Creating FBO: {width}x{height}")
+            self._create_fbo(width, height)
+        # self._create_fbo(width, height)
+        return self._fbo, self._depth_texture
+    
+    def _create_fbo(self, width, height):
+        """创建FBO"""
+        # 清理旧资源
+        if self._fbo is not None:
+            self.cleanup()
+            ...
+        
+        try:
+            # 创建新的FBO
+            self._fbo = glGenFramebuffers(1)
+            glBindFramebuffer(GL_FRAMEBUFFER, self._fbo)
+            
+            # 深度纹理
+            self._depth_texture = glGenTextures(1)
+            glBindTexture(GL_TEXTURE_2D, self._depth_texture)
+            glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT32,
+                        width, height, 0,
+                        GL_DEPTH_COMPONENT, GL_FLOAT, None)
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST)
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST)
+            glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT,
+                                  GL_TEXTURE_2D, self._depth_texture, 0)
+            
+            # 颜色附件
+            # self._color_texture = glGenTextures(1)
+            # glBindTexture(GL_TEXTURE_2D, self._color_texture)
+            # glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB,
+            #             width, height, 0,
+            #             GL_RGB, GL_UNSIGNED_BYTE, None)
+            # glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR)
+            # glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,
+            #                     GL_TEXTURE_2D, self._color_texture, 0)     
+                   
+            # 检查状态
+            if glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE:
+                raise RuntimeError("FBO创建失败")
+            
+            glBindFramebuffer(GL_FRAMEBUFFER, 0)
+            self._width = width
+            self._height = height
+            
+            print(f"FBO创建成功: {width}x{height}")
+            
+        except Exception as e:
+            print(f"FBO创建失败: {e}")
+            self.cleanup()
+            raise
+    
+    def cleanup(self):
+        """清理资源"""
+        try:
+            print('tex', self._depth_texture, self._fbo)
+            if self._depth_texture is not None:
+                glDeleteTextures([self._depth_texture])
+                self._depth_texture = None
+        except Exception as e:
+            print(f"清理dep TEX资源时出错: {e}")
+            
+        try:
+            print('fbo', self._fbo)
+            if self._color_texture is not None:
+                glDeleteTextures([self._color_texture])
+                self._color_texture = None
+        except Exception as e:
+            print(f"清理clo TEX资源时出错: {e}")
+            
+        try:                
+            if self._fbo is not None:
+                glDeleteFramebuffers([self._fbo])
+                self._fbo = None
+        except Exception as e:
+            print(f"清理FBO资源时出错: {e}")
 
 
+class DepthReader:
+    def __init__(self, width, height):
+        self.width = width
+        self.height = height
+        self.fbo_manager = FBOManager()
+    
+    def before_render(self):
+        """读取深度数据"""
+        fbo, depth_texture = self.fbo_manager.get_fbo(self.width, self.height)
+        print(f"FBO: {fbo}, Depth Texture: {depth_texture}")
+        glBindFramebuffer(GL_FRAMEBUFFER, fbo)
+        
+        return fbo
+            
 
+    def read_depth(self):        
+        
+        print(f"Reading depth data from FBO: {self.fbo_manager._fbo}")
+        depth_data = glReadPixels(0, 0, self.width, self.height,
+                                GL_DEPTH_COMPONENT, GL_FLOAT)
+        
+        # glBindFramebuffer(GL_FRAMEBUFFER, 0)
+        
+        print(f"Depth data read: {depth_data} pixels")
+        # if depth_data:
+        #     depth_array = np.frombuffer(depth_data, dtype=np.float32)
+                        
+    
+    
+    
 class GLCamera(QObject):
     
     class controlType(Enum):
@@ -938,16 +1064,9 @@ class GLSettingWidget(QObject):
             self.save_depth_callback()
     
     def _on_show_depth_info(self):
-        if hasattr(self.parent, 'getDepthStatistics'):
-            stats = self.parent.getDepthStatistics()
-            print("\n=== 深度图统计信息 ===")
-            print(f"图像尺寸: {stats.get('image_size', {}).get('width', 0)} x {stats.get('image_size', {}).get('height', 0)}")
-            print(f"投影模式: {stats.get('camera_params', {}).get('projection_mode', 'unknown')}")
-            print(f"相机参数: near={stats.get('camera_params', {}).get('near', 0):.3f}, far={stats.get('camera_params', {}).get('far', 0):.3f}, fov={stats.get('camera_params', {}).get('fov', 0):.1f}°")
-            print(f"线性深度: min={stats.get('linear_depth', {}).get('min', 0):.3f}, max={stats.get('linear_depth', {}).get('max', 0):.3f}, mean={stats.get('linear_depth', {}).get('mean', 0):.3f}")
-            print(f"NDC深度: min={stats.get('ndc_depth', {}).get('min', 0):.3f}, max={stats.get('ndc_depth', {}).get('max', 0):.3f}, mean={stats.get('ndc_depth', {}).get('mean', 0):.3f}")
-            print("========================\n")
-    
+        ...
+        
+        
     def move(self, x, y):
         self.gl_setting_button.move(x, y)
     
@@ -1365,14 +1484,16 @@ class GLWidget(QOpenGLWidget):
         glUniform1f(loc, self.pellucid)
 
         
-        
         for k, v in self.objectList.items():
             if hasattr(v, 'renderinShader'):
                 v.renderinShader(ratio=10./self.camera.viewPortDistance, locMap=self.shaderLocMap, render_mode=self.gl_render_mode, size=self.point_line_size)
 
+
+
+
+
+
         glDepthMask(GL_FALSE)
-
-
         if self.isAxisVisable:
             self.axis.renderinShader(locMap=self.shaderLocMap)
             
@@ -1386,9 +1507,21 @@ class GLWidget(QOpenGLWidget):
             glUniform1i(self.shaderLocMap.get('u_farPlane'), 0)
 
         glDepthMask(GL_TRUE)
-
+        
+        
+        depthReader = DepthReader(self.raw_window_w, self.raw_window_h)
+        depthReader.before_render()
+        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
+        for k, v in self.objectList.items():
+            if hasattr(v, 'renderinShader'):
+                v.renderinShader(ratio=10./self.camera.viewPortDistance, locMap=self.shaderLocMap, render_mode=self.gl_render_mode, size=self.point_line_size)
+        depthReader.read_depth()
+                 
+        
+        
 
         glUseProgram(0)
+        
         glFlush()
 
 
@@ -1553,5 +1686,3 @@ class GLWidget(QOpenGLWidget):
     def mouseReleaseEvent(self, event):
         self.mouseReleaseSignal.emit(self.mouseClickPointinUV, self.mouseClickPointinWorldCoordinate)
         return super().mouseReleaseEvent(event)
-        
-

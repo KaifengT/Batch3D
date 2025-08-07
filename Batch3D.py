@@ -250,6 +250,375 @@ class fileDetailInfoUI(QDialog):
         self.verticalLayout = QVBoxLayout(self)
 
 
+class dataParser:
+    
+    @staticmethod
+    def _isHexColorinName(name) -> str:
+        if '#' in name:
+            name = name.split('#', 2)[1]
+            name = name.split('_', 2)[0]
+            if len(name) == 6 or len(name) == 8:
+                return name
+            else:
+                return None
+        else:
+            return None
+        
+    @staticmethod
+    def _isSizeinName(name) -> float:
+        if '&' in name:
+            size = name.split('&', 2)[1]
+            try:
+                size = float(size)
+                return size
+            except:
+                return 2
+        else:
+            return 2
+           
+    @staticmethod 
+    def _decode_HexColor_to_RGB(hexcolor):
+        if hexcolor is None:
+            return None
+        if len(hexcolor) == 6:
+            return tuple(int(hexcolor[i:i+2], 16) / 255. for i in (0, 2, 4))
+        elif len(hexcolor) == 8:
+            return tuple(int(hexcolor[i:i+2], 16) / 255. for i in (0, 2, 4, 6))
+        else:
+            return (0.9, 0.9, 0.9, 0.9)        
+        
+    @staticmethod
+    def _get_R_between_two_vec(src, dst):
+        """ src: (B, 3)
+            dst: (B, 3)
+            
+            dst = R @ src.T
+        """
+        src = src / (linalg.norm(src, axis=-1, keepdims=True)) + np.array([0, 1e-5, 1e-5])
+        dst = dst / linalg.norm(dst, axis=-1, keepdims=True) 
+        y_ax = np.cross(src, dst, )
+        y_ax = y_ax / (linalg.norm(y_ax, axis=-1, keepdims=True))
+        x_src_ax = np.cross(y_ax, src, )
+        x_src_ax = x_src_ax / (linalg.norm(x_src_ax, axis=-1, keepdims=True))
+        x_dst_ax = np.cross(y_ax, dst, )
+        x_dst_ax = x_dst_ax / (linalg.norm(x_dst_ax, axis=-1, keepdims=True))
+        f_src = np.concatenate([x_src_ax[..., None], y_ax[..., None], src[..., None]], axis=-1) # (B, 3, 3)
+        f_dst = np.concatenate([x_dst_ax[..., None], y_ax[..., None], dst[..., None]], axis=-1) # (B, 3, 3)
+        f_src = np.transpose(f_src, [0, 2, 1])
+        r = f_dst @ f_src # (B, 3, 3)
+        return r
+    
+    @staticmethod
+    def _getArrowfromLine(v:np.ndarray, color:np.ndarray):
+        
+        
+        if hasattr(color, 'ndim') and color.ndim > 1:
+            color = color[..., 1, :]
+            color = color.repeat(12, axis=0).reshape(-1, color.shape[-1])
+                        
+        verctor_line = v[:, 1] - v[:, 0]
+        verctor_len = np.linalg.norm(verctor_line, axis=-1, keepdims=True)
+        vaild_mask = np.where(verctor_len > 1e-7)
+        v = v[vaild_mask[0]]
+        verctor_line = v[:, 1] - v[:, 0]
+        
+        nline = np.linalg.norm(verctor_line, axis=-1, keepdims=True)
+        
+        B = len(verctor_line)
+        BR = dataParser._get_R_between_two_vec(np.array([[0, 0, 1]]).repeat(len(verctor_line), axis=0), verctor_line) # (B, 3, 3)
+        temp = Arrow.getTemplate(size=0.05) # (12, 3)
+        temp = temp[None, ...].repeat(len(verctor_line), axis=0) # (B, 12, 3)
+        
+        temp *= nline[:, None]
+        
+        BR = BR[:, None, ...].repeat(12, axis=1)
+        BR = BR.reshape(-1, 3, 3) # (B*12, 3, 3)
+        temp = temp.reshape(-1, 1, 3)
+        temp = BR @ temp.transpose(0, 2, 1)
+        T = v[:, 1, :][:,None,:]
+        T = T.repeat(12, axis=1).reshape(-1, 3)
+        vertex = temp.transpose(0, 2, 1).reshape(-1, 3)
+        vertex = vertex + T
+        
+        return Arrow(vertex=vertex, color=color)
+
+    @staticmethod
+    def _rmnan(v):
+        v = np.array(v, dtype=np.float32)
+        nan_mask = np.logical_not(np.isnan(v))
+        rows_with_nan = np.all(nan_mask, axis=1)
+        indices = np.where(rows_with_nan)[0]
+        return v[indices]
+    
+    @staticmethod
+    def parseArray(k:str, v:np.ndarray, cm:colorManager, arrow=False):
+        
+        v = np.nan_to_num(v)
+        v = np.float32(v)
+        
+        
+        
+        print(k, ':', v.nbytes, 'bytes')
+        assert v.nbytes < 1e8, 'array too large, must slice to show'
+        
+        n_color = dataParser._decode_HexColor_to_RGB(dataParser._isHexColorinName(k))
+        user_color = n_color if n_color is not None else cm.get_next_color()
+        
+        # -------- lines with arrows
+        if (len(v.shape) >= 2 and v.shape[-2] == 2 and v.shape[-1] in (3, 6, 7) and 'line' in k): # (..., 2, 3)
+            
+            if v.shape[-1] in (6, 7):
+                user_color = v[..., 3:].reshape(-1, 2, v.shape[-1]-3)
+                v = v[..., :3]
+        
+            
+            v = v.reshape(-1, 2, 3)
+            lines = Lines(vertex=v, color=user_color)
+            
+            #-----# Arrow
+            if arrow:
+                arrow = dataParser._getArrowfromLine(v, user_color)
+                obj = UnionObject()
+                obj.add(arrow)
+                obj.add(lines)
+                
+            else:
+                obj = lines
+                
+            if hasattr(user_color, 'ndim') and user_color.ndim > 1:
+                user_color = colorManager.extract_dominant_colors(user_color, n_colors=3)[0]
+            else:
+                user_color = (user_color,)
+
+        # -------- bounding box
+        elif (len(v.shape) >= 2 and v.shape[-2] == 8 and v.shape[-1] in (3, 6, 7) and 'bbox' in k): # (..., 8, 3)
+            
+            if v.shape[-1] in (6, 7):
+                user_color = v[..., 3:].reshape(-1, 8, v.shape[-1]-3)
+                v = v[..., :3]
+            
+            v = v.reshape(-1, 8, 3)
+            obj = BoundingBox(vertex=v, color=user_color)
+            
+            if hasattr(user_color, 'ndim') and user_color.ndim > 1:
+                user_color = colorManager.extract_dominant_colors(user_color, n_colors=3)[0]
+            else:
+                user_color = (user_color,)
+
+        
+        # -------- pointcloud
+        elif len(v.shape) >= 2 and v.shape[-1] == 3: # (..., 3)
+            v = v.reshape(-1, 3)
+            obj = PointCloud(vertex=v, color=user_color, size=dataParser._isSizeinName(k))
+            
+            user_color = (user_color,)
+                
+        # -------- pointcloud with point-wise color
+        elif len(v.shape) >= 2 and v.shape[-1] in (6, 7): # (..., 6)
+            vertex = v[..., :3].reshape(-1, 3)
+            if v.shape[-1] == 6:
+                color = v[..., 3:6].reshape(-1, 3)
+            else:
+                color = v[..., 3:7].reshape(-1, 4)
+                
+            obj = PointCloud(vertex=vertex, color=color, size=dataParser._isSizeinName(k))
+            
+            user_color, per = colorManager.extract_dominant_colors(color, n_colors=3)
+            
+            
+        # -------- coordinate axis
+        elif len(v.shape) >= 2 and v.shape[-1] == 4 and v.shape[-2] == 4: # (..., 4, 4)
+            v = v.reshape(-1, 4, 4)
+            B = len(v)
+            length = 0.3
+            mat = v.repeat(3, axis=0)
+            line_base = np.array([[length, 0, 0], 
+                    [0, length, 0],
+                    [0, 0, length],
+                    ], dtype=np.float32) # (3, 3)
+            line_base = np.tile(line_base, (B, 1))[..., None] # (3, 3) -> (N3, 3, 1)
+            # print(line_base.shape)
+            # print(v.shape)
+            line_trans = np.einsum('bij,bjk->bik', mat[:, :3, :3], line_base)[..., 0] # B 3
+            # line_trans += mat[:, :3, 3]
+            line_trans = np.concatenate((np.zeros_like(line_trans) + mat[:, :3, 3], line_trans + mat[:, :3, 3]), axis=1)
+
+            color = np.array(
+                [
+                    [176, 48, 82, 200],
+                    [176, 48, 82, 200],
+                    [136, 194, 115, 200],
+                    [136, 194, 115, 200],
+                    [2, 76, 170, 200],
+                    [2, 76, 170, 200],
+                ]
+            ) / 255.
+
+            color = np.tile(color, (B, 1)).reshape(-1, 4)
+            line_trans = line_trans.reshape(-1, 3)
+            obj = Lines(vertex=line_trans, color=color)
+
+            
+            user_color, per = colorManager.extract_dominant_colors(color, n_colors=3)
+            
+        else:
+            return None, k, ((0.9, 0.9, 0.9),), False
+            
+        return obj, k, user_color, True
+
+    @staticmethod
+    def parseDict(k:str, v:dict):
+        assert 'vertex' in v.keys(), 'mesh missing vertex(vertex)'
+        assert 'face' in v.keys(), 'mesh missing face(face)'
+        if v['vertex'].shape[-1] == 3:
+            obj = Mesh(v['vertex'], v['face'])
+        elif v['vertex'].shape[-1] in (6, 7):
+            obj = Mesh(v['vertex'][..., :3], v['face'], color=v['vertex'][..., 3:])
+        elif v['vertex'].shape[-1] == 9:
+            obj = Mesh(v['vertex'][..., :3], v['face'], color=v['vertex'][..., 3:6], norm=v['vertex'][..., 6:])
+        elif v['vertex'].shape[-1] == 10:
+            obj = Mesh(v['vertex'][..., :3], v['face'], color=v['vertex'][..., 3:7], norm=v['vertex'][..., 7:10])
+        else:
+            assert 'vertex format error'
+
+        return obj, k, ((0.9, 0.9, 0.9),), False
+    
+    @staticmethod
+    def parseTrimesh(k:str, v:trimesh.parent.Geometry3D, cm:colorManager):
+        
+        if isinstance(v, trimesh.Scene):
+            print(f'parse Trimesh.Scene, {len(v.geometry)} meshes found')
+            _meshlist = []
+            for _k, mesh in v.geometry.items():
+                _meshlist.append(mesh)
+            v = trimesh.util.concatenate(_meshlist)
+
+            
+        
+        if isinstance(v, (trimesh.Trimesh)):
+
+            # if hasattr(v, 'scale') and v.scale > 100:
+            #     v.apply_scale(1 / v.scale * 10)
+            #     self.PopMessageWidgetObj.add_message_stack((('mesh is too large, auto scaled', ''), 'warning'))
+
+            if hasattr(v, 'visual') and hasattr(v.visual, 'material'):
+                if isinstance(v.visual.material, trimesh.visual.material.SimpleMaterial):
+                    tex = v.visual.material.image
+                elif isinstance(v.visual.material, trimesh.visual.material.PBRMaterial):
+                    tex = v.visual.material.baseColorTexture
+                else:
+                    tex = None
+            else:
+                tex = None
+
+            vertex_color = v.visual.vertex_colors /255. if isinstance(v.visual, trimesh.visual.color.ColorVisuals) else None
+            texcoord = v.visual.uv.view(np.ndarray).astype(np.float32) if isinstance(v.visual, trimesh.visual.texture.TextureVisuals) and hasattr(v.visual, 'uv') and hasattr(v.visual.uv, 'view') else None
+
+            obj = Mesh(v.vertices.view(np.ndarray).astype(np.float32),
+                    v.faces.view(np.ndarray).astype(np.int32),
+                    norm=v.face_normals.view(np.ndarray).astype(np.float32),
+                    color=vertex_color,
+                    texture=tex,
+                    texcoord=texcoord,
+                    faceNorm=True
+                    )
+
+            try:
+                if tex is not None and texcoord is not None:
+                    texcolor = colorManager.get_color_from_tex(tex, texcoord[:, ::-1])
+                    main_colors, per = colorManager.extract_dominant_colors(texcolor, n_colors=3)
+                elif vertex_color is not None:
+                    main_colors, per = colorManager.extract_dominant_colors(vertex_color, n_colors=3)
+                else:
+                    main_colors = ((0.9, 0.9, 0.9),)
+            except:
+                main_colors = ((0.9, 0.9, 0.9),)
+            
+            return obj, k, main_colors, False
+
+
+
+        elif isinstance(v, trimesh.PointCloud):
+            if hasattr(v, 'colors') and hasattr(v, 'vertices') and len(v.colors.shape) > 1 and v.colors.shape[0] == v.vertices.shape[0]:
+                if np.max(v.colors) > 1:
+                    colors = v.colors / 255.
+                else:
+                    colors = v.colors
+                array = np.concatenate((v.vertices, colors), axis=-1)
+                return dataParser.parseArray(k, array, cm)
+            else:
+                return dataParser.parseArray(k, np.array(v.vertices), cm)
+
+            # self.add2ObjPropsTable(v, k, adjustable=True)
+            
+        else:
+            raise ValueError(f'unsupported Trimesh object, {v.__class__.__name__}')
+
+    @staticmethod
+    def loadNpFile(file) -> dict:
+
+        obj = np.load(file, allow_pickle=True)
+            
+        if isinstance(obj, dict):
+            ...
+        elif isinstance(obj, np.lib.npyio.NpzFile):
+            obj = dict(obj)
+
+        elif isinstance(obj, np.ndarray):
+            obj = {'numpy file': obj}
+        else:
+            raise ValueError(f'Unknown numpy file type: {type(obj)}')
+
+        return obj
+
+    @staticmethod
+    def loadFromAny(fullpath, extName):
+        if isinstance(fullpath, str) and os.path.isfile(fullpath):
+            _extName = os.path.splitext(fullpath)[-1][1:]
+
+            if _extName.lower() in ['npz', 'npy']:
+                obj = dataParser.loadNpFile(fullpath)
+            elif _extName.lower() in ['obj', 'ply', 'stl', 'pcd', 'glb', 'xyz']:
+                baseName = os.path.basename(fullpath)
+                fileName = os.path.splitext(baseName)[0]
+                tobj = trimesh.load(fullpath, process=False)
+                obj = {}
+                if isinstance(tobj, trimesh.Scene):
+                    for _k, mesh in tobj.geometry.items():
+                        if isinstance(mesh, trimesh.parent.Geometry3D):
+                            obj[f'{fileName}.{_k}'] = mesh
+                elif isinstance(tobj, trimesh.parent.Geometry3D):
+                    obj[fileName] = tobj
+                    
+            elif _extName in ['h5', 'H5']:
+                # obj = h5py.File(fullpath, 'r', track_order=True)
+                raise NotImplementedError('HDF5 file loading is not supported')
+            else:
+                obj = pickle.load(open(fullpath, 'rb'))
+
+        # load file from API or slice
+        elif isinstance(fullpath, (dict)):
+            obj = fullpath
+
+        # load file from remote 
+        elif isinstance(fullpath, (io.BytesIO, io.BufferedReader, io.BufferedWriter)):
+            if extName in ['npz', 'npy', 'NPY', 'NPZ',]:
+                obj = dataParser.loadNpFile(fullpath)
+            else:
+                obj = pickle.load(fullpath)
+
+        else:
+            raise ValueError(f'Unknown file type: {type(fullpath)}')
+        
+        
+        if not isinstance(obj, dict):
+            raise RuntimeError('data must be a dict')
+                        
+        return obj
+
+
+
+
 DEFAULT_SIZE = 3
 
 class App(QMainWindow):
@@ -258,6 +627,8 @@ class App(QMainWindow):
     sftpSignal = Signal(str, dict)
     quitBackendSignal = Signal()
     sftpDownloadCancelSignal = Signal()
+    
+    workspaceUpdatedSignal = Signal(dict)
 
     def __init__(self,):
         """"""
@@ -520,11 +891,17 @@ class App(QMainWindow):
 
             self.ui.tableWidget.setItem(0, 0, event_widget)
 
-    def resetObjPropsTable(self, ):
+    def resetObjPropsTable(self, keys:str|list|tuple=None):
         row_count = self.ui.tableWidget_obj.rowCount()
         for i in range(row_count):
             item = self.ui.tableWidget_obj.cellWidget(i, 1)
-            item.needsRemove = True
+            key_ = item.text()
+            if keys is not None:
+                if isinstance(key_, str) and key_ == keys or \
+                    isinstance(key_, (tuple, list)) and key_ in keys:
+                    item.needsRemove = True
+            else:
+                item.needsRemove = True
                 
     def clearObjPropsTable(self, ):
         row_count = self.ui.tableWidget_obj.rowCount()
@@ -764,6 +1141,8 @@ class App(QMainWindow):
         self.ui.spinBox.setDisabled(maxBatch == 0)
         self.ui.spinBox.setMaximum(maxBatch-1)
         
+        self.workspaceUpdatedSignal.emit(obj)
+        
     def isSliceable(self, obj):
         if hasattr(obj, 'shape') and len(obj.shape) > 2:
             return True
@@ -817,14 +1196,17 @@ class App(QMainWindow):
         
         obj = self.getWorkspaceObj()
         obj.update(data)
-        self.loadObj(obj)
+        self.loadObj_update(obj, keys=list(data.keys()))
         
     def add(self, data:dict):
         self.addObj(data)
         
       
     def updateObj(self, data:dict):
-        self.addObj(data=data)
+        if not isinstance(data, dict):
+            raise RuntimeError('addObj(data): data must be a dict')
+        self.loadObj(data)
+
         
     def rmObj(self, key:str|list[str]):
         """Remove object from OpenGLWidget"""
@@ -834,9 +1216,9 @@ class App(QMainWindow):
         obj = self.getWorkspaceObj()
         for k in key:
             if k in obj.keys():
-                del obj[k]
+                obj[k] = None
 
-        self.loadObj(obj)
+        self.loadObj_update(obj, keys=key)
 
     def rm(self, key:str|list[str]):
         """Remove object from OpenGLWidget"""
@@ -860,332 +1242,6 @@ class App(QMainWindow):
     def loadObj(self, fullpath:str|dict, extName='', setWorkspace=True):
         
         
-        def _get_R_between_two_vec(src, dst):
-            """ src: (B, 3)
-                dst: (B, 3)
-                
-                dst = R @ src.T
-            """
-            src = src / (linalg.norm(src, axis=-1, keepdims=True)) + np.array([0, 1e-5, 1e-5])
-            dst = dst / linalg.norm(dst, axis=-1, keepdims=True) 
-            y_ax = np.cross(src, dst, )
-            y_ax = y_ax / (linalg.norm(y_ax, axis=-1, keepdims=True))
-            x_src_ax = np.cross(y_ax, src, )
-            x_src_ax = x_src_ax / (linalg.norm(x_src_ax, axis=-1, keepdims=True))
-            x_dst_ax = np.cross(y_ax, dst, )
-            x_dst_ax = x_dst_ax / (linalg.norm(x_dst_ax, axis=-1, keepdims=True))
-            f_src = np.concatenate([x_src_ax[..., None], y_ax[..., None], src[..., None]], axis=-1) # (B, 3, 3)
-            f_dst = np.concatenate([x_dst_ax[..., None], y_ax[..., None], dst[..., None]], axis=-1) # (B, 3, 3)
-            f_src = np.transpose(f_src, [0, 2, 1])
-            r = f_dst @ f_src # (B, 3, 3)
-            return r
-        
-        def _getArrowfromLine(v:np.ndarray, color:np.ndarray):
-            
-            
-            if hasattr(color, 'ndim') and color.ndim > 1:
-                color = color[..., 1, :]
-                color = color.repeat(12, axis=0).reshape(-1, color.shape[-1])
-                            
-            verctor_line = v[:, 1] - v[:, 0]
-            verctor_len = np.linalg.norm(verctor_line, axis=-1, keepdims=True)
-            vaild_mask = np.where(verctor_len > 1e-7)
-            v = v[vaild_mask[0]]
-            verctor_line = v[:, 1] - v[:, 0]
-            
-            B = len(verctor_line)
-            BR = _get_R_between_two_vec(np.array([[0, 0, 1]]).repeat(len(verctor_line), axis=0), verctor_line) # (B, 3, 3)
-            temp = Arrow.getTemplate(size=0.01) # (12, 3)
-            temp = temp[None, ...].repeat(len(verctor_line), axis=0) # (B, 12, 3)
-            BR = BR[:, None, ...].repeat(12, axis=1)
-            BR = BR.reshape(-1, 3, 3) # (B*12, 3, 3)
-            temp = temp.reshape(-1, 1, 3)
-            temp = BR @ temp.transpose(0, 2, 1)
-            T = v[:, 1, :][:,None,:]
-            T = T.repeat(12, axis=1).reshape(-1, 3)
-            vertex = temp.transpose(0, 2, 1).reshape(-1, 3)
-            vertex = vertex + T
-            
-            return Arrow(vertex=vertex, color=color)
-
-        def _rmnan(v):
-            v = np.array(v, dtype=np.float32)
-            nan_mask = np.logical_not(np.isnan(v))
-            rows_with_nan = np.all(nan_mask, axis=1)
-            indices = np.where(rows_with_nan)[0]
-            return v[indices]
-        
-        def _getCenter(v:np.ndarray):
-            center = v.mean(axis=0)
-            if self.center_all is None:
-                self.center_all = np.array([center])
-            else:
-                self.center_all = np.vstack((self.center_all, center))
-            # print(self.center_all)
-
-        def _parseArray(k:str, v:np.ndarray):
-            
-            v = np.nan_to_num(v)
-            v = np.float32(v)
-            
-            
-            
-            print(k, ':', v.nbytes, 'bytes')
-            assert v.nbytes < 1e8, 'array too large, must slice to show'
-            
-            n_color = self._decode_HexColor_to_RGB(self._isHexColorinName(k))
-            user_color = n_color if n_color is not None else self.colormanager.get_next_color()
-            
-            # -------- lines with arrows
-            if (len(v.shape) >= 2 and v.shape[-2] == 2 and v.shape[-1] in (3, 6, 7) and 'line' in k): # (..., 2, 3)
-                
-                if v.shape[-1] in (6, 7):
-                    user_color = v[..., 3:].reshape(-1, 2, v.shape[-1]-3)
-                    v = v[..., :3]
-            
-                
-                v = v.reshape(-1, 2, 3)
-                lines = Lines(vertex=v, color=user_color)
-                
-                #-----# Arrow
-                if self.ui.checkBox_arrow.isChecked():
-                    arrow = _getArrowfromLine(v, user_color)
-                    obj = UnionObject()
-                    obj.add(arrow)
-                    obj.add(lines)
-                    
-                else:
-                    obj = lines
-                    
-                if hasattr(user_color, 'ndim') and user_color.ndim > 1:
-                    user_color = colorManager.extract_dominant_colors(user_color, n_colors=3)[0]
-                else:
-                    user_color = (user_color,)
-
-            # -------- bounding box
-            elif (len(v.shape) >= 2 and v.shape[-2] == 8 and v.shape[-1] in (3, 6, 7) and 'bbox' in k): # (..., 8, 3)
-                
-                if v.shape[-1] in (6, 7):
-                    user_color = v[..., 3:].reshape(-1, 8, v.shape[-1]-3)
-                    v = v[..., :3]
-                
-                v = v.reshape(-1, 8, 3)
-                obj = BoundingBox(vertex=v, color=user_color)
-                
-                if hasattr(user_color, 'ndim') and user_color.ndim > 1:
-                    user_color = colorManager.extract_dominant_colors(user_color, n_colors=3)[0]
-                else:
-                    user_color = (user_color,)
-
-            
-            # -------- pointcloud
-            elif len(v.shape) >= 2 and v.shape[-1] == 3: # (..., 3)
-                v = v.reshape(-1, 3)
-                obj = PointCloud(vertex=v, color=user_color, size=self._isSizeinName(k))
-                
-                user_color = (user_color,)
-                    
-            # -------- pointcloud with point-wise color
-            elif len(v.shape) >= 2 and v.shape[-1] in (6, 7): # (..., 6)
-                vertex = v[..., :3].reshape(-1, 3)
-                if v.shape[-1] == 6:
-                    color = v[..., 3:6].reshape(-1, 3)
-                else:
-                    color = v[..., 3:7].reshape(-1, 4)
-                    
-                obj = PointCloud(vertex=vertex, color=color, size=self._isSizeinName(k))
-                
-                user_color, per = colorManager.extract_dominant_colors(color, n_colors=3)
-                
-                
-            # -------- coordinate axis
-            elif len(v.shape) >= 2 and v.shape[-1] == 4 and v.shape[-2] == 4: # (..., 4, 4)
-                v = v.reshape(-1, 4, 4)
-                B = len(v)
-                length = 0.3
-                mat = v.repeat(3, axis=0)
-                line_base = np.array([[length, 0, 0], 
-                        [0, length, 0],
-                        [0, 0, length],
-                        ], dtype=np.float32) # (3, 3)
-                line_base = np.tile(line_base, (B, 1))[..., None] # (3, 3) -> (N3, 3, 1)
-                # print(line_base.shape)
-                # print(v.shape)
-                line_trans = np.einsum('bij,bjk->bik', mat[:, :3, :3], line_base)[..., 0] # B 3
-                # line_trans += mat[:, :3, 3]
-                line_trans = np.concatenate((np.zeros_like(line_trans) + mat[:, :3, 3], line_trans + mat[:, :3, 3]), axis=1)
-
-                color = np.array(
-                    [
-                        [176, 48, 82, 200],
-                        [176, 48, 82, 200],
-                        [136, 194, 115, 200],
-                        [136, 194, 115, 200],
-                        [2, 76, 170, 200],
-                        [2, 76, 170, 200],
-                    ]
-                ) / 255.
-
-                color = np.tile(color, (B, 1)).reshape(-1, 4)
-                line_trans = line_trans.reshape(-1, 3)
-                obj = Lines(vertex=line_trans, color=color)
-
-                
-                user_color, per = colorManager.extract_dominant_colors(color, n_colors=3)
-                
-            else:
-                return None, k, ((0.9, 0.9, 0.9),), False
-                
-            return obj, k, user_color, True
-
-        def _parseDict(k:str, v:dict):
-            assert 'vertex' in v.keys(), 'mesh missing vertex(vertex)'
-            assert 'face' in v.keys(), 'mesh missing face(face)'
-            if v['vertex'].shape[-1] == 3:
-                obj = Mesh(v['vertex'], v['face'])
-            elif v['vertex'].shape[-1] in (6, 7):
-                obj = Mesh(v['vertex'][..., :3], v['face'], color=v['vertex'][..., 3:])
-            elif v['vertex'].shape[-1] == 9:
-                obj = Mesh(v['vertex'][..., :3], v['face'], color=v['vertex'][..., 3:6], norm=v['vertex'][..., 6:])
-            elif v['vertex'].shape[-1] == 10:
-                obj = Mesh(v['vertex'][..., :3], v['face'], color=v['vertex'][..., 3:7], norm=v['vertex'][..., 7:10])
-            else:
-                assert 'vertex format error'
-
-            return obj, k, ((0.9, 0.9, 0.9),), False
-                        
-        def _parseTrimesh(k:str, v:trimesh.parent.Geometry3D):
-            
-            if isinstance(v, trimesh.Scene):
-                print(f'parse Trimesh.Scene, {len(v.geometry)} meshes found')
-                _meshlist = []
-                for _k, mesh in v.geometry.items():
-                    _meshlist.append(mesh)
-                v = trimesh.util.concatenate(_meshlist)
-
-                
-            
-            if isinstance(v, (trimesh.Trimesh)):
-
-                if hasattr(v, 'scale') and v.scale > 100:
-                    v.apply_scale(1 / v.scale * 10)
-                    self.PopMessageWidgetObj.add_message_stack((('mesh is too large, auto scaled', ''), 'warning'))
-
-                if hasattr(v, 'visual') and hasattr(v.visual, 'material'):
-                    if isinstance(v.visual.material, trimesh.visual.material.SimpleMaterial):
-                        tex = v.visual.material.image
-                    elif isinstance(v.visual.material, trimesh.visual.material.PBRMaterial):
-                        tex = v.visual.material.baseColorTexture
-                    else:
-                        tex = None
-                else:
-                    tex = None
-
-                vertex_color = v.visual.vertex_colors /255. if isinstance(v.visual, trimesh.visual.color.ColorVisuals) else None
-                texcoord = v.visual.uv.view(np.ndarray).astype(np.float32) if isinstance(v.visual, trimesh.visual.texture.TextureVisuals) and hasattr(v.visual, 'uv') and hasattr(v.visual.uv, 'view') else None
-
-                obj = Mesh(v.vertices.view(np.ndarray).astype(np.float32),
-                        v.faces.view(np.ndarray).astype(np.int32),
-                        norm=v.face_normals.view(np.ndarray).astype(np.float32),
-                        color=vertex_color,
-                        texture=tex,
-                        texcoord=texcoord,
-                        faceNorm=True
-                        )
-
-                try:
-                    if tex is not None and texcoord is not None:
-                        texcolor = colorManager.get_color_from_tex(tex, texcoord[:, ::-1])
-                        main_colors, per = colorManager.extract_dominant_colors(texcolor, n_colors=3)
-                    elif vertex_color is not None:
-                        main_colors, per = colorManager.extract_dominant_colors(vertex_color, n_colors=3)
-                    else:
-                        main_colors = ((0.9, 0.9, 0.9),)
-                except:
-                    main_colors = ((0.9, 0.9, 0.9),)
-                
-                return obj, k, main_colors, False
-
-
-
-            elif isinstance(v, trimesh.PointCloud):
-                if hasattr(v, 'colors') and hasattr(v, 'vertices') and len(v.colors.shape) > 1 and v.colors.shape[0] == v.vertices.shape[0]:
-                    if np.max(v.colors) > 1:
-                        colors = v.colors / 255.
-                    else:
-                        colors = v.colors
-                    array = np.concatenate((v.vertices, colors), axis=-1)
-                    return _parseArray(k, array)
-                else:
-                    return _parseArray(k, np.array(v.vertices))
-
-                # self.add2ObjPropsTable(v, k, adjustable=True)
-                
-            else:
-                raise ValueError(f'unsupported Trimesh object, {v.__class__.__name__}')
-
-        def _loadNpFile(file) -> dict:
-
-            obj = np.load(file, allow_pickle=True)
-                
-            if isinstance(obj, dict):
-                ...
-            elif isinstance(obj, np.lib.npyio.NpzFile):
-                obj = dict(obj)
-
-            elif isinstance(obj, np.ndarray):
-                obj = {'numpy file': obj}
-            else:
-                raise ValueError(f'Unknown numpy file type: {type(obj)}')
-
-            return obj
-
-        def _loadFromAny(fullpath, extName):
-            if isinstance(fullpath, str) and os.path.isfile(fullpath):
-                _extName = os.path.splitext(fullpath)[-1][1:]
-
-                if _extName.lower() in ['npz', 'npy']:
-                    obj = _loadNpFile(fullpath)
-                elif _extName.lower() in ['obj', 'ply', 'stl', 'pcd', 'glb', 'xyz']:
-                    baseName = os.path.basename(fullpath)
-                    fileName = os.path.splitext(baseName)[0]
-                    tobj = trimesh.load(fullpath, process=False)
-                    obj = {}
-                    if isinstance(tobj, trimesh.Scene):
-                        for _k, mesh in tobj.geometry.items():
-                            if isinstance(mesh, trimesh.parent.Geometry3D):
-                                obj[f'{fileName}.{_k}'] = mesh
-                    elif isinstance(tobj, trimesh.parent.Geometry3D):
-                        obj[fileName] = tobj
-                        
-                elif _extName in ['h5', 'H5']:
-                    # obj = h5py.File(fullpath, 'r', track_order=True)
-                    raise NotImplementedError('HDF5 file loading is not supported')
-                else:
-                    obj = pickle.load(open(fullpath, 'rb'))
-
-            # load file from API or slice
-            elif isinstance(fullpath, (dict)):
-                obj = fullpath
-   
-            # load file from remote 
-            elif isinstance(fullpath, (io.BytesIO, io.BufferedReader, io.BufferedWriter)):
-                if extName in ['npz', 'npy', 'NPY', 'NPZ',]:
-                    obj = _loadNpFile(fullpath)
-                else:
-                    obj = pickle.load(fullpath)
-
-            else:
-                raise ValueError(f'Unknown file type: {type(fullpath)}')
-            
-            
-            if not isinstance(obj, dict):
-                raise RuntimeError('data must be a dict')
-                            
-            return obj
-
-        
-        
         self.resetObjPropsTable()
         self.colormanager.reset()
         self.ui.openGLWidget.reset()
@@ -1194,7 +1250,7 @@ class App(QMainWindow):
         try:
             
             # load file from multi source
-            obj = _loadFromAny(fullpath, extName)
+            obj = dataParser.loadFromAny(fullpath, extName)
                         
             # store raw obj to workspace_obj
             if setWorkspace:
@@ -1211,13 +1267,13 @@ class App(QMainWindow):
                     k = str(k)
                             
                     if isinstance(v, dict):
-                        _v, _k, _c, _isadj = _parseDict(k, v)
+                        _v, _k, _c, _isadj = dataParser.parseDict(k, v)
                         
                     elif isinstance(v, (trimesh.parent.Geometry3D)):
-                        _v, _k, _c, _isadj = _parseTrimesh(k, v)
+                        _v, _k, _c, _isadj = dataParser.parseTrimesh(k, v, cm=self.colormanager)
                     
                     elif hasattr(v, 'shape'):
-                        _v, _k, _c, _isadj = _parseArray(k, v)
+                        _v, _k, _c, _isadj = dataParser.parseArray(k, v, cm=self.colormanager, arrow=self.ui.checkBox_arrow.isChecked())
 
                         
                     if _v:
@@ -1226,34 +1282,64 @@ class App(QMainWindow):
                     
             else:
                 raise ValueError(f'Unsupported object type: {type(obj)}')
-
-            # elif isinstance(obj, (trimesh.parent.Geometry3D)):
-            #     raise NotImplementedError('This method is not implemented')
-            #     baseName = os.path.basename(fullpath)
-            #     fileName = os.path.splitext(baseName)[0]
-                
-            #     _v, _k, _c, _isadj = _parseTrimesh(fileName, obj)
-            #     self.ui.openGLWidget.updateObject(ID=_k, obj=_v)
-            #     self.add2ObjPropsTable(_v, _k, _c, _isadj)
-
-            # elif isinstance(obj, h5py.File):
-            #     raise NotImplementedError('HDF5 file loading is not supported')
-            #     baseName = os.path.basename(fullpath)
-            #     fileName = os.path.splitext(baseName)[0]
-                
-            #     sliced = {}
-            #     group_names = list(obj.keys())
-            #     if len(group_names) > 0:
-            #         first_object = obj[group_names[0]]
-            #         if isinstance(first_object, h5py.Group):
-            #             obj[group_names[0]].visititems(lambda name, obj: sliced.update({name:obj}))
-            #             sliced.update({'group':group_names[0]})
-            #             self.loadObj(sliced)
+            
+        except:
+            traceback.print_exc()
+            exc_type, exc_value, exc_traceback = sys.exc_info()
+            self.PopMessageWidgetObj.add_message_stack((('file load error', str(exc_value)), 'error'))
+            
+        self.clearObjPropsTable()
+        self.changeObjectProps()
+        
+        
+    def loadObj_update(self, fullpath:str|dict, keys:list, extName='', setWorkspace=True):
+        
+        
+        self.resetObjPropsTable(keys=keys)
+        
+        try:
+            
+            # load file from multi source
+            obj = dataParser.loadFromAny(fullpath, extName)
                         
-            #         elif isinstance(first_object, h5py.Dataset):
+
+            info = self.formatContentInfo(obj)
+            self.ui.label_info.setMarkdown(info)
+            
+            
+            if isinstance(obj, dict):
+                
+                for k, v in obj.items():
+                    k = str(k)
+                    if k not in keys:
+                        continue
+                    
+                    if v is None:
+                        self.ui.openGLWidget.updateObject(ID=k, obj=None)
+                        del obj[k]
+                        continue
+                            
+                    if isinstance(v, dict):
+                        _v, _k, _c, _isadj = dataParser.parseDict(k, v)
                         
-            #             sliced.update({group_names[0]:first_object})
-            #             self.loadObj(sliced)
+                    elif isinstance(v, (trimesh.parent.Geometry3D)):
+                        _v, _k, _c, _isadj = dataParser.parseTrimesh(k, v, cm=self.colormanager)
+                    
+                    elif hasattr(v, 'shape'):
+                        _v, _k, _c, _isadj = dataParser.parseArray(k, v, cm=self.colormanager, arrow=self.ui.checkBox_arrow.isChecked())
+
+                        
+                    if _v:
+                        self.ui.openGLWidget.updateObject(ID=_k, obj=_v)
+                        self.add2ObjPropsTable(_v, _k, _c, _isadj)
+                    
+            else:
+                raise ValueError(f'Unsupported object type: {type(obj)}')
+            
+            # store raw obj to workspace_obj
+            if setWorkspace:
+                self.resetSliceFunc()
+                self.setWorkspaceObj(obj)
 
             
         except:
@@ -1263,6 +1349,10 @@ class App(QMainWindow):
             
         self.clearObjPropsTable()
         self.changeObjectProps()
+        
+        
+        
+        
         
     def setObjTransform(self, ID, transform:np.ndarray=None):
         """

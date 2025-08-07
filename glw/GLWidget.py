@@ -1708,11 +1708,10 @@ class GLWidget(QOpenGLWidget):
 
         self.mouseClickPointinUV = np.array([mouseCoordinateinViewPortX, mouseCoordinateinViewPortY])
         
-        depth_value = self.depthMap[int(self.lastPos.y() * self.PixelRatio), mouseCoordinateinViewPortX] if self.depthMap is not None else 10
+        depth_value = self.depthMap[int(self.lastPos.y() * self.PixelRatio), mouseCoordinateinViewPortX] if self.depthMap is not None else self.camera.far
         liner_depth_value = DepthReader.convertNDC2Liner(depth_value, self.camera)
         # print(f'Depth value at ({mouseCoordinateinViewPortX}, {mouseCoordinateinViewPortY}): {liner_depth_value}')
-        if liner_depth_value > 100:
-            liner_depth_value = 100
+
         self.mouseClickPointinWorldCoordinate = self.camera.rayVector(mouseCoordinateinViewPortX, mouseCoordinateinViewPortY, dis=liner_depth_value)
         
         # if event.buttons() & Qt.RightButton:
@@ -1771,7 +1770,9 @@ class GLWidget(QOpenGLWidget):
 
     def mouseDoubleClickEvent(self, event:QMouseEvent) -> None:
         super().mouseDoubleClickEvent(event)
-        self.resetCamera()
+        
+        if event.buttons() & Qt.LeftButton:
+            self.resetCamera()
 
         self.triggerFlush()
         

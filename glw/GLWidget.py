@@ -9,7 +9,7 @@ import time
 import traceback
 import numpy as np
 from PySide6.QtCore import (QTimer, Qt, QRect, QRectF, Signal, QSize, QObject, QPoint, QKeyCombination)
-from PySide6.QtGui import (QBrush, QColor,QWheelEvent,QMouseEvent, QPainter, QPen, QFont, QKeySequence)
+from PySide6.QtGui import (QBrush, QColor,QWheelEvent,QMouseEvent, QPainter, QPen, QFont, QKeySequence, QImage)
 from PySide6.QtWidgets import (QApplication, QWidget, QLabel, QCheckBox, QSizePolicy, QVBoxLayout, QFrame, QHBoxLayout, QSpacerItem)
 from OpenGL.GL import *
 from OpenGL.GLU import *
@@ -31,6 +31,7 @@ from ui.addon import GLAddon_ind
 from ui.statusBar import StatusBar
 import trimesh
 from enum import Enum
+from PIL import Image
 # from memory_profiler import profile
 
 from qfluentwidgets import PushButton, setCustomStyleSheet, ComboBox, Slider, SegmentedWidget, DropDownToolButton, \
@@ -40,6 +41,9 @@ import webbrowser
 
 
 class FBOManager:
+    '''
+    FBOManager is a singleton class that manages the Frame Buffer Object (FBO) and its associated textures.
+    '''
     _instance = None
     _fbo = None
     _depth_texture = None
@@ -53,122 +57,102 @@ class FBOManager:
         return cls._instance
     
     def get_fbo(self, width, height):
-        """获取或创建FBO"""
-        # 如果尺寸改变或FBO不存在，重新创建
+        '''
+        Get or create a Frame Buffer Object (FBO) with a depth texture.
+        If the FBO already exists and the dimensions match, it will return the existing FBO.
+        Args:
+            width (int): The width of the FBO.
+            height (int): The height of the FBO.
+        Returns:
+            tuple (int, int): A tuple containing the FBO and the depth texture.
+        '''
+
         if (self._fbo is None or 
             self._width != width or 
             self._height != height):
-            print(f"Creating FBO: {width}x{height}")
+            # print(f"Creating FBO: {width}x{height}")
             self._create_fbo(width, height)
         # self._create_fbo(width, height)
         return self._fbo, self._depth_texture
     
     def _create_fbo(self, width, height):
-        """创建FBO"""
-        # 清理旧资源
+        
+        
         if self._fbo is not None:
             self.cleanup()
             ...
         
-        try:
-            # 创建新的FBO
-            self._fbo = glGenFramebuffers(1)
-            glBindFramebuffer(GL_FRAMEBUFFER, self._fbo)
+
+        self._fbo = glGenFramebuffers(1)
+        glBindFramebuffer(GL_FRAMEBUFFER, self._fbo)
+
+        # depth attachment, necessary.
+        self._depth_texture = glGenTextures(1)
+        glBindTexture(GL_TEXTURE_2D, self._depth_texture)
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT32,
+                    width, height, 0,
+                    GL_DEPTH_COMPONENT, GL_FLOAT, None)
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST)
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST)
+        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT,
+                                GL_TEXTURE_2D, self._depth_texture, 0)
+        
+        # color attachment, optional.
+        # self._color_texture = glGenTextures(1)
+        # glBindTexture(GL_TEXTURE_2D, self._color_texture)
+        # glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA,
+        #             width, height, 0,
+        #             GL_RGBA, GL_UNSIGNED_BYTE, None)
+        # glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR)
+        # glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,
+        #                     GL_TEXTURE_2D, self._color_texture, 0)     
+                
+        # check if the framebuffer is complete
+        if glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE:
+            raise RuntimeError('FBO creation failed')
+        
+        glBindFramebuffer(GL_FRAMEBUFFER, 0)
+        self._width = width
+        self._height = height
             
-            # 深度纹理
-            self._depth_texture = glGenTextures(1)
-            glBindTexture(GL_TEXTURE_2D, self._depth_texture)
-            glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT32,
-                        width, height, 0,
-                        GL_DEPTH_COMPONENT, GL_FLOAT, None)
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST)
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST)
-            glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT,
-                                  GL_TEXTURE_2D, self._depth_texture, 0)
             
-            # 颜色附件
-            # self._color_texture = glGenTextures(1)
-            # glBindTexture(GL_TEXTURE_2D, self._color_texture)
-            # glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB,
-            #             width, height, 0,
-            #             GL_RGB, GL_UNSIGNED_BYTE, None)
-            # glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR)
-            # glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,
-            #                     GL_TEXTURE_2D, self._color_texture, 0)     
-                   
-            # 检查状态
-            if glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE:
-                raise RuntimeError("FBO创建失败")
-            
-            glBindFramebuffer(GL_FRAMEBUFFER, 0)
-            self._width = width
-            self._height = height
-            
-            print(f"FBO创建成功: {width}x{height}")
-            
-        except Exception as e:
-            print(f"FBO创建失败: {e}")
-            self.cleanup()
-            raise
+
     
     def cleanup(self):
-        """清理资源"""
+        '''
+        cleanup the FBO and its associated textures.
+        '''
         try:
             print('tex', self._depth_texture, self._fbo)
             if self._depth_texture is not None:
                 glDeleteTextures([self._depth_texture])
                 self._depth_texture = None
         except Exception as e:
-            print(f"清理dep TEX资源时出错: {e}")
-            
+            print(f"error occurred while cleaning depth texture resources: {e}")
+
         try:
             print('fbo', self._fbo)
             if self._color_texture is not None:
                 glDeleteTextures([self._color_texture])
                 self._color_texture = None
         except Exception as e:
-            print(f"清理clo TEX资源时出错: {e}")
-            
-        try:                
+            print(f"error occurred while cleaning color texture resources: {e}")
+
+        try:
             if self._fbo is not None:
                 glDeleteFramebuffers([self._fbo])
                 self._fbo = None
         except Exception as e:
-            print(f"清理FBO资源时出错: {e}")
+            print(f"error occurred while cleaning FBO resources: {e}")
 
 
-class DepthReader:
-    def __init__(self, width, height):
-        self.width = width
-        self.height = height
-        self.fbo_manager = FBOManager()
-    
-    def before_render(self):
-        """读取深度数据"""
-        fbo, depth_texture = self.fbo_manager.get_fbo(self.width, self.height)
-        print(f"FBO: {fbo}, Depth Texture: {depth_texture}")
-        glBindFramebuffer(GL_FRAMEBUFFER, fbo)
-        
-        return fbo
-            
-
-    def read_depth(self):        
-        
-        print(f"Reading depth data from FBO: {self.fbo_manager._fbo}")
-        depth_data = glReadPixels(0, 0, self.width, self.height,
-                                GL_DEPTH_COMPONENT, GL_FLOAT)
-        
-        # glBindFramebuffer(GL_FRAMEBUFFER, 0)
-        
-        print(f"Depth data read: {depth_data} pixels")
-        # if depth_data:
-        #     depth_array = np.frombuffer(depth_data, dtype=np.float32)
-                        
-    
     
     
 class GLCamera(QObject):
-    
+    '''
+    GLCamera is a class that represents a 3D camera in OpenGL.
+    It handles camera trajectory, projection, and view matrices.
+    '''
     class controlType(Enum):
         arcball = 0
         trackball = 1
@@ -188,6 +172,7 @@ class GLCamera(QObject):
         | -z  |----> x
         |_____|
     
+    camera looks to the -z direction
     '''
     def __init__(self) -> None:
         super().__init__()
@@ -222,13 +207,12 @@ class GLCamera(QObject):
         self.filterRotaion = kalmanFilter(4, R=0.4)
         self.filterAngle = kalmanFilter(1)
         
-        # 投影相关的滤波器
-        self.filterPersp = kalmanFilter(16, R=0.5)  # 4x4 投影矩阵
-        self.filterViewAngle = kalmanFilter(1, R=0.1)  # FOV角度
-        self.filterNear = kalmanFilter(1, R=0.1)  # 近平面
-        self.filterFar = kalmanFilter(1, R=0.1)  # 远平面
+        self.filterPersp = kalmanFilter(16, R=0.5)
+        self.filterViewAngle = kalmanFilter(1, R=0.1)
+        self.filterNear = kalmanFilter(1, R=0.1)
+        self.filterFar = kalmanFilter(1, R=0.1)
         
-        # 投影矩阵缓存
+        
         self.currentProjMatrix = None
         self.targetProjMatrix = None
         
@@ -301,11 +285,9 @@ class GLCamera(QObject):
             
             
         elif self.projection_mode == self.projectionMode.orthographic:
-            # 正交投影：使用与updateProjTransform相同的视图体积定义
             ortho_height = self.viewPortDistance * 0.5
-            ortho_width = ortho_height * self.aspect  # 使用相机宽高比
+            ortho_width = ortho_height * self.aspect
             
-            # 正交投影的"焦距"是缩放因子，将世界坐标映射到像素坐标
             self.fy = window_h / (2.0 * ortho_height)
             self.fx = window_w / (2.0 * ortho_width)
             
@@ -705,12 +687,12 @@ class GLCamera(QObject):
             smoothed_matrix = self.filterPersp.forward(target_matrix.flatten())
             self.currentProjMatrix = smoothed_matrix.reshape(4, 4)
             
-            if np.allclose(self.currentProjMatrix, target_matrix, atol=1e-4):
+            if np.allclose(self.currentProjMatrix, target_matrix, atol=2e-5):
                 if self.timer_proj.isActive():
                     self.timer_proj.stop()
-                    self.filterPersp.stable(self.currentProjMatrix.flatten())
+                    self.filterPersp.stable(target_matrix.flatten())
                     # print('Projection matrix animation stopped.')
-                return self.currentProjMatrix.astype(np.float32)
+                return target_matrix.astype(np.float32)
             
             if not self.timer_proj.isActive():
                 self.timer_proj.start()
@@ -778,7 +760,80 @@ class GLCamera(QObject):
                          distance=distance, lookatPoint=self.lookatPoint)
 
 
-     
+class DepthReader:
+    def __init__(self, width, height):
+        self.width = width
+        self.height = height
+        self.fbo_manager = FBOManager()
+        
+    def resize(self, width, height):
+        self.width = width
+        self.height = height
+    
+    def before_render(self):
+        '''
+        call this method before rendering to set up the FBO for depth reading.
+        It will create a framebuffer object (FBO) and bind it for rendering.
+        Args:
+            None
+        Returns:
+            fbo (int): The framebuffer object ID that is bound for rendering.
+        
+        '''
+        fbo, depth_texture = self.fbo_manager.get_fbo(self.width, self.height)
+        # print(f"FBO: {fbo}, Depth Texture: {depth_texture}")
+        glBindFramebuffer(GL_FRAMEBUFFER, fbo)
+        
+        return fbo
+            
+
+    def read_depth(self):        
+        '''
+        After rendering, call this method to read the depth data from the FBO.
+        It will read the depth data from the currently bound FBO and return it as a numpy array.
+        - Note: Make sure to call before_render() before this method.
+        - Note: The depth data is in NDC (Normalized Device Coordinates) format,
+        which ranges from 0.0 to 1.0, where 0.0 is the near plane and 1.0 is the far plane.
+        
+        Args:
+            None
+        Returns:
+            depth_array (np.ndarray): A 2D numpy array of shape (height, width) containing the depth values.
+        '''
+
+        depth_data = glReadPixels(0, 0, self.width, self.height,
+                                GL_DEPTH_COMPONENT, GL_FLOAT)
+        
+        depth_array = np.frombuffer(depth_data, dtype=np.float32)
+        depth_array = depth_array.reshape((self.height, self.width))[::-1, :]
+        
+        return depth_array
+        
+    @staticmethod
+    def convertNDC2Liner(ndc_depth:np.ndarray, camera:GLCamera):
+        """
+        convert NDC depth to linear depth
+        - Note: This method is a little bit slow, so use it carefully.
+        Args:
+            ndc_depth(np.ndarray): NDC depth (0.0 to 1.0)
+            camera(GLCamera): GLCamera object containing camera parameters
+            
+        Returns:
+            linear_depth: linear depth in world coordinates
+        """
+
+        if camera.projection_mode == camera.projectionMode.perspective:
+            ndc_depth = ndc_depth * 2.0 - 1.0 
+            linear_depth = (2.0 * camera.near * camera.far) / (
+                camera.far + camera.near - ndc_depth * (camera.far - camera.near)
+            )
+        else:
+            linear_depth = ndc_depth * (camera.far - camera.near) + camera.near
+        
+        return linear_depth
+    
+
+
 
 class GLSettingWidget(QObject):
 
@@ -795,7 +850,6 @@ class GLSettingWidget(QObject):
                  grid_vis_callback=None,
                  axis_vis_callback=None,
                  axis_length_callback=None,
-                 capture_depth_callback=None,
                  save_depth_callback=None,):
         super().__init__()
         
@@ -811,7 +865,6 @@ class GLSettingWidget(QObject):
         self.grid_vis_callback = grid_vis_callback
         self.axis_vis_callback = axis_vis_callback
         self.axis_length_callback = axis_length_callback
-        self.capture_depth_callback = capture_depth_callback
         self.save_depth_callback = save_depth_callback
 
         self._setup_ui()
@@ -984,19 +1037,13 @@ class GLSettingWidget(QObject):
         self.gl_setting_Menu.addSeparator()
         
         # 深度图相关功能
-        action_captureDepth = Action(FIF.CAMERA, 'Capture Depth Map (Ctrl+D)')
-        action_captureDepth.triggered.connect(self._on_capture_depth)
         
-        action_saveDepth = Action(FIF.SAVE, 'Save Depth Maps (Ctrl+Shift+S)')
+        action_saveDepth = Action(FIF.SAVE, 'Save Depth Maps')
         action_saveDepth.triggered.connect(self._on_save_depth)
         
-        action_depthInfo = Action(FIF.INFO, 'Show Depth Info (Ctrl+I)')
-        action_depthInfo.triggered.connect(self._on_show_depth_info)
         
         self.gl_setting_Menu.addActions([
-            action_captureDepth,
             action_saveDepth,
-            action_depthInfo,
         ])
         
         self.gl_setting_Menu.addSeparator()
@@ -1055,16 +1102,10 @@ class GLSettingWidget(QObject):
         if self.reset_camera_callback:
             self.reset_camera_callback()
     
-    def _on_capture_depth(self):
-        if self.capture_depth_callback:
-            self.capture_depth_callback()
-    
     def _on_save_depth(self):
         if self.save_depth_callback:
             self.save_depth_callback()
     
-    def _on_show_depth_info(self):
-        ...
         
         
     def move(self, x, y):
@@ -1079,7 +1120,9 @@ class GLSettingWidget(QObject):
 
 class GLWidget(QOpenGLWidget):
 
-    mouseClickSignal = Signal(np.ndarray, np.ndarray)
+    leftMouseClickSignal = Signal(np.ndarray, np.ndarray)
+    rightMouseClickSignal = Signal(np.ndarray, np.ndarray)
+    middleMouseClickSignal = Signal(np.ndarray, np.ndarray)
     mouseReleaseSignal = Signal(np.ndarray, np.ndarray)
     mouseMoveSignal = Signal(np.ndarray, np.ndarray)
 
@@ -1215,7 +1258,7 @@ class GLWidget(QOpenGLWidget):
             grid_vis_callback=self.setGridVisibility,
             axis_vis_callback=self.setAxisVisibility,
             axis_length_callback=self.setAxisScale,
-            # capture_depth_callback=self.captureDepthMap,
+            save_depth_callback=self.saveDepthMap,
         )
         
         self.gl_setting_button = self.gl_settings.get_button()
@@ -1228,6 +1271,8 @@ class GLWidget(QOpenGLWidget):
         
 
         self.setMinimumSize(200, 200)
+        
+        self.depthMap = None
             
             
     def setBackgroundColor(self, color: Tuple[float, float, float, float]):
@@ -1318,14 +1363,35 @@ class GLWidget(QOpenGLWidget):
             self.camera.setLockRotate(True)
             self.camera.updateIntr(self.raw_window_h, self.raw_window_w)
             
-    def setObjectProps(self, key, props:dict):
-        if key in self.objectList.keys():
-            self.objectList[key].updateProps(props)
-            
-            
+    def setObjectProps(self, ID, props:dict):
+        '''
+        Setting the properties of an object in the objectList.
+        Args:
+            ID (int): The ID of the object in the objectList.
+            props (dict): A dictionary containing the properties to be updated.
+                Available properties include:
+                - 'size': Size of the object (float).
+                - 'isShow': Visibility of the object (boolean).
+        Returns:
+            None
+        '''
+        
+        _ID = str(ID)
+        if _ID in self.objectList.keys():
+            self.objectList[_ID].updateProps(props)
+
         self.update()
 
     def setObjTransform(self, ID=1, transform=None) -> None:
+        '''
+        Setting the transformation matrix of an object in the objectList.
+        Args:
+            ID (int): The ID of the object in the objectList.
+            transform (np.ndarray(4, 4)): The homogeneous transformation matrix to be set.
+                If None, the transformation matrix will be set to the identity matrix.
+        Returns:
+            None
+        '''
         _ID = str(ID)
         if _ID in self.objectList.keys():
             if transform is not None:
@@ -1336,6 +1402,15 @@ class GLWidget(QOpenGLWidget):
         self.update()
 
     def updateObject(self, ID=1, obj:BaseObject=None) -> None:
+        '''
+        Update the object in the objectList with a new object or remove it if obj is None.
+        Args:
+            ID (int): The ID of the object in the objectList.
+            obj (BaseObject): The new object to be set. 
+                If None, the object which name matches the ID will be removed from the list.
+        Returns:
+            None
+        '''
         _ID = str(ID)
         if obj is not None:
             self.objectList.update({_ID:obj})
@@ -1426,6 +1501,8 @@ class GLWidget(QOpenGLWidget):
             self.shaderLocMap.update({uniform:glGetUniformLocation(self.program, uniform)})
                 
         
+        self.depthReader = DepthReader(self.raw_window_w, self.raw_window_h)
+
 
     def paintGL(self):
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
@@ -1509,16 +1586,15 @@ class GLWidget(QOpenGLWidget):
         glDepthMask(GL_TRUE)
         
         
-        depthReader = DepthReader(self.raw_window_w, self.raw_window_h)
-        depthReader.before_render()
-        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
+        # depthReader = DepthReader(self.raw_window_w, self.raw_window_h)
+        self.depthReader.resize(self.raw_window_w, self.raw_window_h)
+        self.depthReader.before_render()
+        glClear(GL_DEPTH_BUFFER_BIT)
         for k, v in self.objectList.items():
             if hasattr(v, 'renderinShader'):
                 v.renderinShader(ratio=10./self.camera.viewPortDistance, locMap=self.shaderLocMap, render_mode=self.gl_render_mode, size=self.point_line_size)
-        depthReader.read_depth()
-                 
-        
-        
+        self.depthMap = self.depthReader.read_depth()
+
 
         glUseProgram(0)
         
@@ -1624,20 +1700,36 @@ class GLWidget(QOpenGLWidget):
         self.lastPos = event.pos()
         
         self.camera.updateTransform()
+                
+        self.update()
         
         mouseCoordinateinViewPortX = int((self.lastPos.x()) * self.PixelRatio )
         mouseCoordinateinViewPortY = int((self.scaled_window_h -  self.lastPos.y()) * self.PixelRatio)
 
         self.mouseClickPointinUV = np.array([mouseCoordinateinViewPortX, mouseCoordinateinViewPortY])
-        self.mouseClickPointinWorldCoordinate = self.camera.rayVector(mouseCoordinateinViewPortX, mouseCoordinateinViewPortY, dis=10)
         
-        # self.updateObject(ID=1, obj=PointCloud(
-        #     vertex=np.array([self.mouseClickPointinWorldCoordinate[:3]]),
-        # ))
+        depth_value = self.depthMap[int(self.lastPos.y() * self.PixelRatio), mouseCoordinateinViewPortX] if self.depthMap is not None else 10
+        liner_depth_value = DepthReader.convertNDC2Liner(depth_value, self.camera)
+        # print(f'Depth value at ({mouseCoordinateinViewPortX}, {mouseCoordinateinViewPortY}): {liner_depth_value}')
+        if liner_depth_value > 100:
+            liner_depth_value = 100
+        self.mouseClickPointinWorldCoordinate = self.camera.rayVector(mouseCoordinateinViewPortX, mouseCoordinateinViewPortY, dis=liner_depth_value)
         
-        self.mouseClickSignal.emit(self.mouseClickPointinUV, self.mouseClickPointinWorldCoordinate)
+        # if event.buttons() & Qt.RightButton:
+        #     transform = np.identity(4, dtype=np.float32)
+        #     transform[:3, 3] = self.mouseClickPointinWorldCoordinate[:3]
+        #     self.updateObject(ID=1, obj=Axis(
+        #         transform=transform,
+        #     ))
+            # print('campose', self.camera.CameraTransformMat)
+        if event.buttons() & Qt.RightButton:
+            self.rightMouseClickSignal.emit(self.mouseClickPointinUV, self.mouseClickPointinWorldCoordinate)
+        elif event.buttons() & Qt.MiddleButton:
+            self.middleMouseClickSignal.emit(self.mouseClickPointinUV, self.mouseClickPointinWorldCoordinate)
+        elif event.buttons() & Qt.LeftButton:
+            self.leftMouseClickSignal.emit(self.mouseClickPointinUV, self.mouseClickPointinWorldCoordinate)
 
-        self.update()
+        # self.update()
 
     def mouseMoveEvent(self, event:QMouseEvent):
         dx = event.x() - self.lastPos.x()
@@ -1686,3 +1778,22 @@ class GLWidget(QOpenGLWidget):
     def mouseReleaseEvent(self, event):
         self.mouseReleaseSignal.emit(self.mouseClickPointinUV, self.mouseClickPointinWorldCoordinate)
         return super().mouseReleaseEvent(event)
+    
+    
+    def getDepthMap(self):
+        liner_depth = DepthReader.convertNDC2Liner(self.depthMap, self.camera)
+        return liner_depth
+    
+    
+    def saveDepthMap(self, path='./depth.png'):
+        if self.depthMap is not None:
+            liner_depth = DepthReader.convertNDC2Liner(self.depthMap, self.camera)
+            # liner_depth = self.depthMap
+            # depth_normalized = liner_depth / (np.max(liner_depth))
+            depth_image = liner_depth.astype(np.uint16)
+
+            depth_image_pil = Image.fromarray(depth_image, mode='I;16')
+            depth_image_pil.save(path)
+            print(f'Depth map saved to {path}')
+        else:
+            print('No depth map available to save.')

@@ -1615,7 +1615,7 @@ if __name__ == "__main__":
    
     App = App()
     # App.setStyleSheet(style)
-    App.setWindowTitle('Batch3D Viewer build 1.5.2')
+    App.setWindowTitle('Batch3D Viewer build 1.6')
     App.setWindowIcon(QIcon('icon.ico'))
     
 

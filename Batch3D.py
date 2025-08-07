@@ -25,6 +25,7 @@ import json
 import natsort
 from glw.mesh import *
 import trimesh
+# This is to avoid the error: "ImportError: numpy.core.multiarray failed to import"
 import numpy.core.multiarray
 
 if sys.platform == 'win32':
@@ -882,9 +883,9 @@ class App(QMainWindow):
 
     def addFiletoTable(self, filepath:str, isRemote=False):
         extName = os.path.splitext(filepath)[-1][1:]
-        
-        if extName in ['obj', 'pkl', 'cug', 'npy', 'npz', 'OBJ', 'PKL', 'CUG', 'NPY', 'NPZ', 'ply', 'stl', 'pcd', 'glb', 'xyz', 'PLY', 'STL', 'PCD', 'XYZ', 'GLB', 'h5', 'H5'] and not filepath.startswith('.'):
-        
+
+        if extName.lower() in ['obj', 'pkl', 'cug', 'npy', 'npz', 'ply', 'stl', 'pcd', 'glb', 'xyz'] and not filepath.startswith('.'):
+
             self.ui.tableWidget.insertRow(0)
             event_widget = cellWidget(filepath, os.path.join(self.currentPath, filepath), isRemote=isRemote)
             event_widget.setIcon(MyFluentIcon.File.qicon())
@@ -897,8 +898,8 @@ class App(QMainWindow):
             item = self.ui.tableWidget_obj.cellWidget(i, 1)
             key_ = item.text()
             if keys is not None:
-                if isinstance(key_, str) and key_ == keys or \
-                    isinstance(key_, (tuple, list)) and key_ in keys:
+                if isinstance(keys, str) and key_ == keys or \
+                    isinstance(keys, (tuple, list)) and key_ in keys:
                     item.needsRemove = True
             else:
                 item.needsRemove = True
@@ -928,6 +929,34 @@ class App(QMainWindow):
                 'size':size,
             }
             self.ui.openGLWidget.setObjectProps(key, props)
+            
+    def setObjectProps(self, key, props:dict):
+        try:
+            if key in self._workspace_obj.keys() and \
+                key in self.ui.openGLWidget.objectList.keys():
+                    # valid object
+                
+            
+                self.ui.openGLWidget.setObjectProps(key, props)
+                for i in range(self.ui.tableWidget_obj.rowCount()):
+                    item = self.ui.tableWidget_obj.cellWidget(i, 1)
+                    if item.text() == key:
+                        if 'isShow' in props.keys():
+                            tb = self.ui.tableWidget_obj.cellWidget(i, 0)
+                            tb.setChecked(props['isShow'])
+                            tb.setIcon(FIF.VIEW if props['isShow'] else FIF.HIDE)
+                        if 'size' in props.keys():
+                            if self.ui.tableWidget_obj.cellWidget(i, 2) is not None:
+                                self.ui.tableWidget_obj.cellWidget(i, 2).setValue(props['size'])
+                            else:
+                                raise ValueError(f'current objeect {key} do not support "size" key')
+                        else:
+                            raise ValueError(f'Object {key} props must contain "isShow" or "size" keys')
+                        return
+                    
+        except Exception as e:
+            print(f'Error setting object properties for {key}: {e}')
+            self.PopMessageWidgetObj.add_message_stack(((f'Error setting object properties for {key}', f'{e}'), 'error'))
 
     def add2ObjPropsTable(self, obj, name:str, colors=None, adjustable=False):
         
@@ -1296,15 +1325,14 @@ class App(QMainWindow):
         
         
         self.resetObjPropsTable(keys=keys)
-        
+        _delete = []
         try:
             
             # load file from multi source
             obj = dataParser.loadFromAny(fullpath, extName)
                         
 
-            info = self.formatContentInfo(obj)
-            self.ui.label_info.setMarkdown(info)
+
             
             
             if isinstance(obj, dict):
@@ -1314,9 +1342,10 @@ class App(QMainWindow):
                     if k not in keys:
                         continue
                     
+                    # store deleted keys
                     if v is None:
                         self.ui.openGLWidget.updateObject(ID=k, obj=None)
-                        del obj[k]
+                        _delete.append(k)
                         continue
                             
                     if isinstance(v, dict):
@@ -1336,6 +1365,14 @@ class App(QMainWindow):
             else:
                 raise ValueError(f'Unsupported object type: {type(obj)}')
             
+            # delete keys
+            for k in _delete:
+                if k in obj.keys():
+                    obj.pop(k)
+
+            info = self.formatContentInfo(obj)
+            self.ui.label_info.setMarkdown(info)
+
             # store raw obj to workspace_obj
             if setWorkspace:
                 self.resetSliceFunc()
@@ -1394,9 +1431,7 @@ class App(QMainWindow):
             
     def runScript(self, ):
         self.reset_script_namespace()
-        # self.ui.openGLWidget.reset()
-        # self.resetObjPropsTable()
-        # self.clearObjPropsTable()
+
         
         if os.path.isfile(self.currentScriptPath):
             fname = os.path.basename(self.currentScriptPath)
@@ -1405,7 +1440,6 @@ class App(QMainWindow):
             with open(self.currentScriptPath, encoding='utf-8') as f:
 
                 code = f.read()
-                code = code.replace('from pcdviewerAPI import executeSignal', '') # Deprecated
                 code = code.replace('import Batch3D', '') # Deprecated
 
             try:
@@ -1435,13 +1469,7 @@ class App(QMainWindow):
                 self.PopMessageWidgetObj.add_message_stack(
                     ((f"Script '{fname}' exec error", str(exc_value)), 'error')
                 )
-            # self.sendCodeSignal.emit(code, fname)
-            # self.ui.pushButton_runscript.disconnect(self)
-            # func, kwargs = namespace['main']()
-            # # st3 = time.time()
-            # # print('t1', st2-st, 't2', st3-st2)
-            # getattr(self.ui.openGLWidget, func)(**kwargs)
-            # print('namespace:', self.script_namespace)
+
 
     def runScriptStateChangeRunning(self, ):
         self.ui.pushButton_runscript.setText('Terminate Script')
@@ -1476,6 +1504,9 @@ class App(QMainWindow):
 
     def getListLength(self, ):
         return self.ui.tableWidget.rowCount()
+
+    def popMessage(self, title:str='', message:str='', mtype='msg'):
+        self.PopMessageWidgetObj.add_message_stack(((title, message), mtype))
 
 
 

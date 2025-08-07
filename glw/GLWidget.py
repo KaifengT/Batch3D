@@ -10,7 +10,7 @@ import traceback
 import numpy as np
 from PySide6.QtCore import (QTimer, Qt, QRect, QRectF, Signal, QSize, QObject, QPoint, QKeyCombination)
 from PySide6.QtGui import (QBrush, QColor,QWheelEvent,QMouseEvent, QPainter, QPen, QFont, QKeySequence, QImage)
-from PySide6.QtWidgets import (QApplication, QWidget, QLabel, QCheckBox, QSizePolicy, QVBoxLayout, QFrame, QHBoxLayout, QSpacerItem)
+from PySide6.QtWidgets import (QApplication, QWidget, QLabel, QCheckBox, QSizePolicy, QVBoxLayout, QFrame, QHBoxLayout, QSpacerItem, QFileDialog)
 from OpenGL.GL import *
 from OpenGL.GLU import *
 from OpenGL.GL import shaders
@@ -850,7 +850,8 @@ class GLSettingWidget(QObject):
                  grid_vis_callback=None,
                  axis_vis_callback=None,
                  axis_length_callback=None,
-                 save_depth_callback=None,):
+                 save_depth_callback=None,
+                 save_rgba_callback=None):
         super().__init__()
         
         self.parent = parent
@@ -866,6 +867,7 @@ class GLSettingWidget(QObject):
         self.axis_vis_callback = axis_vis_callback
         self.axis_length_callback = axis_length_callback
         self.save_depth_callback = save_depth_callback
+        self.save_rgba_callback = save_rgba_callback
 
         self._setup_ui()
         
@@ -1040,10 +1042,13 @@ class GLSettingWidget(QObject):
         
         action_saveDepth = Action(FIF.SAVE, 'Save Depth Maps')
         action_saveDepth.triggered.connect(self._on_save_depth)
-        
-        
+
+        action_saveRGBA = Action(FIF.SAVE, 'Save RGBA Maps')
+        action_saveRGBA.triggered.connect(self._on_save_rgba)
+
         self.gl_setting_Menu.addActions([
             action_saveDepth,
+            action_saveRGBA
         ])
         
         self.gl_setting_Menu.addSeparator()
@@ -1106,8 +1111,11 @@ class GLSettingWidget(QObject):
         if self.save_depth_callback:
             self.save_depth_callback()
     
-        
-        
+    def _on_save_rgba(self):
+        if self.save_rgba_callback:
+            self.save_rgba_callback()
+
+
     def move(self, x, y):
         self.gl_setting_button.move(x, y)
     
@@ -1259,6 +1267,7 @@ class GLWidget(QOpenGLWidget):
             axis_vis_callback=self.setAxisVisibility,
             axis_length_callback=self.setAxisScale,
             save_depth_callback=self.saveDepthMap,
+            save_rgba_callback=self.saveRGBAMap,
         )
         
         self.gl_setting_button = self.gl_settings.get_button()
@@ -1786,7 +1795,7 @@ class GLWidget(QOpenGLWidget):
         return liner_depth
     
     
-    def saveDepthMap(self, path='./depth.png'):
+    def saveDepthMap(self, path=None):
         if self.depthMap is not None:
             liner_depth = DepthReader.convertNDC2Liner(self.depthMap, self.camera)
             # liner_depth = self.depthMap
@@ -1794,7 +1803,23 @@ class GLWidget(QOpenGLWidget):
             depth_image = liner_depth.astype(np.uint16)
 
             depth_image_pil = Image.fromarray(depth_image, mode='I;16')
-            depth_image_pil.save(path)
-            print(f'Depth map saved to {path}')
+
+            if path is None:
+                path, _ = QFileDialog.getSaveFileName(self, 'Save Depth Map', './depth.png', 'PNG Files (*.png);;All Files (*)')
+
+            if path:
+                depth_image_pil.save(path)
+                print(f'Depth map saved to {path}')
         else:
             print('No depth map available to save.')
+            
+    def saveRGBAMap(self, path=None):
+        if path is None:
+            path, _ = QFileDialog.getSaveFileName(self, 'Save RGBA Image', './image.png', 'PNG Files (*.png);;All Files (*)')
+        
+        if path:
+            image = self.grabFramebuffer()
+            image.save(path)
+            print(f'RGBA image saved to {path}')
+        else:
+            print('No path specified to save RGBA image.')

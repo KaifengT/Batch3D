@@ -123,7 +123,6 @@ class FBOManager:
         cleanup the FBO and its associated textures.
         '''
         try:
-            print('tex', self._depth_texture, self._fbo)
             if self._depth_texture is not None:
                 glDeleteTextures([self._depth_texture])
                 self._depth_texture = None
@@ -131,7 +130,6 @@ class FBOManager:
             print(f"error occurred while cleaning depth texture resources: {e}")
 
         try:
-            print('fbo', self._fbo)
             if self._color_texture is not None:
                 glDeleteTextures([self._color_texture])
                 self._color_texture = None
@@ -1630,7 +1628,6 @@ class GLWidget(QOpenGLWidget):
         self.raw_window_h = int(h * self.PixelRatio)
 
         self.camera.updateIntr(self.raw_window_h, self.raw_window_w)
-        print(f'Resizing GLWidget to {self.raw_window_w}x{self.raw_window_h}, PixelRatio: {self.PixelRatio}')
         
         self.statusbar.move(0, h-self.statusbar.height())
         self.statusbar.resize(w, h)

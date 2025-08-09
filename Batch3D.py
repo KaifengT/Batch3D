@@ -9,8 +9,8 @@ import numpy.linalg as linalg
 from enum import Enum
 import copy
 from PySide6.QtWidgets import ( QApplication, QMainWindow, QTableWidgetItem, QWidget, QFileDialog, QDialog, QGraphicsOpacityEffect, QGraphicsDropShadowEffect, QFrame, QVBoxLayout, QLabel)
-from PySide6.QtCore import  QSize, QThread, Signal, Qt, QPropertyAnimation, QEasingCurve, QPoint, QRect, QObject
-from PySide6.QtGui import QCloseEvent, QIcon, QFont, QAction, QColor, QSurfaceFormat
+from PySide6.QtCore import  QSize, QThread, Signal, Qt, QPropertyAnimation, QEasingCurve, QPoint, QRect, QObject, QTimer
+from PySide6.QtGui import QCloseEvent, QIcon, QFont, QAction, QColor, QSurfaceFormat, QTextCursor
 from ui.PopMessageWidget import PopMessageWidget_fluent as PopMessageWidget
 import multiprocessing
 import io
@@ -249,6 +249,52 @@ class fileDetailInfoUI(QDialog):
         self.setWindowTitle('File Contents')
         
         self.verticalLayout = QVBoxLayout(self)
+
+class consoleUI(QDialog):
+
+    def __init__(self, parent:QWidget=None) -> None:
+        super().__init__(parent,)
+        if sys.platform == 'win32':
+            self.setAttribute(Qt.WA_TranslucentBackground)
+        self.resize(500, 700)
+        self.setWindowTitle('Console')
+        
+        self.verticalLayout = QVBoxLayout(self)
+        
+        self.textbox = widgets.TextBrowser(self)
+        
+        self.verticalLayout.addWidget(self.textbox)
+
+        self._cache = ''
+        
+        self.original_stdout = sys.stdout
+        self.original_stderr = sys.stderr
+        
+        sys.stdout = self
+        sys.stderr = self
+        
+        # self.flush_timer = QTimer(self)
+        # self.flush_timer.timeout.connect(self.flush)
+        # self.flush_timer.start(200)  #
+        
+    def restore(self, ):
+        sys.stdout = self.original_stdout
+        sys.stderr = self.original_stderr
+        
+
+    def write(self, info:str):
+        self._cache += info
+        
+        
+    def flush(self):
+        # self.textbox.moveCursor(QTextCursor.MoveOperation.End)
+        cursor = self.textbox.textCursor()
+        cursor.movePosition(QTextCursor.End)
+        self.textbox.setTextCursor(cursor)
+        self.textbox.insertPlainText(self._cache)
+
+        self._cache = ''
+        
 
 
 class dataParser:
@@ -750,7 +796,9 @@ class App(QMainWindow):
         self.backend.start()
         self.backendSFTPThread.start()
 
-        self.isTrackObject = False
+        self.ui.pushButton_openconsole.clicked.connect(self.showConsole)
+        self.ui.pushButton_openconsole.setIcon(FIF.COMMAND_PROMPT)
+        self.console = consoleUI(self)
         
         self.ui.checkBox_arrow.setOnText('On')
         self.ui.checkBox_arrow.setOffText('Off')
@@ -1403,11 +1451,6 @@ class App(QMainWindow):
         self.ui.openGLWidget.setObjTransform(ID, transform)
         self.ui.openGLWidget.update()
 
-    def setTrackObject(self, ):
-        self.isTrackObject = self.ui.checkBox.isChecked()
-        if self.isTrackObject and self.center_all is not None:
-            
-            self.ui.openGLWidget.camera.translateTo(*self.center_all, isAnimated=True, isEmit=True)
 
     def backendExeGLCallback(self, func, kwargs):
         getattr(self.ui.openGLWidget, func)(**kwargs)
@@ -1525,6 +1568,8 @@ class App(QMainWindow):
         self.reset_script_namespace()
         self.fileDetailUI.close()
         self.remoteUI.close()
+        self.console.close()
+        self.console.restore()
         
         return super().closeEvent(event)
     
@@ -1704,6 +1749,14 @@ class App(QMainWindow):
                 self.loadObj(file)
         else:
             self.openFolder(file)
+            
+            
+    def showConsole(self):
+        self.applyMicaTheme(self.console.winId())
+        self.console.show()
+            
+            
+
         
 
 def changeGlobalTheme(x):
@@ -1761,6 +1814,7 @@ if __name__ == "__main__":
     else:
         font = QFont(['Ubuntu', 'Arial'], 10, QFont.Weight.Normal)
         app.setFont(font)
+    
     
     App.show()
 

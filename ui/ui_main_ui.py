@@ -3,7 +3,7 @@
 ################################################################################
 ## Form generated from reading UI file 'ui_main.ui'
 ##
-## Created by: Qt User Interface Compiler version 6.6.0
+## Created by: Qt User Interface Compiler version 6.9.1
 ##
 ## WARNING! All changes made in this file will be lost when recompiling UI file!
 ################################################################################
@@ -42,7 +42,7 @@ class Ui_MainWindow(object):
         self.horizontalLayout_5.setContentsMargins(-1, -1, 0, -1)
         self.tool = QWidget(self.centralwidget)
         self.tool.setObjectName(u"tool")
-        sizePolicy = QSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
+        sizePolicy = QSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
         sizePolicy.setHorizontalStretch(0)
         sizePolicy.setVerticalStretch(0)
         sizePolicy.setHeightForWidth(self.tool.sizePolicy().hasHeightForWidth())
@@ -59,7 +59,7 @@ class Ui_MainWindow(object):
         self.horizontalLayout.setContentsMargins(0, 0, 0, 0)
         self.pushButton_openfolder = PrimaryPushButton(self.tool)
         self.pushButton_openfolder.setObjectName(u"pushButton_openfolder")
-        sizePolicy1 = QSizePolicy(QSizePolicy.Minimum, QSizePolicy.Fixed)
+        sizePolicy1 = QSizePolicy(QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Fixed)
         sizePolicy1.setHorizontalStretch(0)
         sizePolicy1.setVerticalStretch(0)
         sizePolicy1.setHeightForWidth(self.pushButton_openfolder.sizePolicy().hasHeightForWidth())
@@ -84,7 +84,7 @@ class Ui_MainWindow(object):
         self.horizontalLayout_9.setContentsMargins(-1, 0, -1, -1)
         self.label_5 = StrongBodyLabel(self.tool)
         self.label_5.setObjectName(u"label_5")
-        sizePolicy2 = QSizePolicy(QSizePolicy.Fixed, QSizePolicy.Preferred)
+        sizePolicy2 = QSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Preferred)
         sizePolicy2.setHorizontalStretch(0)
         sizePolicy2.setVerticalStretch(0)
         sizePolicy2.setHeightForWidth(self.label_5.sizePolicy().hasHeightForWidth())
@@ -93,7 +93,7 @@ class Ui_MainWindow(object):
 
         self.horizontalLayout_9.addWidget(self.label_5)
 
-        self.horizontalSpacer_7 = QSpacerItem(40, 20, QSizePolicy.Expanding, QSizePolicy.Minimum)
+        self.horizontalSpacer_7 = QSpacerItem(40, 20, QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
 
         self.horizontalLayout_9.addItem(self.horizontalSpacer_7)
 
@@ -118,7 +118,7 @@ class Ui_MainWindow(object):
 
         self.horizontalLayout_10.addWidget(self.label_3)
 
-        self.horizontalSpacer_8 = QSpacerItem(40, 20, QSizePolicy.Expanding, QSizePolicy.Minimum)
+        self.horizontalSpacer_8 = QSpacerItem(40, 20, QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
 
         self.horizontalLayout_10.addItem(self.horizontalSpacer_8)
 
@@ -167,7 +167,7 @@ class Ui_MainWindow(object):
         self.tableWidget.setHorizontalHeaderItem(0, __qtablewidgetitem)
         self.tableWidget.setObjectName(u"tableWidget")
         self.tableWidget.setMaximumSize(QSize(16777215, 16777215))
-        self.tableWidget.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        self.tableWidget.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.tableWidget.horizontalHeader().setVisible(True)
         self.tableWidget.horizontalHeader().setCascadingSectionResizes(True)
         self.tableWidget.horizontalHeader().setDefaultSectionSize(80)
@@ -187,7 +187,7 @@ class Ui_MainWindow(object):
         self.tableWidget_obj.setHorizontalHeaderItem(2, __qtablewidgetitem3)
         self.tableWidget_obj.setObjectName(u"tableWidget_obj")
         self.tableWidget_obj.setMaximumSize(QSize(16777215, 16777215))
-        self.tableWidget_obj.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        self.tableWidget_obj.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.tableWidget_obj.setRowCount(0)
         self.tableWidget_obj.setColumnCount(3)
         self.tableWidget_obj.horizontalHeader().setVisible(True)
@@ -274,15 +274,23 @@ class Ui_MainWindow(object):
 "{\n"
 "    background-color: #00000000;\n"
 "}")
-        self.label_info.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        self.label_info.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        self.label_info.setAutoFormatting(QTextEdit.AutoAll)
-        self.label_info.setLineWrapMode(QTextEdit.NoWrap)
+        self.label_info.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.label_info.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.label_info.setAutoFormatting(QTextEdit.AutoFormattingFlag.AutoAll)
+        self.label_info.setLineWrapMode(QTextEdit.LineWrapMode.NoWrap)
 
         self.verticalLayout.addWidget(self.label_info)
 
         self.horizontalLayout_7 = QHBoxLayout()
         self.horizontalLayout_7.setObjectName(u"horizontalLayout_7")
+        self.pushButton_openconsole = PushButton(self.tool)
+        self.pushButton_openconsole.setObjectName(u"pushButton_openconsole")
+        sizePolicy1.setHeightForWidth(self.pushButton_openconsole.sizePolicy().hasHeightForWidth())
+        self.pushButton_openconsole.setSizePolicy(sizePolicy1)
+        self.pushButton_openconsole.setMinimumSize(QSize(20, 0))
+
+        self.horizontalLayout_7.addWidget(self.pushButton_openconsole)
+
         self.pushButton_opendetail = PushButton(self.tool)
         self.pushButton_opendetail.setObjectName(u"pushButton_opendetail")
         sizePolicy1.setHeightForWidth(self.pushButton_opendetail.sizePolicy().hasHeightForWidth())
@@ -304,7 +312,7 @@ class Ui_MainWindow(object):
 
         self.openGLWidget = GLWidget(self.centralwidget)
         self.openGLWidget.setObjectName(u"openGLWidget")
-        sizePolicy3 = QSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        sizePolicy3 = QSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         sizePolicy3.setHorizontalStretch(0)
         sizePolicy3.setVerticalStretch(0)
         sizePolicy3.setHeightForWidth(self.openGLWidget.sizePolicy().hasHeightForWidth())
@@ -340,6 +348,7 @@ class Ui_MainWindow(object):
         ___qtablewidgetitem2.setText(QCoreApplication.translate("MainWindow", u"ID", None));
         ___qtablewidgetitem3 = self.tableWidget_obj.horizontalHeaderItem(2)
         ___qtablewidgetitem3.setText(QCoreApplication.translate("MainWindow", u"Size", None));
+        self.pushButton_openconsole.setText(QCoreApplication.translate("MainWindow", u"console", None))
         self.pushButton_opendetail.setText(QCoreApplication.translate("MainWindow", u"Info", None))
         self.toolButton_theme.setText("")
     # retranslateUi

@@ -8,39 +8,30 @@ import math
 import time
 import traceback
 import numpy as np
-from PySide6.QtCore import (QTimer, Qt, QRect, QRectF, Signal, QSize, QObject, QPoint, QKeyCombination)
-from PySide6.QtGui import (QBrush, QColor,QWheelEvent,QMouseEvent, QPainter, QPen, QFont, QKeySequence, QImage)
-from PySide6.QtWidgets import (QApplication, QWidget, QLabel, QCheckBox, QSizePolicy, QVBoxLayout, QFrame, QHBoxLayout, QSpacerItem, QFileDialog)
+from PySide6.QtCore import (Qt, Signal, QPoint)
+from PySide6.QtGui import (QColor,QWheelEvent,QMouseEvent, QPainter, QPen, QFont)
+from PySide6.QtWidgets import (QApplication, QWidget, QFileDialog)
 from OpenGL.GL import *
 from OpenGL.GLU import *
 from OpenGL.GL import shaders
 from PySide6.QtOpenGLWidgets import QOpenGLWidget
 from OpenGL.arrays import vbo
 from OpenGL.GL.framebufferobjects import *
-from types import NoneType
-import trimesh.visual
-from tools.overload import singledispatchmethod
-from .utils.transformations import rotation_matrix, rpy2hRT, invHRT
+
 from .utils.kalman import kalmanFilter
 from typing import Tuple
 import copy
 from .mesh import Mesh, PointCloud, Grid, Axis, BoundingBox, Lines, Arrow, BaseObject
-from .utils.objloader import OBJ
-from .utils.transformations import quaternion_from_matrix, quaternion_matrix
-from ui.addon import GLAddon_ind
+
 from ui.statusBar import StatusBar
 import trimesh
 from enum import Enum
 from PIL import Image
 # from memory_profiler import profile
+from .GLCamera import GLCamera
+from .GLMenu import GLSettingWidget
 
-from qfluentwidgets import PushButton, setCustomStyleSheet, ComboBox, Slider, SegmentedWidget, DropDownToolButton, \
-    RoundMenu, Action, BodyLabel, SpinBox, DoubleSpinBox, ToggleButton, SwitchButton
-from qfluentwidgets import FluentIcon as FIF
-import webbrowser
-
-
-class FBOManager:
+class FBOManager_singleton:
     '''
     FBOManager is a singleton class that manages the Frame Buffer Object (FBO) and its associated textures.
     '''
@@ -144,618 +135,201 @@ class FBOManager:
             print(f"error occurred while cleaning FBO resources: {e}")
 
 
-    
-    
-class GLCamera(QObject):
+class FBOManager:
     '''
-    GLCamera is a class that represents a 3D camera in OpenGL.
-    It handles camera trajectory, projection, and view matrices.
+    FBOManager is a class that manages the Frame Buffer Object (FBO) and its associated textures.
     '''
-    class controlType(Enum):
-        arcball = 0
-        trackball = 1
-        
-    class projectionMode(Enum):
-        perspective = 0
-        orthographic = 1
-        
-    
-    updateSignal = Signal()
-    
-    '''
-           y
-           ^
-           |
-         __|__
-        | -z  |----> x
-        |_____|
-    
-    camera looks to the -z direction
-    '''
-    def __init__(self) -> None:
-        super().__init__()
-            
-        self.azimuth=135
-        self.elevation=-55
-        self.viewPortDistance = 10
-        self.CameraTransformMat = np.identity(4)
-        self.lookatPoint = np.array([0., 0., 0.,])
-        self.fy = 1
-        self.intr = np.eye(3)
-        
-        self.viewAngle = 60.0
-        self.near = 0.1
-        self.far = 4000.0
-        
-        self.controltype = self.controlType.arcball
-        
-        self.archball_rmat = None
-        self.target = None
-        self.archball_radius = 1.5
-        self.reset_flag = False
-        
-        self.arcboall_quat = np.array([1, 0, 0, 0])
-        self.last_arcboall_quat = np.array([1, 0, 0, 0])
-        self.arcboall_t = np.array([0, 0, 0])
-        
-        self.filterAEV = kalmanFilter(3, R=0.2)
-        self.filterlookatPoint = kalmanFilter(3, R=0.2)
-        # BUG TO FIX: filterRotaion cannot deal with quaternion symmetry when R >> Q
-        # self.filterRotaion = kalmanFilter(4, Q=0.5, R=0.1)
-        self.filterRotaion = kalmanFilter(4, R=0.4)
-        self.filterAngle = kalmanFilter(1)
-        
-        self.filterPersp = kalmanFilter(16, R=0.5)
-        self.filterViewAngle = kalmanFilter(1, R=0.1)
-        self.filterNear = kalmanFilter(1, R=0.1)
-        self.filterFar = kalmanFilter(1, R=0.1)
-        
-        
-        self.currentProjMatrix = None
-        self.targetProjMatrix = None
-        
-        self.projection_mode = self.projectionMode.perspective
-        
-        self.filterAEV.stable(np.array([self.azimuth, self.elevation, self.viewPortDistance]))
-        self.updateTransform(False, False)
-        
-        self.timer = QTimer()
-        self.timer.timeout.connect(self.updateTransform)
-        self.timer.setSingleShot(False)
-        self.timer.setInterval(7)
-        self.timer.start()
 
-
-        self.timer_proj = QTimer()
-        self.timer_proj.timeout.connect(self.updateProjTransform)
-        self.timer_proj.setSingleShot(False)
-        self.timer_proj.setInterval(7)
+    def __init__(self):
+        self._instance = None
+        self._fbo = None
+        self._depth_texture = None
+        self._color_texture = None
+        self._geometry_texture = None
+        self._width = 0
+        self._height = 0
         
-        self.aspect = 1.0
-        
-        self.lockRotate = False
-        
-    def setLockRotate(self, isLock:bool):
-        self.lockRotate = isLock
-        
-
-    def setCamera(self, azimuth=0, elevation=50, distance=10, lookatPoint=np.array([0., 0., 0.,])) -> np.ndarray:
-        if self.controltype == self.controlType.trackball:
-            self.azimuth=azimuth
-            self.elevation=elevation
-            self.viewPortDistance = distance
-            self.lookatPoint = lookatPoint
-            
-            
+        self._attachments_id = []
+    
+    @staticmethod
+    def getFormat(internalType):
+        if internalType == GL_RGBA32F:
+            return GL_RGBA, GL_FLOAT
+        elif internalType == GL_RGB32F:
+            return GL_RGB, GL_FLOAT
+        elif internalType == GL_R32F:
+            return GL_RED, GL_FLOAT
+        elif internalType == GL_RGB: # somthing strange may be GL_RGB8I
+            return GL_RGB, GL_UNSIGNED_BYTE
         else:
-            rmat = rpy2hRT(0, 0, 0, 0, 0, azimuth/180.*math.pi)
-            rmat =  rpy2hRT(0, 0, 0, elevation/180.*math.pi, 0, 0) @ invHRT(rmat)
-            self.arcboall_quat = quaternion_from_matrix(rmat)
-
-            self.viewPortDistance = distance    
-            self.lookatPoint = lookatPoint
-            
-            
-        return self.updateTransform()
+            raise ValueError(f"Unsupported internal type: {internalType}")
     
-    def setCameraTransform(self, transform: np.ndarray) -> np.ndarray:
-        self.arcball_quat = quaternion_from_matrix(transform)
-        return self.updateTransform()
-
-    def updateIntr(self, window_h, window_w):
-        """
-        update camera intrinsic matrix based on the window size and view angle
+    def getFBO(self, width, height, depth=False, colors=[]):
+        '''
+        Get or create a Frame Buffer Object (FBO) with a depth texture.
+        If the FBO already exists and the dimensions match, it will return the existing FBO.
         Args:
-            window_h (int): height of the window
-            window_w (int): width of the window
+            width (int): The width of the FBO.
+            height (int): The height of the FBO.
         Returns:
-            intr (np.ndarray): camera intrinsic matrix
-        """
-
-        fov_half_rad = math.radians(self.viewAngle / 2)
-        cx = window_w / 2.0
-        cy = window_h / 2.0
-        # calculate focal length based on the window height and FOV
-        
-        if self.projection_mode == self.projectionMode.perspective:
-            self.fy = (window_h / 2.0) / math.tan(fov_half_rad)
-            self.fx = self.fy
-            
-            
-        elif self.projection_mode == self.projectionMode.orthographic:
-            ortho_height = self.viewPortDistance * 0.5
-            ortho_width = ortho_height * self.aspect
-            
-            self.fy = window_h / (2.0 * ortho_height)
-            self.fx = window_w / (2.0 * ortho_width)
-            
-        else:
-            raise ValueError(f'Unknown projection mode: {self.projection_mode}')
-
-
-
-        self.intr = np.array([
-            [self.fx, 0,      cx],
-            [0,       self.fy, cy],
-            [0,       0,       1.0]
-        ], dtype=np.float32)
-        
-        return self.intr
-        
-                
-        
-    def resetAE(self,):
-        
-        # print(self.elevation, self.azimuth)
-        
-        if self.elevation > 0:
-            counte = self.elevation // 360
-            self.elevation -= counte * 360.
-        else:
-            counte = self.elevation // -360
-            self.elevation -= counte * -360.
-
-        if self.azimuth > 0:
-            counta = self.azimuth // 360
-            self.azimuth -= counta * 360.
-        else:
-            counta = self.azimuth // -360
-            self.azimuth -= counta * -360.
-        
-    def map2Sphere(self, x, y, height, width):
-        cx, cy = width / 2, height / 2  # center of the window
-        norm_x = (x - cx) / cx
-        norm_y = (cy - y) / cy
-
-        d = math.sqrt(norm_x**2 + norm_y**2)
-        if d < self.archball_radius:
-            z = math.sqrt(self.archball_radius**2 - d**2)
-        else:
-            norm = math.sqrt(norm_x**2 + norm_y**2 + 1)
-            norm_x /= norm
-            norm_y /= norm
-            z = 1 / norm
-
-        return np.array([norm_x, norm_y, z])
-
-    def calculateRotation(self, start=[0, 0], end=[0, 0]):
-        # params:
-        # start: 1x2 norm array, start point of the mouse drag, [x1, y1]
-        # end: 1x2 norm array, end point of the mouse drag, [x2, y2]
-        axis = np.cross(start, end)
-        cos_angle = np.dot(start, end) / (np.linalg.norm(start) * np.linalg.norm(end))
-        angle = math.acos(max(min(cos_angle, 1), -1))
-
-        if np.allclose(axis, [0, 0, 0]):
-            return [0, 0, 0], 0
-        else:
-            axis = axis / np.linalg.norm(axis)
-            return axis, angle
-
-    def rotationMatrixFromAxisAngle(self, axis, angle):
-        c = math.cos(angle)
-        s = math.sin(angle)
-        t = 1 - c
-        x, y, z = axis
-
-        return np.array([
-            [t*x*x + c, t*x*y - s*z, t*x*z + s*y],
-            [t*x*y + s*z, t*y*y + c, t*y*z - s*x],
-            [t*x*z - s*y, t*y*z + s*x, t*z*z + c]
-        ])
-
-    def rpyFromRotationMatrix(self, R):
-        sy = math.sqrt(R[0, 0] * R[0, 0] + R[1, 0] * R[1, 0])
-        singular = sy < 1e-6
-
-        if not singular:
-            x = math.atan2(R[2, 1], R[2, 2])
-            y = math.atan2(-R[2, 0], sy)
-            z = math.atan2(R[1, 0], R[0, 0])
-        else:
-            x = math.atan2(-R[1, 2], R[1, 1])
-            y = math.atan2(-R[2, 0], sy)
-            z = 0
-
-        return np.degrees(np.array([x, y, z]))
-
-    def rotate(self, start=0, end=0, window_h=0, window_w=0):
+            tuple (int, int): A tuple containing the FBO and the depth texture.
         '''
-        Rotate the camera based on mouse drag.
+
+        if (self._fbo is None or 
+            self._width != width or 
+            self._height != height):
+            # print(f"Creating FBO: {width}x{height}")
+            self._createFBO(width, height, depth, colors)
+        # self._create_fbo(width, height)
+        return self._fbo, self._depth_texture
+    
+    def _addDepthAttachment(self, width, height):
+        '''
+        Add a depth attachment to the FBO.
         Args:
-            start: 1x2 array, start point of the mouse drag, [x1, y1]
-            end: 1x2 array, end point of the mouse drag, [x2, y2]
-            window_h: int, height of the window
-            window_w: int, width of the window
-        Returns: 
-            4x4 np.ndarray, rotation matrix
-        '''
-
-        # map to sphere
-        if self.lockRotate:
-            return
-        
-        if self.controltype == self.controlType.trackball:
-            self.azimuth -= float(start) * 0.15
-            self.elevation  += float(end) * 0.15
-
-        else:
-            start_norm = self.map2Sphere(start[0], start[1], window_h, window_w)
-            end_norm = self.map2Sphere(end[0], end[1], window_h, window_w)
-            axis, angle = self.calculateRotation(start_norm, end_norm)
-            # print('axis, angle', axis, angle)
-            # transform screen space to world space
-            angle *= 16
-            axis = self.CameraTransformMat[:3,:3].T.dot(axis)
-            if angle == 0:
-                rmat = np.eye(3)
-            else:
-                rmat = self.rotationMatrixFromAxisAngle(axis, angle)
-            # transform 3x3 rmat to 4x4 rmat
-            temp_rmat = np.zeros((4,4))
-            if rmat.shape == (3, 3, 3):
-                print('error rmat shape', rmat.shape)
-
-            temp_rmat[:3,:3] = rmat
-            temp_rmat[3,3] = 1
-            self.archball_rmat =  temp_rmat
-            
-            rmat = self.CameraTransformMat[:3,:3] @ rmat.T
-            
-            last_quat = quaternion_from_matrix(self.CameraTransformMat)
-            
-            targetTransformMat = np.identity(4)
-            targetTransformMat[:3,:3] = rmat
-            tmat = np.identity(4)
-            tmat[:3,3] = self.lookatPoint.T
-            # print(tmat)
-            targetTransformMat = targetTransformMat @ invHRT(tmat)
-            self.arcboall_quat = quaternion_from_matrix(targetTransformMat)
-            
-            # angle = np.dot(last_quat, self.arcboall_quat)
-            # if angle < 0:
-            #     print('reverse')
-            #     self.arcboall_quat = -self.arcboall_quat
-            
-            self.arcboall_t = targetTransformMat[:3,3]
-            
-    def zoom(self, ddistance=0):
-        self.viewPortDistance -= ddistance * self.viewPortDistance * 0.1
-        
-    def translate(self, x=0, y=0,):
-        self.updateTransform()
-        
-        scale = self.viewPortDistance * 1e-3
-        
-        xvec = np.array([-scale,0.,0.,0.]).T @ self.CameraTransformMat
-        yvec = np.array([0.,scale,0.,0.]).T @ self.CameraTransformMat
-        xdelta = xvec * x
-        ydelta = yvec * y
-        self.lookatPoint += xdelta[:3]
-        self.lookatPoint += ydelta[:3]
-        
-    def translateTo(self, x=0, y=0, z=0, isAnimated=False, isEmit=True):
-        self.lookatPoint = np.array([x, y, z,], dtype=np.float32)
-        self.updateTransform(isAnimated=isAnimated, isEmit=isEmit)
-        
-    def rotationMatrix2Quaternion(self, R):
-        tr = R[0, 0] + R[1, 1] + R[2, 2]
-
-        if tr > 0:
-            S = np.sqrt(tr + 1.0) * 2
-            qw = 0.25 * S
-            qx = (R[2, 1] - R[1, 2]) / S
-            qy = (R[0, 2] - R[2, 0]) / S
-            qz = (R[1, 0] - R[0, 1]) / S
-        elif (R[0, 0] > R[1, 1]) and (R[0, 0] > R[2, 2]):
-            S = np.sqrt(1.0 + R[0, 0] - R[1, 1] - R[2, 2]) * 2
-            qw = (R[2, 1] - R[1, 2]) / S
-            qx = 0.25 * S
-            qy = (R[0, 1] + R[1, 0]) / S
-            qz = (R[0, 2] + R[2, 0]) / S
-        elif R[1, 1] > R[2, 2]:
-            S = np.sqrt(1.0 + R[1, 1] - R[0, 0] - R[2, 2]) * 2
-            qw = (R[0, 2] - R[2, 0]) / S
-            qx = (R[0, 1] + R[1, 0]) / S
-            qy = 0.25 * S
-            qz = (R[1, 2] + R[2, 1]) / S
-        else:
-            S = np.sqrt(1.0 + R[2, 2] - R[0, 0] - R[1, 1]) * 2
-            qw = (R[1, 0] - R[0, 1]) / S
-            qx = (R[0, 2] + R[2, 0]) / S
-            qy = (R[1, 2] + R[2, 1]) / S
-            qz = 0.25 * S
-
-        return np.array([qw, qx, qy, qz])
-
-    def quaternion2RotationMatrix(self, q):
-        q = q / np.linalg.norm(q)
-        qw, qx, qy, qz = q
-
-        R = np.array([
-            [1 - 2*qy**2 - 2*qz**2, 2*qx*qy - 2*qz*qw, 2*qx*qz + 2*qy*qw],
-            [2*qx*qy + 2*qz*qw, 1 - 2*qx**2 - 2*qz**2, 2*qy*qz - 2*qx*qw],
-            [2*qx*qz - 2*qy*qw, 2*qy*qz + 2*qx*qw, 1 - 2*qx**2 - 2*qy**2]
-        ])
-
-        return R
-
-    def updateTransform(self, isAnimated=True, isEmit=True) -> np.ndarray:
-        # TODO:
-        # add timer.stop() when the screen is not moving
-        
-        if self.controltype == self.controlType.arcball:
-    
-            if isAnimated:
-                
-                if not self.timer.isActive():
-                    self.timer.start()
-                # self.timer.start()
-                
-                aev_in = np.array([self.azimuth, self.elevation, self.viewPortDistance])
-                aev = self.filterAEV.forward(aev_in)
-                lookatPoint = self.filterlookatPoint.forward(self.lookatPoint)
-                
-
-                if np.dot(self.arcboall_quat, self.last_arcboall_quat) < 0:
-                    self.arcboall_quat = -self.arcboall_quat
-
-                quat = self.filterRotaion.forward(self.arcboall_quat)
-                if np.allclose(aev, aev_in, atol=1e-3) and \
-                    np.allclose(lookatPoint, self.lookatPoint, atol=1e-3) and \
-                        np.allclose(self.arcboall_quat, quat, atol=1e-5):
-                    
-                    self.timer.stop()
-                                
-                
-
-                tmat = np.identity(4)
-                tmat[:3,3] = lookatPoint
-
-                self.last_arcboall_quat = copy.deepcopy(self.arcboall_quat)
-                self.CameraTransformMat = np.identity(4)
-                self.CameraTransformMat = quaternion_matrix(quat)
-                
-                self.CameraTransformMat[2, 3] = -aev[2]
-                
-                self.CameraTransformMat = self.CameraTransformMat @ invHRT(tmat)
-                
-
-            else:
-                
-                self.filterlookatPoint.stable(self.lookatPoint)
-                
-                rmat = rpy2hRT(0,0,0,0,0,self.azimuth/180.*math.pi)
-                self.CameraTransformMat =  rpy2hRT(0,0,0,self.elevation/180.*math.pi,0,0) @ np.linalg.inv(rmat) 
-                self.CameraTransformMat[2, 3] = -self.viewPortDistance
-                
-                tmat = np.identity(4)
-                tmat[:3,3] = self.lookatPoint.T
-                self.CameraTransformMat = self.CameraTransformMat @ invHRT(tmat)
-                
-            if isEmit:
-                self.updateSignal.emit()
-            return self.CameraTransformMat            
-        else:
-            
-    
-    
-            if isAnimated:
-                
-                if not self.timer.isActive():
-                    self.timer.start()
-                
-                aev_in = np.array([self.azimuth, self.elevation, self.viewPortDistance])
-                aev = self.filterAEV.forward(aev_in)
-                lookatPoint = self.filterlookatPoint.forward(self.lookatPoint)
-                
-                if np.allclose(aev, aev_in, atol=1e-3) and np.allclose(lookatPoint, self.lookatPoint, atol=1e-3):
-                    # print('stop')
-                    self.timer.stop()
-                    self.resetAE()
-                    self.filterAEV.stable(np.array([self.azimuth, self.elevation, self.viewPortDistance]))
-                
-                rmat = rpy2hRT(0, 0, 0, 0, 0, aev[0]/180.*math.pi)
-                self.CameraTransformMat =  rpy2hRT(0, 0, 0, aev[1]/180.*math.pi, 0, 0) @ invHRT(rmat) 
-                self.CameraTransformMat[2, 3] = -aev[2]
-                
-                tmat = np.identity(4)
-                tmat[:3,3] = lookatPoint.T
-                self.CameraTransformMat = self.CameraTransformMat @ invHRT(tmat)
-                        
-            else:
-                
-                self.filterlookatPoint.stable(self.lookatPoint)
-                
-                rmat = rpy2hRT(0,0,0,0,0,self.azimuth/180.*math.pi)
-                self.CameraTransformMat =  rpy2hRT(0,0,0,self.elevation/180.*math.pi,0,0) @ np.linalg.inv(rmat) 
-                self.CameraTransformMat[2, 3] = -self.viewPortDistance
-                
-                tmat = np.identity(4)
-                tmat[:3,3] = self.lookatPoint.T
-                self.CameraTransformMat = self.CameraTransformMat @ np.linalg.inv(tmat)
-                
-            if isEmit:
-                self.updateSignal.emit()
-            return self.CameraTransformMat
-            
-    def rayVector(self, ViewPortX=0, ViewPortY=0, dis=1) -> np.ndarray:
-        '''
-        Calculate the ray vector in world coordinates from screen pixel coordinates
-        Args:
-            ViewPortX(float): screen pixel X coordinates
-            ViewPortY(float): screen pixel Y coordinates
-            dis(float): along the ray direction distance
+            width (int): The width of the FBO.
+            height (int): The height of the FBO.
         Returns:
-            world_point(np.ndarray(4,)): homogeneous coordinates in world space
+            None
         '''
-        
-        normalized_coords = np.linalg.inv(self.intr) @ np.array([ViewPortX, ViewPortY, 1.0])
-        
-        if self.projection_mode == self.projectionMode.perspective:
-            # 透视投影：射线从相机位置发出
-            camera_point = np.array([
-                normalized_coords[0] * dis,
-                normalized_coords[1] * dis,
-                -dis,
-                1.0
-            ])
-        elif self.projection_mode == self.projectionMode.orthographic:
-            # 正交投影：射线是平行的，直接使用标准化坐标
-            camera_point = np.array([
-                normalized_coords[0],
-                normalized_coords[1],
-                -dis,  # Z坐标表示距离
-                1.0
-            ])
-        else:
-            raise ValueError(f'Unknown projection mode: {self.projection_mode}')
-        
-        world_point = np.linalg.inv(self.CameraTransformMat) @ camera_point
-        return world_point
+        depth_texture = glGenTextures(1)
+        glBindTexture(GL_TEXTURE_2D, depth_texture)
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT32,
+                    width, height, 0,
+                    GL_DEPTH_COMPONENT, GL_FLOAT, None)
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST)
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST)
+        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT,
+                                GL_TEXTURE_2D, depth_texture, 0)
+        self._attachments_id.append(depth_texture)
 
-    def updateProjTransform(self, isAnimated=True, isEmit=True) -> np.ndarray:
+    def _addAttachment(self, width, height, internalType, attachment=GL_COLOR_ATTACHMENT0, filter=GL_LINEAR):
+        '''
+        Add a color attachment to the FBO.
+        Args:
+            internalType (int): The internal format of the texture.
+                supported types: GL_RGBA32F, GL_RGB32F, GL_R32F, GL_RGB
+            attachment (int): The attachment point of the texture. Choose from GL_COLOR_ATTACHMENT0 - GL_COLOR_ATTACHMENT31.
+            filter (int): The texture filter mode.
+                supported types: GL_LINEAR, GL_NEAREST
         
-        if self.projection_mode == self.projectionMode.perspective:
-            
-            fov_half_rad = np.radians(self.viewAngle / 2)
-            top = np.tan(fov_half_rad) * self.near
-            bottom = -top
-            right = top * self.aspect
-            left = -right
-            
-            rw, rh, rd = 1/(right-left), 1/(top-bottom), 1/(self.far-self.near)
-    
-            target_matrix = np.array([
-                [2 * self.near * rw, 0, 0, 0],
-                [0, 2 * self.near * rh, 0, 0],
-                [(right+left) * rw, (top+bottom) * rh, -(self.far+self.near) * rd, -1],
-                [0, 0, -2 * self.near * self.far * rd, 0]
-            ], dtype=np.float32)
-            
-            
-        elif self.projection_mode == self.projectionMode.orthographic:
+        Returns:
+            None
+        '''
 
-            height = self.viewPortDistance * 0.5
-            width = height * self.aspect
-            right = width
-            left = -width
-            top = height
-            bottom = -height
-            
-            rw, rh, rd = 1/(right-left), 1/(top-bottom), 1/(self.far-self.near)
+        format, dataType = self.getFormat(internalType)
 
-            target_matrix = np.array([
-                [2. * rw, 0, 0, 0],
-                [0, 2. * rh, 0, 0],
-                [0, 0, -2. * rd, -(self.far+self.near) * rd],
-                [0, 0, 0, 1.]
-            ], dtype=np.float32).T
-            
-            
-        else:
-            raise ValueError(f'Unknown projection mode: {self.projection_mode}')
+        texID = glGenTextures(1)
         
-        if isAnimated:
-            if self.currentProjMatrix is None:
-                self.currentProjMatrix = target_matrix.copy()
-                self.filterPersp.stable(target_matrix.flatten())
-                return target_matrix
+        glBindTexture(GL_TEXTURE_2D, texID)
+        glTexImage2D(GL_TEXTURE_2D, 0, internalType,
+                    width, height, 0,
+                    format, dataType, None)
+
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, filter)
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, filter)
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE)
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE)
+
+        glFramebufferTexture2D(GL_FRAMEBUFFER, attachment,
+                            GL_TEXTURE_2D, texID, 0)
+        
+        self._attachments_id.append(texID)
+
+    def _createFBO(self, width, height, depth=False, colors=[]):
+
+        # print(f"FBOManager: Creating FBO: {width}x{height}")
+        
+        if self._fbo is not None:
+            # print(f"FBOManager: Cleaning up existing FBO and attachments: {self._fbo}")
+            self.cleanUp()
+        
+
+        self._fbo = glGenFramebuffers(1)
+        # print(f"FBOManager: Generated FBO ID: {self._fbo}")
+        glBindFramebuffer(GL_FRAMEBUFFER, self._fbo)
+
+        # depth attachment, necessary.
+        if depth:
+            self._addDepthAttachment(width, height)
             
-            smoothed_matrix = self.filterPersp.forward(target_matrix.flatten())
-            self.currentProjMatrix = smoothed_matrix.reshape(4, 4)
-            
-            if np.allclose(self.currentProjMatrix, target_matrix, atol=2e-5):
-                if self.timer_proj.isActive():
-                    self.timer_proj.stop()
-                    self.filterPersp.stable(target_matrix.flatten())
-                    # print('Projection matrix animation stopped.')
-                return target_matrix.astype(np.float32)
-            
-            if not self.timer_proj.isActive():
-                self.timer_proj.start()
-                # print('Projection matrix animation started.')
+        for i, iType in enumerate(colors):
+            self._addAttachment(width, height, iType, attachment=GL_COLOR_ATTACHMENT0 + i, filter=GL_LINEAR)
+
+        glDrawBuffers(len(colors), [GL_COLOR_ATTACHMENT0 + i for i in range(len(colors))])
+
                 
-            if isEmit:
-                self.updateSignal.emit()
+        # check if the framebuffer is complete
+        if glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE:
+            print(f'FBOManager: FBO creation failed: {glCheckFramebufferStatus(GL_FRAMEBUFFER)}')
+            exit(0)
+        
+        glBindFramebuffer(GL_FRAMEBUFFER, 0)
+        self._width = width
+        self._height = height
+        
+    def bindForWriting(self):
+        '''
+        Bind the FBO for writing.
+        This method binds the FBO for rendering, allowing subsequent OpenGL calls to render to the FBO.
+        Args:
+            None
+        Returns:
+            None
+        '''
+        if self._fbo is None:
+            raise RuntimeError('FBOManager: FBO is not created yet. Call getFBO() first.')
+        
+        glBindFramebuffer(GL_FRAMEBUFFER, self._fbo)
+        
+    def bindForReading(self, attachment=GL_COLOR_ATTACHMENT0):
+        raise NotImplementedError("FBOManager: bindForReading() is not implemented yet.")
+        
+        
+    def bindTextureForReading(self, textureUnit, attachmentIndex):
+        '''
+        Bind the texture for reading.
+        This method binds the texture associated with the FBO for reading, allowing subsequent OpenGL calls to read from the texture.
+        NOTE: if depth=True, the depth texture will be at index 0.
+        Args:
+            textureUnit (int): The texture unit to bind the texture to. Choose from GL_TEXTURE0 - GL_TEXTURE31.
+            attachmentIndex (int): The index of the attachment to bind.
+        Returns:
+            None
+        '''
+        if self._fbo is None:
+            raise RuntimeError('FBOManager: FBO is not created yet. Call getFBO() first.')
+        
+        if attachmentIndex >= len(self._attachments_id):
+            raise ValueError(f'FBOManager: Invalid attachment index: {attachmentIndex}, max: {len(self._attachments_id)}.')
+        
+        glActiveTexture(textureUnit)
+        glBindTexture(GL_TEXTURE_2D, self._attachments_id[attachmentIndex])
+        
             
-            return self.currentProjMatrix.astype(np.float32)
-        else:
-            self.currentProjMatrix = target_matrix.copy()
-            self.filterPersp.stable(target_matrix.flatten())
-            if self.timer_proj.isActive():
-                self.timer_proj.stop()
-            return target_matrix
+    def cleanUp(self):
+        '''
+        cleanup the FBO and its associated textures.
+        '''
+        # print(f'FBOManager: trying to cleanup FBO resources {self._fbo}, textures {self._attachments_id}')
+        try:
+            if len(self._attachments_id):
+                glDeleteTextures(self._attachments_id)
+                self._attachments_id = []
+        except Exception as e:
+            print(f"FBOManager: error occurred while cleaning texture resources: {e}")
 
-    def setFOV(self, fov=60.0):
-        self.viewAngle = fov
-        # if not self.timer_proj.isActive():
-        #     self.timer_proj.start()
-        self.updateSignal.emit()
-        
-    def setNear(self, near=0.1):
-        if near <= 0.0001:
-            near = 0.0001
-        self.near = near
-        self.updateSignal.emit()
-        
-    def setFar(self, far=4000.0):
-        if far >= 100000:
-            far = 100000
-        if far <= self.near + 0.0001:
-            far = self.near + 0.0001
-        self.far = far
-        self.updateSignal.emit()
+        try:
+            if self._fbo is not None:
+                glDeleteFramebuffers([self._fbo])
+                self._fbo = None
+        except Exception as e:
+            print(f"FBOManager: error occurred while cleaning FBO resources: {e}")
 
-    def setAspectRatio(self, aspect_ratio):
-        self.aspect = aspect_ratio
-        # self.updateSignal.emit()
-        
-    def setProjectionMode(self, mode):
-        if mode not in [self.projectionMode.perspective, self.projectionMode.orthographic]:
-            raise ValueError(f'Unknown projection mode: {mode}')
-        
-        if self.projection_mode != mode:
-            self.projection_mode = mode
-            if not self.timer_proj.isActive():
-                self.timer_proj.start()
 
-    def setViewPreset(self, preset=0):
-
-        presets = {
-            0: (90,  -90, self.viewPortDistance), # +X
-            1: (-90, -90, self.viewPortDistance), # -X
-            2: (180, -90, self.viewPortDistance), # +Y
-            3: (0,   -90, self.viewPortDistance), # -Y
-            4: (0,     0, self.viewPortDistance), # +Z
-            5: (0,   180, self.viewPortDistance), # -Z
-        }
-        
-        
-        if preset in presets:
-            azimuth, elevation, distance = presets[preset]
-            self.setCamera(azimuth=azimuth, elevation=elevation, 
-                         distance=distance, lookatPoint=self.lookatPoint)
+    def __del__(self):
+        self.cleanUp()
+        return super().__del__()
 
 
 class DepthReader:
@@ -778,7 +352,7 @@ class DepthReader:
             fbo (int): The framebuffer object ID that is bound for rendering.
         
         '''
-        fbo, depth_texture = self.fbo_manager.get_fbo(self.width, self.height)
+        fbo, depth_texture = self.fbo_manager.getFBO(self.width, self.height)
         # print(f"FBO: {fbo}, Depth Texture: {depth_texture}")
         glBindFramebuffer(GL_FRAMEBUFFER, fbo)
         
@@ -830,298 +404,6 @@ class DepthReader:
         
         return linear_depth
     
-
-
-
-class GLSettingWidget(QObject):
-
-
-    def __init__(self, parent=None, 
-                 render_mode_callback=None, 
-                 camera_control_callback=None, 
-                 camera_persp_callback=None,
-                 camera_view_callback=None,
-                 reset_camera_callback=None, 
-                 fov_callback=None,
-                 far_callback=None,
-                 near_callback=None,
-                 grid_vis_callback=None,
-                 axis_vis_callback=None,
-                 axis_length_callback=None,
-                 save_depth_callback=None,
-                 save_rgba_callback=None):
-        super().__init__()
-        
-        self.parent = parent
-        self.render_mode_callback = render_mode_callback
-        self.camera_control_callback = camera_control_callback
-        self.camera_persp_callback = camera_persp_callback
-        self.camera_view_callback = camera_view_callback
-        self.reset_camera_callback = reset_camera_callback
-        self.fov_callback = fov_callback
-        self.far_callback = far_callback
-        self.near_callback = near_callback
-        self.grid_vis_callback = grid_vis_callback
-        self.axis_vis_callback = axis_vis_callback
-        self.axis_length_callback = axis_length_callback
-        self.save_depth_callback = save_depth_callback
-        self.save_rgba_callback = save_rgba_callback
-
-        self._setup_ui()
-        
-    def _setup_ui(self):
-        
-        self.gl_setting_button = DropDownToolButton(FIF.SETTING, self.parent)
-        
-        self.gl_setting_Menu = RoundMenu(parent=self.parent)
-        
-        frame = QFrame()
-        frame.setLayout(QVBoxLayout())
-        frame.layout().setContentsMargins(0, 10, 0, 15)
-        frame.layout().setSpacing(10)
-
-        self.gl_render_mode_combobox = SegmentedWidget(parent=self.gl_setting_Menu)
-        self.gl_render_mode_combobox.addItem('0', ' Line ', lambda: self._on_render_mode_changed(0))
-        self.gl_render_mode_combobox.addItem('1', 'Simple', lambda: self._on_render_mode_changed(1))
-        self.gl_render_mode_combobox.addItem('2', 'Normal', lambda: self._on_render_mode_changed(2))
-        self.gl_render_mode_combobox.addItem('3', 'Texture', lambda: self._on_render_mode_changed(3))
-        self.gl_render_mode_combobox.setCurrentItem('1')
-        self.gl_render_mode_combobox.setSizePolicy(QSizePolicy.MinimumExpanding, QSizePolicy.Minimum)
-        
-        self.gl_camera_control_combobox = SegmentedWidget(parent=self.gl_setting_Menu)
-        self.gl_camera_control_combobox.addItem('0', 'Arcball', lambda: self._on_camera_control_changed(0))
-        self.gl_camera_control_combobox.addItem('1', ' Orbit ', lambda: self._on_camera_control_changed(1))
-        self.gl_camera_control_combobox.setCurrentItem('0')
-        self.gl_camera_control_combobox.setSizePolicy(QSizePolicy.MinimumExpanding, QSizePolicy.Minimum)
-        
-        self.gl_camera_perp_combobox = SegmentedWidget(parent=self.gl_setting_Menu)
-        self.gl_camera_perp_combobox.addItem('0', 'Perspective', lambda: self._on_camera_persp_changed(0))
-        self.gl_camera_perp_combobox.addItem('1', 'Orthographic', lambda: self._on_camera_persp_changed(1))
-        self.gl_camera_perp_combobox.setCurrentItem('0')    
-        self.gl_camera_perp_combobox.setSizePolicy(QSizePolicy.MinimumExpanding, QSizePolicy.Minimum)
-        
-        
-        self.gl_camera_view_combobox = SegmentedWidget(parent=self.gl_setting_Menu)
-        self.gl_camera_view_combobox.addItem('0', '+X', lambda: self._on_camera_view_changed(0))
-        self.gl_camera_view_combobox.addItem('1', '-X', lambda: self._on_camera_view_changed(1))
-        self.gl_camera_view_combobox.addItem('2', '+Y', lambda: self._on_camera_view_changed(2))
-        self.gl_camera_view_combobox.addItem('3', '-Y', lambda: self._on_camera_view_changed(3))
-        self.gl_camera_view_combobox.addItem('4', '+Z', lambda: self._on_camera_view_changed(4))
-        self.gl_camera_view_combobox.addItem('5', '-Z', lambda: self._on_camera_view_changed(5))
-        self.gl_camera_view_combobox.addItem('6', 'Free', lambda: self._on_camera_view_changed(6))
-        self.gl_camera_view_combobox.setCurrentItem('0')    
-        self.gl_camera_view_combobox.setSizePolicy(QSizePolicy.MinimumExpanding, QSizePolicy.Minimum)
-        
-        
-        
-        
-        frame.layout().addWidget(BodyLabel("Render Mode", parent=self.gl_setting_Menu))
-        frame.layout().addWidget(self.gl_render_mode_combobox)
-        frame.layout().addWidget(BodyLabel("Camera Control", parent=self.gl_setting_Menu))
-        frame.layout().addWidget(self.gl_camera_control_combobox)
-        frame.layout().addWidget(BodyLabel("Camera Projection", parent=self.gl_setting_Menu))
-        frame.layout().addWidget(self.gl_camera_perp_combobox)
-        frame.layout().addWidget(BodyLabel("Camera View", parent=self.gl_setting_Menu))
-        frame.layout().addWidget(self.gl_camera_view_combobox)
-        frame.adjustSize()
-
-        self.gl_setting_Menu.addWidget(frame, selectable=False)
-        self.gl_setting_Menu.addSeparator()
-        
-        frame = QFrame()
-        frame.setLayout(QHBoxLayout())
-        frame.layout().setContentsMargins(0, 10, 0, 10)
-        frame.layout().setSpacing(20)
-        self.fov_spinbox = SpinBox(parent=self.gl_setting_Menu)
-        self.fov_spinbox.setSizePolicy(QSizePolicy.MinimumExpanding, QSizePolicy.Minimum)
-        self.fov_spinbox.setRange(1, 180)
-        self.fov_spinbox.setValue(60)
-        self.fov_spinbox.setSuffix('°')
-        self.fov_spinbox.valueChanged.connect(self._on_fov_changed)
-        fov_label = BodyLabel("FOV", parent=self.gl_setting_Menu)
-        fov_label.setSizePolicy(QSizePolicy.Minimum, QSizePolicy.Minimum)
-        frame.layout().addWidget(fov_label)
-        frame.layout().addWidget(self.fov_spinbox)
-        frame.adjustSize()
-        
-        self.gl_setting_Menu.addWidget(frame, selectable=False)
-        
-        frame = QFrame()
-        frame.setLayout(QHBoxLayout())
-        frame.layout().setContentsMargins(0, 10, 0, 10)
-        frame.layout().setSpacing(20)
-        self.far_spinbox = SpinBox(parent=self.gl_setting_Menu)
-        self.far_spinbox.setSizePolicy(QSizePolicy.MinimumExpanding, QSizePolicy.Minimum)
-        self.far_spinbox.setRange(1, 100000)
-        self.far_spinbox.setValue(4000)
-        self.far_spinbox.setSuffix('m')
-        self.far_spinbox.valueChanged.connect(self._on_far_changed)
-        far_label = BodyLabel("Far", parent=self.gl_setting_Menu)
-        far_label.setSizePolicy(QSizePolicy.Minimum, QSizePolicy.Minimum)
-
-        self.near_spinbox = DoubleSpinBox(parent=self.gl_setting_Menu)
-        self.near_spinbox.setSizePolicy(QSizePolicy.MinimumExpanding, QSizePolicy.Minimum)
-        self.near_spinbox.setRange(0.001, 10)
-        self.near_spinbox.setValue(0.100)
-        self.near_spinbox.setSingleStep(0.001)
-        self.near_spinbox.setSuffix('m')
-        self.near_spinbox.valueChanged.connect(self._on_near_changed)
-        near_label = BodyLabel("Near", parent=self.gl_setting_Menu)
-        near_label.setSizePolicy(QSizePolicy.Minimum, QSizePolicy.Minimum)
-        frame.layout().addWidget(near_label)
-        frame.layout().addWidget(self.near_spinbox)
-        
-        frame.layout().addWidget(far_label)
-        frame.layout().addWidget(self.far_spinbox)
-        frame.adjustSize()
-        
-        self.gl_setting_Menu.addWidget(frame, selectable=False)
-        
-        self.gl_setting_Menu.addSeparator()
-        
-        frame = QFrame()
-        frame.setLayout(QHBoxLayout())
-        frame.layout().setContentsMargins(0, 10, 0, 10)
-        frame.layout().setSpacing(20)
-        grid_control_toggle = SwitchButton(parent=self.gl_setting_Menu)
-        grid_control_toggle.setChecked(True)
-        grid_control_toggle.checkedChanged.connect(self._on_grid_visibility_changed)
-        grid_control_label = BodyLabel("Grid Visibility", parent=self.gl_setting_Menu)
-        frame.layout().addWidget(grid_control_label)
-        frame.layout().addItem(QSpacerItem(40, 20, QSizePolicy.Expanding, QSizePolicy.Minimum))
-        frame.layout().addWidget(grid_control_toggle)
-        frame.adjustSize()
-        self.gl_setting_Menu.addWidget(frame, selectable=False)
-        
-        
-        frame = QFrame()
-        frame.setLayout(QHBoxLayout())
-        frame.layout().setContentsMargins(0, 10, 0, 10)
-        frame.layout().setSpacing(20)
-        axis_control_toggle = SwitchButton(parent=self.gl_setting_Menu)
-        axis_control_toggle.setChecked(True)
-        axis_control_toggle.checkedChanged.connect(self._on_axis_visibility_changed)
-        axis_control_label = BodyLabel("Axis Visibility", parent=self.gl_setting_Menu)
-        frame.layout().addWidget(axis_control_label)
-        frame.layout().addItem(QSpacerItem(40, 20, QSizePolicy.Expanding, QSizePolicy.Minimum))
-        frame.layout().addWidget(axis_control_toggle)
-        frame.adjustSize()
-        self.gl_setting_Menu.addWidget(frame, selectable=False)
-
-        frame = QFrame()
-        frame.setLayout(QHBoxLayout())
-        frame.layout().setContentsMargins(0, 10, 0, 10)
-        frame.layout().setSpacing(20)
-        axis_size_slider = Slider(parent=self.gl_setting_Menu)
-        axis_size_slider.setOrientation(Qt.Horizontal)
-        axis_size_slider.setRange(1, 100)
-        axis_size_slider.setValue(1)
-        axis_size_slider.valueChanged.connect(self._on_axis_length_changed)
-        axis_size_label = BodyLabel("Axis Size", parent=self.gl_setting_Menu)
-        frame.layout().addWidget(axis_size_label)
-        frame.layout().addWidget(axis_size_slider)
-        frame.adjustSize()
-        self.gl_setting_Menu.addWidget(frame, selectable=False)
-
-
-        self.gl_setting_Menu.addSeparator()
-
-        action_resetCamera = Action(FIF.CANCEL, 'Reset Camera')
-        action_resetCamera.triggered.connect(self._on_reset_camera)
-        # action_resetCamera.setShortcut(QKeySequence("DoubleClick"))
-        
-        self.gl_setting_Menu.addActions([
-            action_resetCamera,
-        ])
-        
-        self.gl_setting_Menu.addSeparator()
-        
-        # 深度图相关功能
-        
-        action_saveDepth = Action(FIF.SAVE, 'Save Depth Maps')
-        action_saveDepth.triggered.connect(self._on_save_depth)
-
-        action_saveRGBA = Action(FIF.SAVE, 'Save RGBA Maps')
-        action_saveRGBA.triggered.connect(self._on_save_rgba)
-
-        self.gl_setting_Menu.addActions([
-            action_saveDepth,
-            action_saveRGBA
-        ])
-        
-        self.gl_setting_Menu.addSeparator()
-        
-        self.action_github = Action(FIF.GITHUB, 'GitHub')
-        self.action_github.triggered.connect(lambda: webbrowser.open('https://github.com/KaifengT/Batch3D'))
-
-        self.gl_setting_Menu.addActions([
-            self.action_github,
-        ])
-
-        self.gl_setting_button.setMenu(self.gl_setting_Menu)
-        self.gl_setting_button.adjustSize()
-    
-    def _on_render_mode_changed(self, mode):
-        if self.render_mode_callback:
-            self.render_mode_callback(mode)
-    
-    def _on_camera_control_changed(self, index):
-        if self.camera_control_callback:
-            self.camera_control_callback(index)
-    
-    def _on_camera_persp_changed(self, index):
-        if self.camera_persp_callback:
-            self.camera_persp_callback(index)
-            
-    def _on_camera_view_changed(self, index):
-        if self.camera_view_callback:
-            self.camera_view_callback(index)
-            
-    def _on_fov_changed(self, value):
-        if self.fov_callback:
-            self.fov_callback(value)
-            
-    def _on_far_changed(self, value):
-        if self.far_callback:
-            self.far_callback(value)
-            
-    def _on_near_changed(self, value):
-        if self.near_callback:
-            self.near_callback(value)
-            
-    def _on_grid_visibility_changed(self, state):
-        if self.grid_vis_callback:
-            self.grid_vis_callback(state)
-
-    def _on_axis_visibility_changed(self, state):
-        if self.axis_vis_callback:
-            self.axis_vis_callback(state)
-            
-    def _on_axis_length_changed(self, length):
-        if self.axis_length_callback:
-            self.axis_length_callback(length)
-            
-    def _on_reset_camera(self):
-        if self.reset_camera_callback:
-            self.reset_camera_callback()
-    
-    def _on_save_depth(self):
-        if self.save_depth_callback:
-            self.save_depth_callback()
-    
-    def _on_save_rgba(self):
-        if self.save_rgba_callback:
-            self.save_rgba_callback()
-
-
-    def move(self, x, y):
-        self.gl_setting_button.move(x, y)
-    
-    def get_button(self):
-        return self.gl_setting_button
-    
-    def get_menu(self):
-        return self.gl_setting_Menu
 
 
 class GLWidget(QOpenGLWidget):
@@ -1241,7 +523,7 @@ class GLWidget(QOpenGLWidget):
         
         self.light_dir = np.array([1, 1, 0], dtype=np.float32)     # 光线照射方向
         self.light_color = np.array([1, 1, 1], dtype=np.float32)    # 光线颜色
-        self.ambient = np.array([0.45, 0.45, 0.45], dtype=np.float32)  # 环境光颜色
+        self.ambient = np.array([0.8, 0.8, 0.8], dtype=np.float32)  # 环境光颜色
         self.shiny = 50                                             # 高光系数
         self.specular = 0.1                                       # 镜面反射系数
         self.diffuse = 1.0                                         # 漫反射系数
@@ -1249,6 +531,7 @@ class GLWidget(QOpenGLWidget):
 
         self.gl_render_mode = 1
         self.point_line_size = 3
+        self.enableSSAO = 1
         
 
         self.gl_settings = GLSettingWidget(
@@ -1266,6 +549,7 @@ class GLWidget(QOpenGLWidget):
             axis_length_callback=self.setAxisScale,
             save_depth_callback=self.saveDepthMap,
             save_rgba_callback=self.saveRGBAMap,
+            enable_ssao_callback=self.setEnableSSAO,
         )
         
         self.gl_setting_button = self.gl_settings.get_button()
@@ -1431,8 +715,73 @@ class GLWidget(QOpenGLWidget):
     def setRenderMode(self, mode):
         self.gl_render_mode = mode
         self.update()
-        
 
+    @staticmethod
+    def buildShader(vshader_path, fshader_path):
+        '''
+        Compile and link the vertex and fragment shaders.
+        Args:
+            vshader_src (str): The source code PATH of the vertex shader.
+            fshader_src (str): The source code PATH of the fragment shader.
+        Returns:
+            program (int): The OpenGL program ID.
+        '''
+        try:
+            vshader_src = open(vshader_path, encoding='utf-8').read()
+            fshader_src = open(fshader_path, encoding='utf-8').read()
+
+            vshader = shaders.compileShader(vshader_src, GL_VERTEX_SHADER)
+            fshader = shaders.compileShader(fshader_src, GL_FRAGMENT_SHADER)
+            program = shaders.compileProgram(vshader, fshader)
+            return program
+        except Exception as e:
+            print(f"Error compiling/linking shaders: {e}")
+            traceback.print_exc()
+            return None
+        
+    @staticmethod
+    def cacheShaderLocMap(program, attribList, uniformList):
+        shaderLocMap = {}
+        for attrib in attribList:
+            shaderLocMap.update({attrib:glGetAttribLocation(program, attrib)})
+
+        for uniform in uniformList:
+            shaderLocMap.update({uniform:glGetUniformLocation(program, uniform)})
+        return shaderLocMap
+
+    def generateSSAOKernel(self, kernel_size=64):
+        """
+        生成SSAO采样核心向量
+        Args:
+            kernel_size (int): 核心采样点数量，默认64
+        Returns:
+            np.ndarray: 形状为(kernel_size, 3)的采样向量数组
+        """
+        # 生成随机向量 [-1, 1] 范围
+        kernel = np.random.uniform(-1.0, 1.0, (kernel_size, 3)).astype(np.float32)
+        
+        # 归一化向量到单位球内
+        kernel = kernel / np.linalg.norm(kernel, axis=1, keepdims=True)
+        
+        # 应用加速函数，使更多点靠近原点
+        for i in range(kernel_size):
+            scale = float(i) / float(kernel_size)
+            # 使用二次函数使采样点更集中在原点附近
+            acceleration = 0.1 + 0.9 * scale * scale
+            kernel[i] *= acceleration
+        
+        return kernel
+
+    def setEnableSSAO(self, enable=True):
+        """
+        Enable or disable SSAO (Screen Space Ambient Occlusion).
+        Args:
+            enable (bool): True to enable SSAO, False to disable.
+        Returns:
+            None
+        """
+        self.enableSSAO = 1 if enable else 0
+        self.update()
 
     def initializeGL(self):
 
@@ -1470,24 +819,42 @@ class GLWidget(QOpenGLWidget):
         print('Initializing OpenGL shaders...')
             
         # try:
-        if sys.platform == 'darwin':
-            print('Using OpenGL 1.2')
-            vshader_src = open('./glw/vshader_src_120.glsl', encoding='utf-8').read()
-            fshader_src = open('./glw/fshader_src_120.glsl', encoding='utf-8').read()
-            vshader = shaders.compileShader(vshader_src, GL_VERTEX_SHADER)
-            fshader = shaders.compileShader(fshader_src, GL_FRAGMENT_SHADER)
-            self.program = shaders.compileProgram(vshader, fshader, validate=False)
-        else:
-            print('Using OpenGL 3.3')
-            vshader_src = open('./glw/vshader_src_330.glsl', encoding='utf-8').read()
-            fshader_src = open('./glw/fshader_src_330.glsl', encoding='utf-8').read()
-            vshader = shaders.compileShader(vshader_src, GL_VERTEX_SHADER)
-            fshader = shaders.compileShader(fshader_src, GL_FRAGMENT_SHADER)
-            self.program = shaders.compileProgram(vshader, fshader)
+        # if sys.platform == 'darwin':
+        #     print('Using OpenGL 1.2')
+        #     self.program = self.buildShader(
+        #         vshader_path='./glw/vshader_src_120.glsl',
+        #         fshader_path='./glw/fshader_src_120.glsl'
+        #     )
+        # else:
+        #     print('Using OpenGL 3.3')            
+        #     self.program = self.buildShader(
+        #         vshader_path='./glw/vshader_src_330.glsl',
+        #         fshader_path='./glw/fshader_src_330.glsl'
+        #     )
+            
+        self.SSAOGeoProg = self.buildShader(
+            vshader_path='./glw/ssao_geo_vs.glsl',
+            fshader_path='./glw/ssao_geo_fs.glsl'
+        )
+        self.SSAOCoreProg = self.buildShader(
+            vshader_path='./glw/ssao_core_vs.glsl',
+            fshader_path='./glw/ssao_core_fs.glsl'
+        )
+        self.SSAOBlurProg = self.buildShader(
+            vshader_path='./glw/ssao_blur_vs.glsl',
+            fshader_path='./glw/ssao_blur_fs.glsl'
+        )
+        self.SSAOLightProg = self.buildShader(
+            vshader_path='./glw/ssao_light_vs.glsl',
+            fshader_path='./glw/ssao_light_fs.glsl'
+        )
              
 
+        self.geoProgAttribList = ['a_Position', 'a_Normal']
+        self.geoProgUniformList = ['u_ProjMatrix', 'u_ViewMatrix', 'u_ModelMatrix']
+
         self.shaderAttribList = ['a_Position', 'a_Color', 'a_Normal', 'a_Texcoord']
-        self.shaderUniformList = ['u_ProjMatrix', 'u_ViewMatrix', 'u_ModelMatrix', 'u_CamPos', \
+        self.shaderUniformList = ['u_ProjMatrix', 'u_ViewMatrix', 'u_ModelMatrix', 'u_CamPos', 'u_AOMap', 'u_enableAO', \
                                 'u_LightDir', 'u_LightColor', 'u_AmbientColor', 'u_Shiny', 'u_Specular', 'u_Diffuse', 'u_Pellucid', 'u_NumLights', \
                                 'u_Lights[0].position', 'u_Lights[0].color', \
                                 'u_Lights[1].position', 'u_Lights[1].color', \
@@ -1497,21 +864,81 @@ class GLWidget(QOpenGLWidget):
                                     'u_Texture','render_mode',
                                     'u_farPlane',
                                     'u_farPlane_ratio',
+                                    'u_screenSize',
         ]
 
-        self.shaderLocMap = {}
+        # self.shaderLocMap = self.cacheShaderLocMap(self.program, self.shaderAttribList, self.shaderUniformList)
         
-        for attrib in self.shaderAttribList:
-            self.shaderLocMap.update({attrib:glGetAttribLocation(self.program, attrib)})
-        
-        for uniform in self.shaderUniformList:
-            self.shaderLocMap.update({uniform:glGetUniformLocation(self.program, uniform)})
-                
-        
-        self.depthReader = DepthReader(self.raw_window_w, self.raw_window_h)
+        self.SSAOGeoProgLocMap = self.cacheShaderLocMap(self.SSAOGeoProg, self.geoProgAttribList, self.geoProgUniformList)
+        self.SSAOLightProgLocMap = self.cacheShaderLocMap(self.SSAOLightProg, self.shaderAttribList, self.shaderUniformList)
+        # self.depthReader = DepthReader(self.raw_window_w, self.raw_window_h)
 
+        self.SSAOGeoFBO = FBOManager()
+        self.SSAOCoreFBO = FBOManager()
+        self.SSAOBlurFBO = FBOManager()
 
-    def paintGL(self):
+        # setup SSAO core shaders
+
+        kernel_size = 128
+        kernel = self.generateSSAOKernel(kernel_size)
+        glUseProgram(self.SSAOCoreProg)
+        kernelLoc = glGetUniformLocation(self.SSAOCoreProg, 'gKernel')
+        glUniform3fv(kernelLoc, kernel_size, kernel.flatten())
+        sampleRadiusLoc = glGetUniformLocation(self.SSAOCoreProg, 'gSampleRad')
+        glUniform1f(sampleRadiusLoc, 1.0)
+        glUseProgram(0)
+        
+        # setup SSAO lighting shaders
+        
+        glUseProgram(self.SSAOLightProg)
+        
+        glUniform3f(self.SSAOLightProgLocMap.get('u_Lights[0].position'), *self.key_light_dir)
+        glUniform3f(self.SSAOLightProgLocMap.get('u_Lights[0].color'),    *self.key_light_color)
+        glUniform3f(self.SSAOLightProgLocMap.get('u_Lights[1].position'), *self.fill_light_dir)
+        glUniform3f(self.SSAOLightProgLocMap.get('u_Lights[1].color'),    *self.fill_light_color)
+        glUniform3f(self.SSAOLightProgLocMap.get('u_Lights[2].position'), *self.back_light_dir)
+        glUniform3f(self.SSAOLightProgLocMap.get('u_Lights[2].color'),    *self.back_light_color)
+        glUniform3f(self.SSAOLightProgLocMap.get('u_Lights[3].position'), *self.bottom_light_dir)
+        glUniform3f(self.SSAOLightProgLocMap.get('u_Lights[3].color'),    *self.bottom_light_color)
+        glUniform3f(self.SSAOLightProgLocMap.get('u_Lights[4].position'), *self.top_light_dir)
+        glUniform3f(self.SSAOLightProgLocMap.get('u_Lights[4].color'),    *self.top_light_color)
+        
+        glUniform1i(self.SSAOLightProgLocMap.get('u_NumLights'), 5)
+
+        loc = self.SSAOLightProgLocMap.get('u_AmbientColor')
+        glUniform3f(loc, *self.ambient)
+
+        loc = self.SSAOLightProgLocMap.get('u_Shiny')
+        glUniform1f(loc, self.shiny)
+
+        loc = self.SSAOLightProgLocMap.get('u_Specular')
+        glUniform1f(loc, self.specular)
+
+        loc = self.SSAOLightProgLocMap.get('u_Diffuse')
+        glUniform1f(loc, self.diffuse)
+
+        loc = self.SSAOLightProgLocMap.get('u_Pellucid')
+        glUniform1f(loc, self.pellucid)
+
+        glUseProgram(0)
+
+        
+
+    def _tempRenderFullScreenQuad(self):
+        glBegin(GL_QUADS)
+    
+        glTexCoord2f(0.0, 0.0)
+        glVertex3f(-1.0, -1.0, 0.0)
+        glTexCoord2f(1.0, 0.0)
+        glVertex3f(1.0, -1.0, 0.0)
+        glTexCoord2f(1.0, 1.0)
+        glVertex3f(1.0, 1.0, 0.0)
+        glTexCoord2f(0.0, 1.0)
+        glVertex3f(-1.0, 1.0, 0.0)
+        
+        glEnd()
+
+    def paintGL_old(self):
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
         
         glUseProgram(self.program)
@@ -1593,7 +1020,6 @@ class GLWidget(QOpenGLWidget):
         glDepthMask(GL_TRUE)
         
         
-        # depthReader = DepthReader(self.raw_window_w, self.raw_window_h)
         self.depthReader.resize(self.raw_window_w, self.raw_window_h)
         self.depthReader.before_render()
         glClear(GL_DEPTH_BUFFER_BIT)
@@ -1606,6 +1032,149 @@ class GLWidget(QOpenGLWidget):
         glUseProgram(0)
         
         glFlush()
+
+
+
+    def paintGL(self):
+        
+        
+        self.camera.setAspectRatio(float(self.scaled_window_w) / float(self.scaled_window_h))
+        projMatrix = self.camera.updateProjTransform(isEmit=False)
+        camtrans = self.camera.updateTransform(isEmit=False)
+        campos = np.linalg.inv(camtrans)[:3,3]        
+        
+        
+        # stage 1: SSAO Geometry Pass
+    
+        self.SSAOGeoFBO.getFBO(self.raw_window_w, self.raw_window_h, depth=True, colors=[GL_RGBA32F, GL_RGBA32F])
+        self.SSAOGeoFBO.bindForWriting()
+        
+        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
+        
+        glUseProgram(self.SSAOGeoProg)
+        
+        # reset ModelMatrix
+        loc = self.SSAOGeoProgLocMap.get('u_ModelMatrix')
+        glUniformMatrix4fv(loc, 1, GL_FALSE, self.canonicalModelMatrix, None)
+        
+        # set Projection and View Matrices
+        loc = self.SSAOGeoProgLocMap.get('u_ProjMatrix')
+        glUniformMatrix4fv(loc, 1, GL_FALSE, projMatrix, None)
+
+        loc = self.SSAOGeoProgLocMap.get('u_ViewMatrix')
+        glUniformMatrix4fv(loc, 1, GL_FALSE, camtrans.T, None)        
+ 
+
+        
+        for k, v in self.objectList.items():
+            if hasattr(v, 'renderinShader'):
+                v.renderinShader(ratio=10./self.camera.viewPortDistance, locMap=self.SSAOGeoProgLocMap, render_mode=self.gl_render_mode, size=self.point_line_size)
+
+        glUseProgram(0)
+        
+
+
+        # stage 2: SSAO Core Pass
+
+        self.SSAOCoreFBO.getFBO(self.raw_window_w, self.raw_window_h, depth=False, colors=[GL_RGBA32F])
+        self.SSAOCoreFBO.bindForWriting()
+        glClear(GL_COLOR_BUFFER_BIT)
+        
+        
+        glUseProgram(self.SSAOCoreProg)
+        
+        gProjLoc = glGetUniformLocation(self.SSAOCoreProg, 'gProj')
+        glUniformMatrix4fv(gProjLoc, 1, GL_FALSE, projMatrix, None)
+        
+        self.SSAOGeoFBO.bindTextureForReading(GL_TEXTURE1, 1)
+        glUniform1i(glGetUniformLocation(self.SSAOCoreProg, "gPositionMap"), 1)
+
+        self.SSAOGeoFBO.bindTextureForReading(GL_TEXTURE2, 2)
+        glUniform1i(glGetUniformLocation(self.SSAOCoreProg, "gNormalMap"), 2)
+
+
+        self._tempRenderFullScreenQuad()
+        
+        
+        # stage 3: SSAO Blur Pass
+
+        self.SSAOBlurFBO.getFBO(self.raw_window_w, self.raw_window_h, depth=False, colors=[GL_RGBA32F])
+        self.SSAOBlurFBO.bindForWriting()
+        glClear(GL_COLOR_BUFFER_BIT)
+
+        glUseProgram(self.SSAOBlurProg)
+
+        self.SSAOCoreFBO.bindTextureForReading(GL_TEXTURE1, 0)
+        glUniform1i(glGetUniformLocation(self.SSAOBlurProg, "gColorMap"), 1)
+
+        self._tempRenderFullScreenQuad()
+
+
+        # stage 4: SSAO Lighting Pass
+
+        glBindFramebuffer(GL_FRAMEBUFFER, self.defaultFramebufferObject())
+        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
+        
+        glUseProgram(self.SSAOLightProg)
+        
+        self.SSAOBlurFBO.bindTextureForReading(GL_TEXTURE1, 0)
+        glUniform1i(self.SSAOLightProgLocMap.get('u_AOMap'), 1)
+        
+        glUniform1i(self.SSAOLightProgLocMap.get('u_enableAO'), self.enableSSAO)
+        
+        glUniform3f(self.SSAOLightProgLocMap.get('u_CamPos'), *campos)
+        loc = self.SSAOLightProgLocMap.get('u_ModelMatrix')
+        glUniformMatrix4fv(loc, 1, GL_FALSE, self.canonicalModelMatrix, None)
+        
+        loc = self.SSAOLightProgLocMap.get('u_ProjMatrix')
+        glUniformMatrix4fv(loc, 1, GL_FALSE, projMatrix, None)
+
+        loc = self.SSAOLightProgLocMap.get('u_ViewMatrix')
+        glUniformMatrix4fv(loc, 1, GL_FALSE, camtrans.T, None)
+        
+        loc = self.SSAOLightProgLocMap.get('u_screenSize')
+        glUniform2f(loc, float(self.raw_window_w), float(self.raw_window_h))
+
+        for k, v in self.objectList.items():
+            if hasattr(v, 'renderinShader'):
+                v.renderinShader(ratio=10./self.camera.viewPortDistance, locMap=self.SSAOLightProgLocMap, render_mode=self.gl_render_mode, size=self.point_line_size)
+
+
+        # stage Final: Copy framebuffer to screen (default) framebuffer
+
+        # glBindFramebuffer(GL_READ_FRAMEBUFFER, self.SSAOBlurFBO._fbo)
+        # glReadBuffer(GL_COLOR_ATTACHMENT0)
+        
+        # glBindFramebuffer(GL_DRAW_FRAMEBUFFER, self.defaultFramebufferObject())
+        # glDrawBuffer(GL_COLOR_ATTACHMENT0)
+        
+        # glBlitFramebuffer(
+        #     0, 0, self.raw_window_w, self.raw_window_h,
+        #     0, 0, self.raw_window_w, self.raw_window_h,
+        #     GL_COLOR_BUFFER_BIT,
+        #     GL_LINEAR
+        # )
+        
+        # glBindFramebuffer(GL_FRAMEBUFFER, self.defaultFramebufferObject())
+        
+        glDepthMask(GL_FALSE)
+        if self.isAxisVisable:
+            self.axis.renderinShader(locMap=self.SSAOLightProgLocMap)
+            
+        if self.isGridVisable:
+            glUniform1i(self.SSAOLightProgLocMap.get('u_farPlane'), 1)
+            glUniform1f(self.SSAOLightProgLocMap.get('u_farPlane_ratio'), 0.02)
+
+            self.grid.renderinShader(locMap=self.SSAOLightProgLocMap)
+            glUniform1f(self.SSAOLightProgLocMap.get('u_farPlane_ratio'), 0.15)
+            self.smallGrid.renderinShader(locMap=self.SSAOLightProgLocMap)
+            glUniform1i(self.SSAOLightProgLocMap.get('u_farPlane'), 0)
+
+        glDepthMask(GL_TRUE)
+
+        
+        glFlush()
+
 
 
     def reset(self, ):

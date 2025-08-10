@@ -270,8 +270,8 @@ class consoleUI(QDialog):
         self.original_stdout = sys.stdout
         self.original_stderr = sys.stderr
         
-        sys.stdout = self
-        sys.stderr = self
+        # sys.stdout = self
+        # sys.stderr = self
         
         # self.flush_timer = QTimer(self)
         # self.flush_timer.timeout.connect(self.flush)

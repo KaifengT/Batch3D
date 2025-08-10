@@ -1,0 +1,23 @@
+#version 330 core
+
+in vec4 a_Position;
+in vec3 a_Normal;
+
+uniform mat4 u_ProjMatrix;
+uniform mat4 u_ViewMatrix;
+uniform mat4 u_ModelMatrix;
+
+out vec4 ViewPos;
+out vec4 ViewNormal;
+
+
+void main() {
+
+    mat4 MV = u_ViewMatrix * u_ModelMatrix;
+
+    gl_Position = u_ProjMatrix * MV * a_Position;
+    ViewPos = MV * a_Position;
+    ViewNormal = vec4(mat3(transpose(inverse(MV))) * a_Normal, 1.0);
+
+
+}

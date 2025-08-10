@@ -199,7 +199,7 @@ class BaseObject:
         if hasattr(self, '_vboid') and self.props['isShow']:
             
             model_matrix_loc = locMap.get('u_ModelMatrix', None)
-            if model_matrix_loc:
+            if model_matrix_loc is not None and model_matrix_loc != -1:
                 glUniformMatrix4fv(model_matrix_loc, 1, GL_FALSE, self.transform.T, None)
             
             
@@ -229,39 +229,31 @@ class BaseObject:
             
             if hasattr(self, '_texid') and isinstance(self._texid, tuple) and render_mode == 3:
                 textureSampler, texcoordid = self._texid
-                
-                # print('tttttt')
-                # loc = locMap.get('a_Texcoord', None)
-                # texcoordid.bind()
-                # glEnableVertexAttribArray(loc)
-                # glVertexAttribPointer(loc, 2, GL_FLOAT, GL_FALSE, 2*4, texcoordid)
-                # texcoordid.unbind()
 
                 loc = locMap.get('u_Texture', None)
-                glActiveTexture(GL_TEXTURE0)
-                glBindTexture(GL_TEXTURE_2D, textureSampler)
-                glUniform1i(loc, 0)
+                if loc is not None and loc != -1:
+                    glActiveTexture(GL_TEXTURE0)
+                    glBindTexture(GL_TEXTURE_2D, textureSampler)
+                    glUniform1i(loc, 0)
                 
                 loc = locMap.get('render_mode', None)
-                glUniform1i(loc, int(render_mode))
+                if loc is not None and loc != -1:
+                    glUniform1i(loc, int(render_mode))
                 
             elif render_mode == 3:
                 loc = locMap.get('render_mode', None)
-                glUniform1i(loc, 1)
+                if loc is not None and loc != -1:
+                    glUniform1i(loc, 1)
                 
             else:
                 loc = locMap.get('render_mode', None)
-                glUniform1i(loc, int(render_mode))
+                if loc is not None and loc != -1:
+                    glUniform1i(loc, int(render_mode))
             
             
                   
             if hasattr(self, '_indid') and self._indid is not None:
                 self._indid.bind()
-                # if render_mode == 0:
-                #     glPolygonMode(GL_FRONT_AND_BACK, GL_LINE)
-                #     glDrawElements(GL_LINES, self._vboInfo['len_ind'], GL_UNSIGNED_INT, None)
-                # else:
-                #     glDrawElements(self.renderType, self._vboInfo['len_ind'], GL_UNSIGNED_INT, None)
                 if render_mode == 0:
                     glPolygonMode(GL_FRONT_AND_BACK, GL_LINE)
                 else:

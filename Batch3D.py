@@ -528,7 +528,7 @@ class dataParser:
         else:
             assert 'vertex format error'
 
-        return obj, k, ((0.9, 0.9, 0.9),), False
+        return obj, k, ((0.8, 0.8, 0.8),), False
     
     @staticmethod
     def parseTrimesh(k:str, v:trimesh.parent.Geometry3D, cm:colorManager):
@@ -563,11 +563,12 @@ class dataParser:
 
             obj = Mesh(v.vertices.view(np.ndarray).astype(np.float32),
                     v.faces.view(np.ndarray).astype(np.int32),
-                    norm=v.face_normals.view(np.ndarray).astype(np.float32),
+                    # norm=v.face_normals.view(np.ndarray).astype(np.float32),
+                    norm=v.vertex_normals.view(np.ndarray).astype(np.float32),
                     color=vertex_color,
                     texture=tex,
                     texcoord=texcoord,
-                    faceNorm=True
+                    faceNorm=False
                     )
 
             try:
@@ -1767,10 +1768,6 @@ def changeGlobalTheme(x):
 
 if __name__ == "__main__":
     
-    
-    
-    # setTheme(Theme.AUTO)
-    
     CURRENT_THEME = qconfig.theme
     
     try:
@@ -1788,8 +1785,8 @@ if __name__ == "__main__":
 
    
     App = App()
-    # App.setStyleSheet(style)
-    App.setWindowTitle('Batch3D Viewer build 1.6')
+    
+    App.setWindowTitle('Batch3D Viewer build 1.7')
     App.setWindowIcon(QIcon('icon.ico'))
     
 

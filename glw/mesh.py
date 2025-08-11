@@ -168,14 +168,12 @@ class BaseObject:
             self._indid.delete()
             del self._indid
             
-        if hasattr(self, '_texid') and isinstance(self._texid, tuple):
-            # glDeleteTextures(self._texid[0])
-            ...
-            # self._texid[1].delete()
-            # del self._texid
+        if hasattr(self, '_texid') and isinstance(self._texid, tuple):            
+            textureSampler, texcoordid = self._texid
+            glDeleteTextures(1, [textureSampler])
+            del self._texid
+
         
-    # def show(self, show:bool=True):
-    #     self.isShow = show
     def updateProps(self, props:dict):
         self.props.update(props)
     
@@ -194,7 +192,7 @@ class BaseObject:
                 glDrawArrays(self.renderType, 0, self.l)
             self._vboid.unbind()
             
-    def renderinShader(self, ratio=1., locMap:dict={}, render_mode=0, size=None):
+    def renderinShader(self, locMap:dict={}, render_mode=0, size=None):
         
         if hasattr(self, '_vboid') and self.props['isShow']:
             
@@ -292,7 +290,7 @@ class BaseObject:
         
         
         if color is None:
-            color = [0.6, 0.6, 0.6, 1.]
+            color = [0.8, 0.8, 0.8, 1.]
         
         if isinstance(color, str):
             color = BaseObject._decode_HexColor_to_RGB(color)
@@ -334,19 +332,11 @@ class BaseObject:
             vboInfo.update({'len_ind':len_ind})
 
         if texcoord is not None and texture is not None:
-            # print('texcoord:', texcoord.shape, 'texture:', texture)
-            # texture = texture.transpose(Image.FLIP_LEFT_RIGHT)
-            # texture = texture.transpose(Image.FLIP_TOP_BOTTOM)
-            # texture = texture.transpose(Image.ROTATE_180)
-            # 
-            # texture.save('temp.png')
-            textureSampler = BaseObject.createTexture2d(texture)
             
-            #/root/Workspace/tkf_exp/my_sdfusion/data/ShapeNet/ShapeNetCore.v1/02942699/17a010f0ade4d1fd83a3e53900c6cbba
+            textureSampler = BaseObject.createTexture2d(texture)
+        
             texcoord[:,1] = 1. - texcoord[:,1]
             
-            # texcoordid = vbo.VBO(texcoord)
-            # texid = (textureSampler, texcoordid)
             texid = (textureSampler, None)
             
             vboArray = np.concatenate((texcoord, vboArray), axis=1, dtype=np.float32)
@@ -443,6 +433,10 @@ class BaseObject:
         return norm
 
         
+    def __del__(self):
+        self.reset()
+
+
 class UnionObject(BaseObject):
     def __init__(self) -> None:
         super().__init__()
@@ -758,7 +752,7 @@ class Lines(BaseObject):
 
 class Mesh(BaseObject):
 
-    def __init__(self, vertex:np.ndarray, indices=None, color=[0.6, 0.6, 0.6], norm=None, texture=None, texcoord=None, faceNorm=False, transform=None) -> None:
+    def __init__(self, vertex:np.ndarray, indices=None, color=[0.8, 0.8, 0.8], norm=None, texture=None, texcoord=None, faceNorm=False, transform=None) -> None:
         super().__init__()
 
         self.reset()
@@ -843,3 +837,27 @@ class Sphere(BaseObject):
             
         
         self.renderType = GL_TRIANGLES
+
+
+class FullScreenQuad(BaseObject):
+    def __init__(self):
+        super().__init__()
+
+
+        vertices = np.array([
+            [-1.0, -1.0,   0.0],
+            [ 1.0, -1.0,   0.0],
+            [ 1.0,  1.0,   0.0],
+            [-1.0,  1.0,   0.0],
+        ], dtype=np.float32)
+
+        # 索引（两个三角形）
+        indices = np.array([
+            0, 1, 2,
+            0, 2, 3,
+        ], dtype=np.uint32)
+
+        self._vboid, vboArray, self._vboInfo, self._vboMap, self._indid, self._texid = BaseObject.buildVBO(vertex=vertices, indices=indices)
+        
+        self.renderType = GL_TRIANGLES
+

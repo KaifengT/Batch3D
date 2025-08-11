@@ -33,7 +33,17 @@ void main() {
     v_WorldSpaceCamPos = u_CamPos; 
 
 
+    if (a_Normal == vec3(0.0, 0.0, 0.0)) {
+        simpleRender = 1;
 
+    }
+    else {
+        simpleRender = 0;
+
+        v_Position = vec3(u_ModelMatrix * a_Position);
+        v_Normal = mat3(transpose(inverse(u_ModelMatrix))) * a_Normal;
+    }
+    
     if (u_farPlane == 1) {
         simpleRender = 1;
         vec3 vertex_distance = vec3(u_ModelMatrix * a_Position) - u_CamPos;
@@ -62,14 +72,5 @@ void main() {
 
 
 
-    if (a_Normal == vec3(0.0, 0.0, 0.0)) {
-        simpleRender = 1;
 
-    }
-    else {
-        simpleRender = 0;
-
-        v_Position = vec3(u_ModelMatrix * a_Position);
-        v_Normal = mat3(transpose(inverse(u_ModelMatrix))) * a_Normal;
-    }
 }

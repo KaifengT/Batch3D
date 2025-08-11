@@ -65,6 +65,7 @@ class GLSettingWidget(QObject):
         self.gl_render_mode_combobox.addItem('1', 'Simple', lambda: self._on_render_mode_changed(1))
         self.gl_render_mode_combobox.addItem('2', 'Normal', lambda: self._on_render_mode_changed(2))
         self.gl_render_mode_combobox.addItem('3', 'Texture', lambda: self._on_render_mode_changed(3))
+        self.gl_render_mode_combobox.addItem('4', 'Occlusion', lambda: self._on_render_mode_changed(4))
         self.gl_render_mode_combobox.setCurrentItem('1')
         self.gl_render_mode_combobox.setSizePolicy(QSizePolicy.MinimumExpanding, QSizePolicy.Minimum)
         

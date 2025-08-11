@@ -21,7 +21,7 @@ from OpenGL.GL.framebufferobjects import *
 from .utils.kalman import kalmanFilter
 from typing import Tuple
 import copy
-from .mesh import Mesh, PointCloud, Grid, Axis, BoundingBox, Lines, Arrow, BaseObject
+from .mesh import Mesh, PointCloud, Grid, Axis, BoundingBox, Lines, Arrow, BaseObject, FullScreenQuad
 
 from ui.statusBar import StatusBar
 import trimesh
@@ -203,7 +203,7 @@ class FBOManager:
                                 GL_TEXTURE_2D, depth_texture, 0)
         self._attachments_id.append(depth_texture)
 
-    def _addAttachment(self, width, height, internalType, attachment=GL_COLOR_ATTACHMENT0, filter=GL_LINEAR):
+    def _addAttachment(self, width, height, internalType, attachment=GL_COLOR_ATTACHMENT0, filter=GL_NEAREST):
         '''
         Add a color attachment to the FBO.
         Args:
@@ -506,24 +506,33 @@ class GLWidget(QOpenGLWidget):
         self.isAxisVisable = True
         self.isGridVisable = True
         
-        self.key_light_dir = np.array([1.2, 1.5, 1.1], dtype=np.float32) * 10000
-        self.key_light_color = np.array([0.3, 0.4, 0.4], dtype=np.float32)
+        # self.key_light_pos = np.array([1.2, 1.5, 1.1], dtype=np.float32) * 10000
+        # self.key_light_color = np.array([0.3, 0.3, 0.3], dtype=np.float32)
 
-        self.fill_light_dir = np.array([1, 0.2, 0.1], dtype=np.float32) * 10000
-        self.fill_light_color = np.array([0.3, 0.4, 0.3], dtype=np.float32)
+        # self.fill_light_pos = np.array([1, -1.2, 0.3], dtype=np.float32) * 10000
+        # self.fill_light_color = np.array([0.2, 0.3, 0.3], dtype=np.float32)
 
-        self.back_light_dir = np.array([-0.5, -0.5, -0.2], dtype=np.float32) * 10000
+        # self.back_light_pos = np.array([-0.5, -0.5, -0.2], dtype=np.float32) * 10000
+        # self.back_light_color = np.array([0.4, 0.4, 0.3], dtype=np.float32)
+        
+        
+        self.key_light_pos = np.array([0.0, 1.1, 1.1], dtype=np.float32) * 10000
+        self.key_light_color = np.array([0.3, 0.3, 0.3], dtype=np.float32)
+
+        self.fill_light_pos = np.array([-1.0, -1.2, -1.2], dtype=np.float32) * 10000
+        self.fill_light_color = np.array([0.2, 0.3, 0.3], dtype=np.float32)
+
+        self.back_light_pos = np.array([1.0, -0.9, 1.3], dtype=np.float32) * 10000
         self.back_light_color = np.array([0.4, 0.4, 0.3], dtype=np.float32)
 
-        self.top_light_dir = np.array([0.2, 0.3, 1], dtype=np.float32) * 10000
-        self.top_light_color = np.array([0.2, 0.2, 0.2], dtype=np.float32)
+        # self.top_light_pos = np.array([0.2, 0.3, 1], dtype=np.float32) * 10000
+        # self.top_light_color = np.array([0.2, 0.7, 0.2], dtype=np.float32)
 
-        self.bottom_light_dir = np.array([0.4, 0.1, -1.2], dtype=np.float32) * 10000
-        self.bottom_light_color = np.array([0.2, 0.2, 0.2], dtype=np.float32)        
-        
-        self.light_dir = np.array([1, 1, 0], dtype=np.float32)     # 光线照射方向
-        self.light_color = np.array([1, 1, 1], dtype=np.float32)    # 光线颜色
-        self.ambient = np.array([0.8, 0.8, 0.8], dtype=np.float32)  # 环境光颜色
+        # self.bottom_light_pos = np.array([0.4, 0.1, -1.2], dtype=np.float32) * 10000
+        # self.bottom_light_color = np.array([0.7, 0.2, 0.2], dtype=np.float32)
+
+
+        self.ambient = np.array([0.7, 0.7, 0.7], dtype=np.float32)  # 环境光颜色
         self.shiny = 50                                             # 高光系数
         self.specular = 0.1                                       # 镜面反射系数
         self.diffuse = 1.0                                         # 漫反射系数
@@ -751,26 +760,60 @@ class GLWidget(QOpenGLWidget):
 
     def generateSSAOKernel(self, kernel_size=64):
         """
-        生成SSAO采样核心向量
+        Generate SSAO kernel samples.
         Args:
-            kernel_size (int): 核心采样点数量，默认64
+            kernel_size (int): Number of kernel samples, default is 64.
         Returns:
-            np.ndarray: 形状为(kernel_size, 3)的采样向量数组
+            kernel (np.ndarray (kernel_size, 3)): Array of sample vectors with shape (kernel_size, 3).
         """
-        # 生成随机向量 [-1, 1] 范围
-        kernel = np.random.uniform(-1.0, 1.0, (kernel_size, 3)).astype(np.float32)
+        # Generate random vectors in the range [-1, 1]
+        kernel_xy = np.random.uniform(-1.0, 1.0, (kernel_size, 2)).astype(np.float32)
+        kernel_z = np.random.uniform(0.0, 1.0, (kernel_size, 1)).astype(np.float32)
+        kernel = np.hstack((kernel_xy, kernel_z))
         
-        # 归一化向量到单位球内
+        # Normalize the vectors to fit inside a unit sphere
         kernel = kernel / np.linalg.norm(kernel, axis=1, keepdims=True)
-        
-        # 应用加速函数，使更多点靠近原点
+
+        # Apply an acceleration function to push more points towards the center
         for i in range(kernel_size):
             scale = float(i) / float(kernel_size)
-            # 使用二次函数使采样点更集中在原点附近
+            # Use a quadratic function to concentrate sample points around the origin
             acceleration = 0.1 + 0.9 * scale * scale
             kernel[i] *= acceleration
         
         return kernel
+    
+    def generateSSAOKernelNoiseRotation(self, num=16):
+        
+        noise = np.random.uniform(-1.0, 1.0, (num, 3)).astype(np.float32)
+        noise[:, 2] = 0.0  # Set z component to 0
+        return noise
+    
+    def generateNoiseTexture(self, w, h):
+
+        noise = self.generateSSAOKernelNoiseRotation(num=w*h)
+
+        tid = glGenTextures(1)
+        glBindTexture(GL_TEXTURE_2D, tid)
+
+        # if (im.size/im_h)%4 == 0:
+        #     glPixelStorei(GL_UNPACK_ALIGNMENT, 4)
+        # else:
+        #     glPixelStorei(GL_UNPACK_ALIGNMENT, 1)
+        glPixelStorei(GL_UNPACK_ALIGNMENT, 4)
+        
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB32F, w, h, 0, GL_RGB, GL_FLOAT, noise)
+        glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST)
+        glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST)
+        glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT)
+        glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT)
+        glGenerateMipmap(GL_TEXTURE_2D)
+        glBindTexture(GL_TEXTURE_2D, 0)
+        
+        return tid
+        
+        
+
 
     def setEnableSSAO(self, enable=True):
         """
@@ -815,7 +858,8 @@ class GLWidget(QOpenGLWidget):
         self.grid = Grid()
         self.smallGrid = Grid(n=510, scale=0.1)
         self.axis = Axis()
-                
+
+        self.fullScreenQuad = FullScreenQuad()
         print('Initializing OpenGL shaders...')
             
         # try:
@@ -853,8 +897,10 @@ class GLWidget(QOpenGLWidget):
         self.geoProgAttribList = ['a_Position', 'a_Normal']
         self.geoProgUniformList = ['u_ProjMatrix', 'u_ViewMatrix', 'u_ModelMatrix']
 
-        self.shaderAttribList = ['a_Position', 'a_Color', 'a_Normal', 'a_Texcoord']
-        self.shaderUniformList = ['u_ProjMatrix', 'u_ViewMatrix', 'u_ModelMatrix', 'u_CamPos', 'u_AOMap', 'u_enableAO', \
+        self.coreBlurProgAttribList = ['a_Position']
+
+        self.lightProgAttribList = ['a_Position', 'a_Color', 'a_Normal', 'a_Texcoord']
+        self.lightProgUniformList = ['u_ProjMatrix', 'u_ViewMatrix', 'u_ModelMatrix', 'u_CamPos', 'u_AOMap', 'u_enableAO', \
                                 'u_LightDir', 'u_LightColor', 'u_AmbientColor', 'u_Shiny', 'u_Specular', 'u_Diffuse', 'u_Pellucid', 'u_NumLights', \
                                 'u_Lights[0].position', 'u_Lights[0].color', \
                                 'u_Lights[1].position', 'u_Lights[1].color', \
@@ -870,40 +916,47 @@ class GLWidget(QOpenGLWidget):
         # self.shaderLocMap = self.cacheShaderLocMap(self.program, self.shaderAttribList, self.shaderUniformList)
         
         self.SSAOGeoProgLocMap = self.cacheShaderLocMap(self.SSAOGeoProg, self.geoProgAttribList, self.geoProgUniformList)
-        self.SSAOLightProgLocMap = self.cacheShaderLocMap(self.SSAOLightProg, self.shaderAttribList, self.shaderUniformList)
+        self.SSAOLightProgLocMap = self.cacheShaderLocMap(self.SSAOLightProg, self.lightProgAttribList, self.lightProgUniformList)
+        
+        self.SSAOCoreProgLocMap = self.cacheShaderLocMap(self.SSAOCoreProg, self.coreBlurProgAttribList, [])
+        self.SSAOBlurProgLocMap = self.cacheShaderLocMap(self.SSAOBlurProg, self.coreBlurProgAttribList, [])
         # self.depthReader = DepthReader(self.raw_window_w, self.raw_window_h)
 
         self.SSAOGeoFBO = FBOManager()
         self.SSAOCoreFBO = FBOManager()
         self.SSAOBlurFBO = FBOManager()
 
+        self.SSAONoiseTexture = self.generateNoiseTexture(4, 4)
+
         # setup SSAO core shaders
 
-        kernel_size = 128
-        kernel = self.generateSSAOKernel(kernel_size)
+        kernelSize = 64
+        kernelLength = 1.0
+        kernel = self.generateSSAOKernel(kernelSize) * kernelLength
         glUseProgram(self.SSAOCoreProg)
-        kernelLoc = glGetUniformLocation(self.SSAOCoreProg, 'gKernel')
-        glUniform3fv(kernelLoc, kernel_size, kernel.flatten())
-        sampleRadiusLoc = glGetUniformLocation(self.SSAOCoreProg, 'gSampleRad')
-        glUniform1f(sampleRadiusLoc, 1.0)
+        
+        glUniform3fv(glGetUniformLocation(self.SSAOCoreProg, 'u_kernel'), kernelSize, kernel.flatten())
+        glUniform1f(glGetUniformLocation(self.SSAOCoreProg, 'u_sampleRad'), kernelLength)
+        glUniform1i(glGetUniformLocation(self.SSAOCoreProg, 'u_kernelSize'), kernelSize)
+
         glUseProgram(0)
         
         # setup SSAO lighting shaders
         
         glUseProgram(self.SSAOLightProg)
         
-        glUniform3f(self.SSAOLightProgLocMap.get('u_Lights[0].position'), *self.key_light_dir)
+        glUniform3f(self.SSAOLightProgLocMap.get('u_Lights[0].position'), *self.key_light_pos)
         glUniform3f(self.SSAOLightProgLocMap.get('u_Lights[0].color'),    *self.key_light_color)
-        glUniform3f(self.SSAOLightProgLocMap.get('u_Lights[1].position'), *self.fill_light_dir)
+        glUniform3f(self.SSAOLightProgLocMap.get('u_Lights[1].position'), *self.fill_light_pos)
         glUniform3f(self.SSAOLightProgLocMap.get('u_Lights[1].color'),    *self.fill_light_color)
-        glUniform3f(self.SSAOLightProgLocMap.get('u_Lights[2].position'), *self.back_light_dir)
+        glUniform3f(self.SSAOLightProgLocMap.get('u_Lights[2].position'), *self.back_light_pos)
         glUniform3f(self.SSAOLightProgLocMap.get('u_Lights[2].color'),    *self.back_light_color)
-        glUniform3f(self.SSAOLightProgLocMap.get('u_Lights[3].position'), *self.bottom_light_dir)
-        glUniform3f(self.SSAOLightProgLocMap.get('u_Lights[3].color'),    *self.bottom_light_color)
-        glUniform3f(self.SSAOLightProgLocMap.get('u_Lights[4].position'), *self.top_light_dir)
-        glUniform3f(self.SSAOLightProgLocMap.get('u_Lights[4].color'),    *self.top_light_color)
+        # glUniform3f(self.SSAOLightProgLocMap.get('u_Lights[3].position'), *self.bottom_light_pos)
+        # glUniform3f(self.SSAOLightProgLocMap.get('u_Lights[3].color'),    *self.bottom_light_color)
+        # glUniform3f(self.SSAOLightProgLocMap.get('u_Lights[4].position'), *self.top_light_pos)
+        # glUniform3f(self.SSAOLightProgLocMap.get('u_Lights[4].color'),    *self.top_light_color)
         
-        glUniform1i(self.SSAOLightProgLocMap.get('u_NumLights'), 5)
+        glUniform1i(self.SSAOLightProgLocMap.get('u_NumLights'), 3)
 
         loc = self.SSAOLightProgLocMap.get('u_AmbientColor')
         glUniform3f(loc, *self.ambient)
@@ -927,112 +980,12 @@ class GLWidget(QOpenGLWidget):
     def _tempRenderFullScreenQuad(self):
         glBegin(GL_QUADS)
     
-        glTexCoord2f(0.0, 0.0)
         glVertex3f(-1.0, -1.0, 0.0)
-        glTexCoord2f(1.0, 0.0)
         glVertex3f(1.0, -1.0, 0.0)
-        glTexCoord2f(1.0, 1.0)
         glVertex3f(1.0, 1.0, 0.0)
-        glTexCoord2f(0.0, 1.0)
         glVertex3f(-1.0, 1.0, 0.0)
-        
+      
         glEnd()
-
-    def paintGL_old(self):
-        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
-        
-        glUseProgram(self.program)
-        
-        # reset ModelMatrix
-        loc = self.shaderLocMap.get('u_ModelMatrix')
-        glUniformMatrix4fv(loc, 1, GL_FALSE, self.canonicalModelMatrix, None)
-        
-        # set Projection and View Matrices
-        loc = self.shaderLocMap.get('u_ProjMatrix')
-        self.camera.setAspectRatio(float(self.scaled_window_w) / float(self.scaled_window_h))
-        projMatrix = self.camera.updateProjTransform(isEmit=False)
-        glUniformMatrix4fv(loc, 1, GL_FALSE, projMatrix, None)
-
-        loc = self.shaderLocMap.get('u_ViewMatrix')
-        camtrans = self.camera.updateTransform(isEmit=False)
-        campos = np.linalg.inv(camtrans)[:3,3]
-        
-        glUniform3f(self.shaderLocMap.get('u_CamPos'), *campos)
-        glUniformMatrix4fv(loc, 1, GL_FALSE, camtrans.T, None)        
- 
-        
-        glUniform3f(self.shaderLocMap.get('u_Lights[0].position'), *self.key_light_dir)
-        glUniform3f(self.shaderLocMap.get('u_Lights[0].color'),    *self.key_light_color)
-        glUniform3f(self.shaderLocMap.get('u_Lights[1].position'), *self.fill_light_dir)
-        glUniform3f(self.shaderLocMap.get('u_Lights[1].color'),    *self.fill_light_color)
-        glUniform3f(self.shaderLocMap.get('u_Lights[2].position'), *self.back_light_dir)
-        glUniform3f(self.shaderLocMap.get('u_Lights[2].color'),    *self.back_light_color)
-        glUniform3f(self.shaderLocMap.get('u_Lights[3].position'), *self.bottom_light_dir)
-        glUniform3f(self.shaderLocMap.get('u_Lights[3].color'),    *self.bottom_light_color)
-        glUniform3f(self.shaderLocMap.get('u_Lights[4].position'), *self.top_light_dir)
-        glUniform3f(self.shaderLocMap.get('u_Lights[4].color'),    *self.top_light_color)
-        
-
-        glUniform1i(self.shaderLocMap.get('u_NumLights'), 5)
-
-
-        # loc = self.shaderLocMap.get('u_LightColor')
-        # glUniform3f(loc, *self.light_color)
-
-        loc = self.shaderLocMap.get('u_AmbientColor')
-        glUniform3f(loc, *self.ambient)
-
-        loc = self.shaderLocMap.get('u_Shiny')
-        glUniform1f(loc, self.shiny)
-
-        loc = self.shaderLocMap.get('u_Specular')
-        glUniform1f(loc, self.specular)
-
-        loc = self.shaderLocMap.get('u_Diffuse')
-        glUniform1f(loc, self.diffuse)
-
-        loc = self.shaderLocMap.get('u_Pellucid')
-        glUniform1f(loc, self.pellucid)
-
-        
-        for k, v in self.objectList.items():
-            if hasattr(v, 'renderinShader'):
-                v.renderinShader(ratio=10./self.camera.viewPortDistance, locMap=self.shaderLocMap, render_mode=self.gl_render_mode, size=self.point_line_size)
-
-
-
-
-
-
-        glDepthMask(GL_FALSE)
-        if self.isAxisVisable:
-            self.axis.renderinShader(locMap=self.shaderLocMap)
-            
-        if self.isGridVisable:
-            glUniform1i(self.shaderLocMap.get('u_farPlane'), 1)
-            glUniform1f(self.shaderLocMap.get('u_farPlane_ratio'), 0.02)
-
-            self.grid.renderinShader(locMap=self.shaderLocMap)
-            glUniform1f(self.shaderLocMap.get('u_farPlane_ratio'), 0.15)
-            self.smallGrid.renderinShader(locMap=self.shaderLocMap)
-            glUniform1i(self.shaderLocMap.get('u_farPlane'), 0)
-
-        glDepthMask(GL_TRUE)
-        
-        
-        self.depthReader.resize(self.raw_window_w, self.raw_window_h)
-        self.depthReader.before_render()
-        glClear(GL_DEPTH_BUFFER_BIT)
-        for k, v in self.objectList.items():
-            if hasattr(v, 'renderinShader'):
-                v.renderinShader(ratio=10./self.camera.viewPortDistance, locMap=self.shaderLocMap, render_mode=self.gl_render_mode, size=self.point_line_size)
-        self.depthMap = self.depthReader.read_depth()
-
-
-        glUseProgram(0)
-        
-        glFlush()
-
 
 
     def paintGL(self):
@@ -1068,7 +1021,14 @@ class GLWidget(QOpenGLWidget):
         
         for k, v in self.objectList.items():
             if hasattr(v, 'renderinShader'):
-                v.renderinShader(ratio=10./self.camera.viewPortDistance, locMap=self.SSAOGeoProgLocMap, render_mode=self.gl_render_mode, size=self.point_line_size)
+                v.renderinShader(locMap=self.SSAOGeoProgLocMap, render_mode=self.gl_render_mode, size=self.point_line_size)
+
+
+        # depth_data = glReadPixels(0, 0, self.raw_window_w, self.raw_window_h,
+        #                         GL_DEPTH_COMPONENT, GL_FLOAT)
+        
+        # depth_array = np.frombuffer(depth_data, dtype=np.float32)
+        # self.depthMap = depth_array.reshape((self.raw_window_h, self.raw_window_w))[::-1, :]
 
         glUseProgram(0)
         
@@ -1083,17 +1043,25 @@ class GLWidget(QOpenGLWidget):
         
         glUseProgram(self.SSAOCoreProg)
         
-        gProjLoc = glGetUniformLocation(self.SSAOCoreProg, 'gProj')
-        glUniformMatrix4fv(gProjLoc, 1, GL_FALSE, projMatrix, None)
+        
+        glUniformMatrix4fv(glGetUniformLocation(self.SSAOCoreProg, 'u_ProjMatrix'), 1, GL_FALSE, projMatrix, None)
         
         self.SSAOGeoFBO.bindTextureForReading(GL_TEXTURE1, 1)
-        glUniform1i(glGetUniformLocation(self.SSAOCoreProg, "gPositionMap"), 1)
+        glUniform1i(glGetUniformLocation(self.SSAOCoreProg, "u_positionMap"), 1)
 
         self.SSAOGeoFBO.bindTextureForReading(GL_TEXTURE2, 2)
-        glUniform1i(glGetUniformLocation(self.SSAOCoreProg, "gNormalMap"), 2)
+        glUniform1i(glGetUniformLocation(self.SSAOCoreProg, "u_normalMap"), 2)
 
+        glActiveTexture(GL_TEXTURE3)
+        glBindTexture(GL_TEXTURE_2D, self.SSAONoiseTexture)
+        glUniform1i(glGetUniformLocation(self.SSAOCoreProg, "u_kernelNoise"), 3)
+
+        glUniform2f(glGetUniformLocation(self.SSAOCoreProg, "u_screenSize"), float(self.raw_window_w), float(self.raw_window_h))
+
+        glUniform1i(glGetUniformLocation(self.SSAOCoreProg, "u_projMode"), 0 if self.camera.projection_mode == GLCamera.projectionMode.perspective else 1)
 
         self._tempRenderFullScreenQuad()
+        # self.fullScreenQuad.renderinShader(locMap=self.SSAOCoreProgLocMap, render_mode=1)
         
         
         # stage 3: SSAO Blur Pass
@@ -1108,7 +1076,7 @@ class GLWidget(QOpenGLWidget):
         glUniform1i(glGetUniformLocation(self.SSAOBlurProg, "gColorMap"), 1)
 
         self._tempRenderFullScreenQuad()
-
+        # self.fullScreenQuad.renderinShader(locMap=self.SSAOCoreProgLocMap, render_mode=1)
 
         # stage 4: SSAO Lighting Pass
 
@@ -1137,12 +1105,12 @@ class GLWidget(QOpenGLWidget):
 
         for k, v in self.objectList.items():
             if hasattr(v, 'renderinShader'):
-                v.renderinShader(ratio=10./self.camera.viewPortDistance, locMap=self.SSAOLightProgLocMap, render_mode=self.gl_render_mode, size=self.point_line_size)
+                v.renderinShader(locMap=self.SSAOLightProgLocMap, render_mode=self.gl_render_mode, size=self.point_line_size)
 
 
         # stage Final: Copy framebuffer to screen (default) framebuffer
 
-        # glBindFramebuffer(GL_READ_FRAMEBUFFER, self.SSAOBlurFBO._fbo)
+        # glBindFramebuffer(GL_READ_FRAMEBUFFER, self.SSAOCoreFBO._fbo)
         # glReadBuffer(GL_COLOR_ATTACHMENT0)
         
         # glBindFramebuffer(GL_DRAW_FRAMEBUFFER, self.defaultFramebufferObject())
@@ -1158,6 +1126,7 @@ class GLWidget(QOpenGLWidget):
         # glBindFramebuffer(GL_FRAMEBUFFER, self.defaultFramebufferObject())
         
         glDepthMask(GL_FALSE)
+        
         if self.isAxisVisable:
             self.axis.renderinShader(locMap=self.SSAOLightProgLocMap)
             
@@ -1278,6 +1247,8 @@ class GLWidget(QOpenGLWidget):
                 
         self.update()
         
+        self.getDepthMap()
+        
         mouseCoordinateinViewPortX = int((self.lastPos.x()) * self.PixelRatio )
         mouseCoordinateinViewPortY = int((self.scaled_window_h -  self.lastPos.y()) * self.PixelRatio)
 
@@ -1357,27 +1328,36 @@ class GLWidget(QOpenGLWidget):
     
     
     def getDepthMap(self):
+        
+        self.SSAOGeoFBO.bindForWriting()
+        depth_data = glReadPixels(0, 0, self.raw_window_w, self.raw_window_h,
+                                GL_DEPTH_COMPONENT, GL_FLOAT)
+        
+        depth_array = np.frombuffer(depth_data, dtype=np.float32)
+        self.depthMap = depth_array.reshape((self.raw_window_h, self.raw_window_w))[::-1, :]
+
         liner_depth = DepthReader.convertNDC2Liner(self.depthMap, self.camera)
+
+        # glBindFramebuffer(GL_FRAMEBUFFER, self.defaultFramebufferObject())
+
         return liner_depth
     
     
     def saveDepthMap(self, path=None):
-        if self.depthMap is not None:
-            liner_depth = DepthReader.convertNDC2Liner(self.depthMap, self.camera)
-            # liner_depth = self.depthMap
-            # depth_normalized = liner_depth / (np.max(liner_depth))
-            depth_image = liner_depth.astype(np.uint16)
+        # if self.depthMap is not None:
+        liner_depth = self.getDepthMap()
 
-            depth_image_pil = Image.fromarray(depth_image, mode='I;16')
+        depth_image = liner_depth.astype(np.uint16)
 
-            if path is None:
-                path, _ = QFileDialog.getSaveFileName(self, 'Save Depth Map', './depth.png', 'PNG Files (*.png);;All Files (*)')
+        depth_image_pil = Image.fromarray(depth_image, mode='I;16')
 
-            if path:
-                depth_image_pil.save(path)
-                print(f'Depth map saved to {path}')
-        else:
-            print('No depth map available to save.')
+        if path is None:
+            path, _ = QFileDialog.getSaveFileName(self, 'Save Depth Map', './depth.png', 'PNG Files (*.png);;All Files (*)')
+
+        if path:
+            depth_image_pil.save(path)
+            print(f'Depth map saved to {path}')
+
             
     def saveRGBAMap(self, path=None):
         if path is None:

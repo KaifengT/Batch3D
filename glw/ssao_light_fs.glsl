@@ -52,15 +52,13 @@ void main() {
             vec3 lightDir = normalize(u_Lights[i].position - v_Position);
             float diff_intensity = max(dot(normal, lightDir), 0.0);
             diffuse_lighting += min(u_Lights[i].color * diff_intensity * u_Diffuse, vec3(1.0));
-            // vec3 scatteredLight = min(u_AmbientColor + u_Lights[i].color * diff_intensity, vec3(1.0)); // 散射光
 
-            // result += scatteredLight;
-            // diffuse_lighting += u_AmbientColor * u_Lights[i].color * diff_intensity;
-
-
+            if (u_enableAO == 1) {
+                float ao_strength = texture(u_AOMap, CalcScreenTexCoord()).r;
+                ambient_lighting *= clamp(ao_strength*0.5+0.5, 0.0, 1.0);
+                
+            }
             // (Blinn-Phong)
-            
-
 
             if (diff_intensity > 0.0) { 
                 vec3 halfwayDir = normalize(lightDir + viewDir);
@@ -70,11 +68,8 @@ void main() {
             }
             
         }
-        result = ambient_lighting + diffuse_lighting + specular_lighting;
 
-        if (u_enableAO == 1) {
-            result *= (1-0.7*texture(u_AOMap, CalcScreenTexCoord()).r);
-        }
+        result = ambient_lighting + diffuse_lighting + specular_lighting;
 
         // render mode texture
         if (render_mode == 3){
@@ -85,12 +80,22 @@ void main() {
         }
         // render mode normal
         else if (render_mode == 2){
-            
-            
             gl_FragColor = vec4((1.0-normal)*0.4 + 0.2, 1.0);
             return;
         }
-        // render mode none
+        // render mode ao
+        else if (render_mode == 4){
+            vec4 ao_strength = texture(u_AOMap, CalcScreenTexCoord()).rgba;
+            gl_FragColor = ao_strength;
+            return;
+        }
+
+        else if (render_mode == 0){
+            
+            gl_FragColor = v_Color;
+            return;
+        }
+
         else{
             vec3 rgb = min(v_Color.rgb * result, vec3(1.0));
             gl_FragColor = vec4(rgb, v_Color.a);

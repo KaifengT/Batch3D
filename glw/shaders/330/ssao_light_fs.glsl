@@ -31,6 +31,8 @@ uniform int render_mode;
 uniform vec2 u_screenSize;
 uniform int u_enableAO;
 
+out vec4 FragColor;
+
 vec2 CalcScreenTexCoord()
 {
     return gl_FragCoord.xy / u_screenSize;
@@ -73,39 +75,39 @@ void main() {
 
         // render mode texture
         if (render_mode == 3){
-            vec4 color = texture2D(u_Texture, v_Texcoord);
-            vec3 rgb = min(color.rgb * result, vec3(1.0));
-            gl_FragColor = vec4(rgb, 1.0);
+
+            vec4 color = texture(u_Texture, v_Texcoord);
+            FragColor = vec4(color.rgb * result, color.a);
             return;
         }
         // render mode normal
         else if (render_mode == 2){
-            gl_FragColor = vec4((1.0-normal)*0.4 + 0.2, 1.0);
+            FragColor = vec4((1.0-normal)*0.4 + 0.2, 1.0);
             return;
         }
         // render mode ao
-        else if (render_mode == 4){
+        else if (render_mode == 4 && u_enableAO == 1){
             vec4 ao_strength = texture(u_AOMap, CalcScreenTexCoord()).rgba;
-            gl_FragColor = ao_strength;
+            FragColor = ao_strength;
             return;
         }
 
         else if (render_mode == 0){
             
-            gl_FragColor = v_Color;
+            FragColor = v_Color;
             return;
         }
 
         else{
             vec3 rgb = min(v_Color.rgb * result, vec3(1.0));
-            gl_FragColor = vec4(rgb, v_Color.a);
+            FragColor = vec4(rgb, v_Color.a);
             return;
         }
 
     }
 
     else{
-        gl_FragColor = v_Color;
+        FragColor = v_Color;
         return;
 
     }

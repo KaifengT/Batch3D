@@ -334,7 +334,6 @@ class BaseObject:
         if texcoord is not None and texture is not None:
             
             textureSampler = BaseObject.createTexture2d(texture)
-        
             texcoord[:,1] = 1. - texcoord[:,1]
             
             texid = (textureSampler, None)

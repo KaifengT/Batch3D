@@ -1,9 +1,9 @@
-#version 330 core
+#version 120
 
-in vec4 a_Position;
-in vec3 a_Normal;
-in vec4 a_Color;
-in vec2 a_Texcoord;
+attribute vec4 a_Position;
+attribute vec3 a_Normal;
+attribute vec4 a_Color;
+attribute vec2 a_Texcoord;
 
 struct PointLight {
     vec3 position;
@@ -18,12 +18,13 @@ uniform vec3 u_CamPos;
 uniform int u_farPlane;
 uniform float u_farPlane_ratio;
 
-out vec3 v_Position;
-out vec3 v_Normal;
-out vec4 v_Color;
-out vec2 v_Texcoord;
-out vec3 v_WorldSpaceCamPos;
-flat out int simpleRender;
+varying vec3 v_Position;
+varying vec3 v_Normal;
+varying vec4 v_Color;
+varying vec2 v_Texcoord;
+varying vec3 v_WorldSpaceCamPos;
+
+varying float simpleRender;
 
 void main() {
     gl_Position = u_ProjMatrix * u_ViewMatrix * u_ModelMatrix * a_Position;
@@ -33,9 +34,19 @@ void main() {
     v_WorldSpaceCamPos = u_CamPos; 
 
 
+    if (a_Normal == vec3(0.0, 0.0, 0.0)) {
+        simpleRender = 1.0;
 
+    }
+    else {
+    simpleRender = 0.0;
+
+        v_Position = vec3(u_ModelMatrix * a_Position);
+        v_Normal = normalize(vec3(u_ModelMatrix * vec4(a_Normal, 0.0)));
+    }
+    
     if (u_farPlane == 1) {
-        simpleRender = 1;
+        simpleRender = 1.0;
         vec3 vertex_distance = vec3(u_ModelMatrix * a_Position) - u_CamPos;
         float distance_factor = 1.0 - clamp(length(vertex_distance) * u_farPlane_ratio, 0.0, 1.0);
 
@@ -62,14 +73,5 @@ void main() {
 
 
 
-    if (a_Normal == vec3(0.0, 0.0, 0.0)) {
-        simpleRender = 1;
 
-    }
-    else {
-        simpleRender = 0;
-
-        v_Position = vec3(u_ModelMatrix * a_Position);
-        v_Normal = mat3(transpose(inverse(u_ModelMatrix))) * a_Normal;
-    }
 }

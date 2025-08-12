@@ -9,7 +9,7 @@ import time
 import traceback
 import numpy as np
 from PySide6.QtCore import (Qt, Signal, QPoint)
-from PySide6.QtGui import (QColor,QWheelEvent,QMouseEvent, QPainter, QPen, QFont)
+from PySide6.QtGui import (QColor,QWheelEvent,QMouseEvent, QPainter, QSurfaceFormat, QFont)
 from PySide6.QtWidgets import (QApplication, QWidget, QFileDialog)
 from OpenGL.GL import *
 from OpenGL.GLU import *
@@ -21,7 +21,7 @@ from OpenGL.GL.framebufferobjects import *
 from .utils.kalman import kalmanFilter
 from typing import Tuple
 import copy
-from .mesh import Mesh, PointCloud, Grid, Axis, BoundingBox, Lines, Arrow, BaseObject, FullScreenQuad
+from .GLMesh import Mesh, PointCloud, Grid, Axis, BoundingBox, Lines, Arrow, BaseObject, FullScreenQuad
 
 from ui.statusBar import StatusBar
 import trimesh
@@ -492,7 +492,7 @@ class GLWidget(QOpenGLWidget):
         
         #----- MSAA 4X -----#
         GLFormat = self.format()
-        GLFormat.setSamples(4)
+        GLFormat.setSamples(1)
         self.setFormat(GLFormat)
         
         self.objMap = {
@@ -862,35 +862,31 @@ class GLWidget(QOpenGLWidget):
         self.fullScreenQuad = FullScreenQuad()
         print('Initializing OpenGL shaders...')
             
-        # try:
-        # if sys.platform == 'darwin':
-        #     print('Using OpenGL 1.2')
-        #     self.program = self.buildShader(
-        #         vshader_path='./glw/vshader_src_120.glsl',
-        #         fshader_path='./glw/fshader_src_120.glsl'
-        #     )
-        # else:
-        #     print('Using OpenGL 3.3')            
-        #     self.program = self.buildShader(
-        #         vshader_path='./glw/vshader_src_330.glsl',
-        #         fshader_path='./glw/fshader_src_330.glsl'
-        #     )
+        
+        if sys.platform == 'darwin':
+            print('Using OpenGL 1.2')
+            _version = '120'
             
+        else:
+            print('Using OpenGL 3.3')            
+            _version = '330'
+
+        # _version = '120'
         self.SSAOGeoProg = self.buildShader(
-            vshader_path='./glw/ssao_geo_vs.glsl',
-            fshader_path='./glw/ssao_geo_fs.glsl'
+            vshader_path=f'./glw/shaders/{_version}/ssao_geo_vs.glsl',
+            fshader_path=f'./glw/shaders/{_version}/ssao_geo_fs.glsl'
         )
         self.SSAOCoreProg = self.buildShader(
-            vshader_path='./glw/ssao_core_vs.glsl',
-            fshader_path='./glw/ssao_core_fs.glsl'
+            vshader_path=f'./glw/shaders/{_version}/ssao_core_vs.glsl',
+            fshader_path=f'./glw/shaders/{_version}/ssao_core_fs.glsl'
         )
         self.SSAOBlurProg = self.buildShader(
-            vshader_path='./glw/ssao_blur_vs.glsl',
-            fshader_path='./glw/ssao_blur_fs.glsl'
+            vshader_path=f'./glw/shaders/{_version}/ssao_blur_vs.glsl',
+            fshader_path=f'./glw/shaders/{_version}/ssao_blur_fs.glsl'
         )
         self.SSAOLightProg = self.buildShader(
-            vshader_path='./glw/ssao_light_vs.glsl',
-            fshader_path='./glw/ssao_light_fs.glsl'
+            vshader_path=f'./glw/shaders/{_version}/ssao_light_vs.glsl',
+            fshader_path=f'./glw/shaders/{_version}/ssao_light_fs.glsl'
         )
              
 
@@ -898,7 +894,9 @@ class GLWidget(QOpenGLWidget):
         self.geoProgUniformList = ['u_ProjMatrix', 'u_ViewMatrix', 'u_ModelMatrix']
 
         self.coreBlurProgAttribList = ['a_Position']
-
+        
+        self.coreProgUniformList = ['u_projMode', 'u_screenSize', 'u_kernelNoise', 'u_normalMap', 'u_positionMap', 'u_ProjMatrix', 'u_kernelSize', 'u_sampleRad', 'u_kernel']
+        self.blurProgUniformList = ['u_AOMap', 'u_TexelSize', 'u_NormalMap', 'u_PositionMap', 'u_Radius', 'u_NormalSigma', 'u_DepthSigma', 'u_SpatialSigma']
         self.lightProgAttribList = ['a_Position', 'a_Color', 'a_Normal', 'a_Texcoord']
         self.lightProgUniformList = ['u_ProjMatrix', 'u_ViewMatrix', 'u_ModelMatrix', 'u_CamPos', 'u_AOMap', 'u_enableAO', \
                                 'u_LightDir', 'u_LightColor', 'u_AmbientColor', 'u_Shiny', 'u_Specular', 'u_Diffuse', 'u_Pellucid', 'u_NumLights', \
@@ -913,14 +911,12 @@ class GLWidget(QOpenGLWidget):
                                     'u_screenSize',
         ]
 
-        # self.shaderLocMap = self.cacheShaderLocMap(self.program, self.shaderAttribList, self.shaderUniformList)
         
         self.SSAOGeoProgLocMap = self.cacheShaderLocMap(self.SSAOGeoProg, self.geoProgAttribList, self.geoProgUniformList)
         self.SSAOLightProgLocMap = self.cacheShaderLocMap(self.SSAOLightProg, self.lightProgAttribList, self.lightProgUniformList)
         
-        self.SSAOCoreProgLocMap = self.cacheShaderLocMap(self.SSAOCoreProg, self.coreBlurProgAttribList, [])
-        self.SSAOBlurProgLocMap = self.cacheShaderLocMap(self.SSAOBlurProg, self.coreBlurProgAttribList, [])
-        # self.depthReader = DepthReader(self.raw_window_w, self.raw_window_h)
+        self.SSAOCoreProgLocMap = self.cacheShaderLocMap(self.SSAOCoreProg, self.coreBlurProgAttribList, self.coreProgUniformList)
+        self.SSAOBlurProgLocMap = self.cacheShaderLocMap(self.SSAOBlurProg, self.coreBlurProgAttribList, self.blurProgUniformList)
 
         self.SSAOGeoFBO = FBOManager()
         self.SSAOCoreFBO = FBOManager()
@@ -935,12 +931,17 @@ class GLWidget(QOpenGLWidget):
         kernel = self.generateSSAOKernel(kernelSize) * kernelLength
         glUseProgram(self.SSAOCoreProg)
         
-        glUniform3fv(glGetUniformLocation(self.SSAOCoreProg, 'u_kernel'), kernelSize, kernel.flatten())
-        glUniform1f(glGetUniformLocation(self.SSAOCoreProg, 'u_sampleRad'), kernelLength)
-        glUniform1i(glGetUniformLocation(self.SSAOCoreProg, 'u_kernelSize'), kernelSize)
+        glUniform3fv(self.SSAOCoreProgLocMap['u_kernel'], kernelSize, kernel.flatten())
+        glUniform1f(self.SSAOCoreProgLocMap['u_sampleRad'], kernelLength)
+        glUniform1i(self.SSAOCoreProgLocMap['u_kernelSize'], kernelSize)
 
-        glUseProgram(0)
-        
+        glUseProgram(self.SSAOBlurProg)
+
+        glUniform1f(self.SSAOBlurProgLocMap["u_SpatialSigma"], 2.0)
+        glUniform1f(self.SSAOBlurProgLocMap["u_DepthSigma"], 0.5)
+        glUniform1f(self.SSAOBlurProgLocMap["u_NormalSigma"], 32.0)
+        glUniform1i(self.SSAOBlurProgLocMap["u_Radius"], 2)
+
         # setup SSAO lighting shaders
         
         glUseProgram(self.SSAOLightProg)
@@ -957,27 +958,20 @@ class GLWidget(QOpenGLWidget):
         # glUniform3f(self.SSAOLightProgLocMap.get('u_Lights[4].color'),    *self.top_light_color)
         
         glUniform1i(self.SSAOLightProgLocMap.get('u_NumLights'), 3)
-
-        loc = self.SSAOLightProgLocMap.get('u_AmbientColor')
-        glUniform3f(loc, *self.ambient)
-
-        loc = self.SSAOLightProgLocMap.get('u_Shiny')
-        glUniform1f(loc, self.shiny)
-
-        loc = self.SSAOLightProgLocMap.get('u_Specular')
-        glUniform1f(loc, self.specular)
-
-        loc = self.SSAOLightProgLocMap.get('u_Diffuse')
-        glUniform1f(loc, self.diffuse)
-
-        loc = self.SSAOLightProgLocMap.get('u_Pellucid')
-        glUniform1f(loc, self.pellucid)
+        glUniform3f(self.SSAOLightProgLocMap['u_AmbientColor'], *self.ambient)
+        glUniform1f(self.SSAOLightProgLocMap['u_Shiny'], self.shiny)
+        glUniform1f(self.SSAOLightProgLocMap['u_Specular'], self.specular)
+        glUniform1f(self.SSAOLightProgLocMap['u_Diffuse'], self.diffuse)
+        glUniform1f(self.SSAOLightProgLocMap['u_Pellucid'], self.pellucid)
 
         glUseProgram(0)
 
         
 
     def _tempRenderFullScreenQuad(self):
+        '''
+        Renders a full-screen quad.
+        '''
         glBegin(GL_QUADS)
     
         glVertex3f(-1.0, -1.0, 0.0)
@@ -987,6 +981,43 @@ class GLWidget(QOpenGLWidget):
       
         glEnd()
 
+    def _renderObjs(self, locMap:dict, render_mode:int, size:float):
+        '''
+        A helper function to render all objects in the scene.
+        Args:
+            locMap (dict): The location map for shader variables.
+            render_mode (int): The rendering mode (points, lines, or faces).
+            size (float): The size of the points/lines.
+        Returns:
+            None
+        '''
+        for k, v in self.objectList.items():
+            if hasattr(v, 'renderinShader'):
+                v.renderinShader(locMap=locMap, render_mode=render_mode, size=size)
+
+
+    def _copyBuffer2Screen(self, buffer:FBOManager):
+        '''
+        Copy the contents of the specified framebuffer object to the screen.
+        Note: requires GL_RGBA
+        Args:
+            buffer (FBOManager): The framebuffer object to copy from.
+        '''
+        
+        glBindFramebuffer(GL_READ_FRAMEBUFFER, buffer._fbo)
+        glReadBuffer(GL_COLOR_ATTACHMENT0)
+        
+        glBindFramebuffer(GL_DRAW_FRAMEBUFFER, self.defaultFramebufferObject())
+        glDrawBuffer(GL_COLOR_ATTACHMENT0)
+        
+        glBlitFramebuffer(
+            0, 0, self.raw_window_w, self.raw_window_h,
+            0, 0, self.raw_window_w, self.raw_window_h,
+            GL_COLOR_BUFFER_BIT,
+            GL_LINEAR
+        )
+        glBindFramebuffer(GL_FRAMEBUFFER, self.defaultFramebufferObject())
+        
 
     def paintGL(self):
         
@@ -995,135 +1026,109 @@ class GLWidget(QOpenGLWidget):
         projMatrix = self.camera.updateProjTransform(isEmit=False)
         camtrans = self.camera.updateTransform(isEmit=False)
         campos = np.linalg.inv(camtrans)[:3,3]        
-        
-        
-        # stage 1: SSAO Geometry Pass
-    
+
+
+        ''' stage 1: SSAO Geometry Pass'''
+
         self.SSAOGeoFBO.getFBO(self.raw_window_w, self.raw_window_h, depth=True, colors=[GL_RGBA32F, GL_RGBA32F])
         self.SSAOGeoFBO.bindForWriting()
-        
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
         
         glUseProgram(self.SSAOGeoProg)
         
-        # reset ModelMatrix
-        loc = self.SSAOGeoProgLocMap.get('u_ModelMatrix')
-        glUniformMatrix4fv(loc, 1, GL_FALSE, self.canonicalModelMatrix, None)
-        
-        # set Projection and View Matrices
-        loc = self.SSAOGeoProgLocMap.get('u_ProjMatrix')
-        glUniformMatrix4fv(loc, 1, GL_FALSE, projMatrix, None)
+        # Set all matrixs
+        glUniformMatrix4fv(self.SSAOGeoProgLocMap['u_ModelMatrix'], 1, GL_FALSE, self.canonicalModelMatrix, None)
+        glUniformMatrix4fv(self.SSAOGeoProgLocMap['u_ProjMatrix'],  1, GL_FALSE, projMatrix, None)
+        glUniformMatrix4fv(self.SSAOGeoProgLocMap['u_ViewMatrix'],  1, GL_FALSE, camtrans.T, None)
 
-        loc = self.SSAOGeoProgLocMap.get('u_ViewMatrix')
-        glUniformMatrix4fv(loc, 1, GL_FALSE, camtrans.T, None)        
- 
-
-        
-        for k, v in self.objectList.items():
-            if hasattr(v, 'renderinShader'):
-                v.renderinShader(locMap=self.SSAOGeoProgLocMap, render_mode=self.gl_render_mode, size=self.point_line_size)
+        # render objs
+        self._renderObjs(locMap=self.SSAOGeoProgLocMap, render_mode=self.gl_render_mode, size=self.point_line_size)
 
 
-        # depth_data = glReadPixels(0, 0, self.raw_window_w, self.raw_window_h,
-        #                         GL_DEPTH_COMPONENT, GL_FLOAT)
-        
-        # depth_array = np.frombuffer(depth_data, dtype=np.float32)
-        # self.depthMap = depth_array.reshape((self.raw_window_h, self.raw_window_w))[::-1, :]
+        ''' stage 2: SSAO Core Pass '''
+        if self.enableSSAO:
+            
+            self.SSAOCoreFBO.getFBO(self.raw_window_w, self.raw_window_h, depth=False, colors=[GL_RGBA32F])
+            self.SSAOCoreFBO.bindForWriting()
+            glClear(GL_COLOR_BUFFER_BIT)
+            
+            glUseProgram(self.SSAOCoreProg)
 
-        glUseProgram(0)
-        
+
+            glUniformMatrix4fv(self.SSAOCoreProgLocMap['u_ProjMatrix'], 1, GL_FALSE, projMatrix, None)
+
+            self.SSAOGeoFBO.bindTextureForReading(GL_TEXTURE1, 1)
+            glUniform1i(self.SSAOCoreProgLocMap['u_positionMap'], 1)
+
+            self.SSAOGeoFBO.bindTextureForReading(GL_TEXTURE2, 2)
+            glUniform1i(self.SSAOCoreProgLocMap['u_normalMap'], 2)
+
+            glActiveTexture(GL_TEXTURE3)
+            glBindTexture(GL_TEXTURE_2D, self.SSAONoiseTexture)
+            glUniform1i(self.SSAOCoreProgLocMap['u_kernelNoise'], 3)
+            glUniform2f(self.SSAOCoreProgLocMap['u_screenSize'], float(self.raw_window_w), float(self.raw_window_h))
+            glUniform1i(self.SSAOCoreProgLocMap['u_projMode'], 
+                        0 if self.camera.projection_mode == GLCamera.projectionMode.perspective else 1)
+
+            self._tempRenderFullScreenQuad()
+            
 
 
-        # stage 2: SSAO Core Pass
+            ''' stage 3: SSAO Blur Pass '''
 
-        self.SSAOCoreFBO.getFBO(self.raw_window_w, self.raw_window_h, depth=False, colors=[GL_RGBA32F])
-        self.SSAOCoreFBO.bindForWriting()
-        glClear(GL_COLOR_BUFFER_BIT)
-        
-        
-        glUseProgram(self.SSAOCoreProg)
-        
-        
-        glUniformMatrix4fv(glGetUniformLocation(self.SSAOCoreProg, 'u_ProjMatrix'), 1, GL_FALSE, projMatrix, None)
-        
-        self.SSAOGeoFBO.bindTextureForReading(GL_TEXTURE1, 1)
-        glUniform1i(glGetUniformLocation(self.SSAOCoreProg, "u_positionMap"), 1)
+            self.SSAOBlurFBO.getFBO(self.raw_window_w, self.raw_window_h, depth=False, colors=[GL_RGBA32F])
+            self.SSAOBlurFBO.bindForWriting()
+            glClear(GL_COLOR_BUFFER_BIT)
 
-        self.SSAOGeoFBO.bindTextureForReading(GL_TEXTURE2, 2)
-        glUniform1i(glGetUniformLocation(self.SSAOCoreProg, "u_normalMap"), 2)
+            glUseProgram(self.SSAOBlurProg)
 
-        glActiveTexture(GL_TEXTURE3)
-        glBindTexture(GL_TEXTURE_2D, self.SSAONoiseTexture)
-        glUniform1i(glGetUniformLocation(self.SSAOCoreProg, "u_kernelNoise"), 3)
+            self.SSAOCoreFBO.bindTextureForReading(GL_TEXTURE1, 0)
+            glUniform1i(self.SSAOBlurProgLocMap["u_AOMap"], 1)
 
-        glUniform2f(glGetUniformLocation(self.SSAOCoreProg, "u_screenSize"), float(self.raw_window_w), float(self.raw_window_h))
+            self.SSAOGeoFBO.bindTextureForReading(GL_TEXTURE2, 1)
+            glUniform1i(self.SSAOBlurProgLocMap["u_PositionMap"], 2)
+            self.SSAOGeoFBO.bindTextureForReading(GL_TEXTURE3, 2)
+            glUniform1i(self.SSAOBlurProgLocMap["u_NormalMap"], 3)
 
-        glUniform1i(glGetUniformLocation(self.SSAOCoreProg, "u_projMode"), 0 if self.camera.projection_mode == GLCamera.projectionMode.perspective else 1)
+            glUniform2f(self.SSAOBlurProgLocMap["u_TexelSize"],
+                        1.0 / float(self.raw_window_w),
+                        1.0 / float(self.raw_window_h))
 
-        self._tempRenderFullScreenQuad()
-        # self.fullScreenQuad.renderinShader(locMap=self.SSAOCoreProgLocMap, render_mode=1)
-        
-        
-        # stage 3: SSAO Blur Pass
 
-        self.SSAOBlurFBO.getFBO(self.raw_window_w, self.raw_window_h, depth=False, colors=[GL_RGBA32F])
-        self.SSAOBlurFBO.bindForWriting()
-        glClear(GL_COLOR_BUFFER_BIT)
 
-        glUseProgram(self.SSAOBlurProg)
+            self._tempRenderFullScreenQuad()
 
-        self.SSAOCoreFBO.bindTextureForReading(GL_TEXTURE1, 0)
-        glUniform1i(glGetUniformLocation(self.SSAOBlurProg, "gColorMap"), 1)
 
-        self._tempRenderFullScreenQuad()
-        # self.fullScreenQuad.renderinShader(locMap=self.SSAOCoreProgLocMap, render_mode=1)
-
-        # stage 4: SSAO Lighting Pass
+        ''' stage 4: SSAO Lighting Pass '''
 
         glBindFramebuffer(GL_FRAMEBUFFER, self.defaultFramebufferObject())
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
         
         glUseProgram(self.SSAOLightProg)
         
-        self.SSAOBlurFBO.bindTextureForReading(GL_TEXTURE1, 0)
-        glUniform1i(self.SSAOLightProgLocMap.get('u_AOMap'), 1)
-        
-        glUniform1i(self.SSAOLightProgLocMap.get('u_enableAO'), self.enableSSAO)
-        
-        glUniform3f(self.SSAOLightProgLocMap.get('u_CamPos'), *campos)
-        loc = self.SSAOLightProgLocMap.get('u_ModelMatrix')
-        glUniformMatrix4fv(loc, 1, GL_FALSE, self.canonicalModelMatrix, None)
-        
-        loc = self.SSAOLightProgLocMap.get('u_ProjMatrix')
-        glUniformMatrix4fv(loc, 1, GL_FALSE, projMatrix, None)
+        if self.enableSSAO:
+            self.SSAOBlurFBO.bindTextureForReading(GL_TEXTURE1, 0)
+            glUniform1i(self.SSAOLightProgLocMap['u_AOMap'], 1)
 
-        loc = self.SSAOLightProgLocMap.get('u_ViewMatrix')
-        glUniformMatrix4fv(loc, 1, GL_FALSE, camtrans.T, None)
+        glUniform1i(self.SSAOLightProgLocMap['u_enableAO'], self.enableSSAO)
+        glUniform3f(self.SSAOLightProgLocMap['u_CamPos'], *campos)
+
+        glUniformMatrix4fv(self.SSAOLightProgLocMap['u_ModelMatrix'], 1, GL_FALSE, self.canonicalModelMatrix, None)
+        glUniformMatrix4fv(self.SSAOLightProgLocMap['u_ProjMatrix'],  1, GL_FALSE, projMatrix, None)
+        glUniformMatrix4fv(self.SSAOLightProgLocMap['u_ViewMatrix'],  1, GL_FALSE, camtrans.T, None)
+
         
-        loc = self.SSAOLightProgLocMap.get('u_screenSize')
-        glUniform2f(loc, float(self.raw_window_w), float(self.raw_window_h))
+        glUniform2f(self.SSAOLightProgLocMap['u_screenSize'], float(self.raw_window_w), float(self.raw_window_h))
 
-        for k, v in self.objectList.items():
-            if hasattr(v, 'renderinShader'):
-                v.renderinShader(locMap=self.SSAOLightProgLocMap, render_mode=self.gl_render_mode, size=self.point_line_size)
-
-
+        self._renderObjs(locMap=self.SSAOLightProgLocMap, render_mode=self.gl_render_mode, size=self.point_line_size)
+        
+        
         # stage Final: Copy framebuffer to screen (default) framebuffer
-
-        # glBindFramebuffer(GL_READ_FRAMEBUFFER, self.SSAOCoreFBO._fbo)
-        # glReadBuffer(GL_COLOR_ATTACHMENT0)
+        # NOTE: remove before flight
         
-        # glBindFramebuffer(GL_DRAW_FRAMEBUFFER, self.defaultFramebufferObject())
-        # glDrawBuffer(GL_COLOR_ATTACHMENT0)
+        # self._copyBuffer2Screen(self.SSAOBlurFBO)
         
-        # glBlitFramebuffer(
-        #     0, 0, self.raw_window_w, self.raw_window_h,
-        #     0, 0, self.raw_window_w, self.raw_window_h,
-        #     GL_COLOR_BUFFER_BIT,
-        #     GL_LINEAR
-        # )
         
-        # glBindFramebuffer(GL_FRAMEBUFFER, self.defaultFramebufferObject())
         
         glDepthMask(GL_FALSE)
         
@@ -1131,13 +1136,13 @@ class GLWidget(QOpenGLWidget):
             self.axis.renderinShader(locMap=self.SSAOLightProgLocMap)
             
         if self.isGridVisable:
-            glUniform1i(self.SSAOLightProgLocMap.get('u_farPlane'), 1)
-            glUniform1f(self.SSAOLightProgLocMap.get('u_farPlane_ratio'), 0.02)
+            glUniform1i(self.SSAOLightProgLocMap['u_farPlane'], 1)
+            glUniform1f(self.SSAOLightProgLocMap['u_farPlane_ratio'], 0.02)
 
             self.grid.renderinShader(locMap=self.SSAOLightProgLocMap)
-            glUniform1f(self.SSAOLightProgLocMap.get('u_farPlane_ratio'), 0.15)
+            glUniform1f(self.SSAOLightProgLocMap['u_farPlane_ratio'], 0.15)
             self.smallGrid.renderinShader(locMap=self.SSAOLightProgLocMap)
-            glUniform1i(self.SSAOLightProgLocMap.get('u_farPlane'), 0)
+            glUniform1i(self.SSAOLightProgLocMap['u_farPlane'], 0)
 
         glDepthMask(GL_TRUE)
 
@@ -1346,9 +1351,7 @@ class GLWidget(QOpenGLWidget):
     def saveDepthMap(self, path=None):
         # if self.depthMap is not None:
         liner_depth = self.getDepthMap()
-
         depth_image = liner_depth.astype(np.uint16)
-
         depth_image_pil = Image.fromarray(depth_image, mode='I;16')
 
         if path is None:

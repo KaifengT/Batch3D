@@ -1,4 +1,4 @@
-#version 330 core
+#version 120
 
 struct PointLight {
     vec3 position;
@@ -10,14 +10,15 @@ struct PointLight {
 uniform PointLight u_Lights[MAX_LIGHTS];
 uniform int u_NumLights;
 
-in vec3 v_Position;
-in vec3 v_Normal;
-in vec4 v_Color;
-in vec2 v_Texcoord;
-in vec3 v_WorldSpaceCamPos;
-flat in int simpleRender;
+varying vec3 v_Position;
+varying vec3 v_Normal;
+varying vec4 v_Color;
+varying vec2 v_Texcoord;
+varying vec3 v_WorldSpaceCamPos;
+varying float simpleRender; // 0.0 或 1.0
 
 uniform sampler2D u_Texture;
+uniform sampler2D u_AOMap;
 
 uniform vec3 u_AmbientColor; // 环境光颜色
 uniform float u_Shiny; // 高光系数，非负数，数值越大高光点越小
@@ -27,10 +28,17 @@ uniform float u_Pellucid; // 透光系数，0~1之间的浮点数，影响背面
 
 uniform int render_mode;
 
+uniform vec2 u_screenSize;
+uniform int u_enableAO;
+
+vec2 CalcScreenTexCoord()
+{
+    return gl_FragCoord.xy / u_screenSize;
+}
 
 void main() {
 
-    if (simpleRender == 0){
+    if (simpleRender < 0.5){
 
         vec3 normal = normalize(v_Normal);
         vec3 result = vec3(0.0);
@@ -44,12 +52,14 @@ void main() {
             vec3 lightDir = normalize(u_Lights[i].position - v_Position);
             float diff_intensity = max(dot(normal, lightDir), 0.0);
             diffuse_lighting += min(u_Lights[i].color * diff_intensity * u_Diffuse, vec3(1.0));
-            // vec3 scatteredLight = min(u_AmbientColor + u_Lights[i].color * diff_intensity, vec3(1.0)); // 散射光
 
-            // result += scatteredLight;
-            // diffuse_lighting += u_AmbientColor * u_Lights[i].color * diff_intensity;
-
+            if (u_enableAO == 1) {
+                float ao_strength = texture2D(u_AOMap, CalcScreenTexCoord()).r;
+                ambient_lighting *= clamp(ao_strength*0.5+0.5, 0.0, 1.0);
+                
+            }
             // (Blinn-Phong)
+
             if (diff_intensity > 0.0) { 
                 vec3 halfwayDir = normalize(lightDir + viewDir);
                 float spec_angle = max(dot(normal, halfwayDir), 0.0);
@@ -58,23 +68,34 @@ void main() {
             }
             
         }
-        result = ambient_lighting + diffuse_lighting + specular_lighting + u_AmbientColor;
+
+        result = ambient_lighting + diffuse_lighting + specular_lighting;
 
         // render mode texture
         if (render_mode == 3){
+
             vec4 color = texture2D(u_Texture, v_Texcoord);
-            vec3 rgb = min(color.rgb * result, vec3(1.0));
-            gl_FragColor = vec4(rgb, 1.0);
+            gl_FragColor = vec4(color.rgb * result, color.a);
             return;
         }
         // render mode normal
         else if (render_mode == 2){
-            
-            
             gl_FragColor = vec4((1.0-normal)*0.4 + 0.2, 1.0);
             return;
         }
-        // render mode none
+        // render mode ao
+        else if (render_mode == 4 && u_enableAO == 1){
+            vec4 ao_strength = texture2D(u_AOMap, CalcScreenTexCoord()).rgba;
+            gl_FragColor = ao_strength;
+            return;
+        }
+
+        else if (render_mode == 0){
+            
+            gl_FragColor = v_Color;
+            return;
+        }
+
         else{
             vec3 rgb = min(v_Color.rgb * result, vec3(1.0));
             gl_FragColor = vec4(rgb, v_Color.a);

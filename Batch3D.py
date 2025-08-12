@@ -23,7 +23,7 @@ import traceback
 from ui.windowBlocker import windowBlocker
 import json
 import natsort
-from glw.mesh import *
+from glw.GLMesh import *
 import trimesh
 # This is to avoid the error: "ImportError: numpy.core.multiarray failed to import"
 import numpy.core.multiarray

@@ -25,6 +25,10 @@ import json
 import natsort
 from glw.GLMesh import *
 import trimesh
+from trimesh.visual.material import SimpleMaterial, PBRMaterial
+from trimesh.visual.texture import TextureVisuals
+from trimesh.visual.color import ColorVisuals
+from trimesh.scene.transforms import SceneGraph
 # This is to avoid the error: "ImportError: numpy.core.multiarray failed to import"
 import numpy.core.multiarray
 
@@ -299,6 +303,14 @@ class consoleUI(QDialog):
 
 class dataParser:
     
+    R_YUP_TO_ZUP = np.array([
+                                    [1, 0,  0, 0],
+                                    [0, 0, -1, 0],
+                                    [0, 1,  0, 0],
+                                    [0, 0,  0, 1],
+                                ], dtype=np.float32)
+    
+    
     @staticmethod
     def _isHexColorinName(name) -> str:
         if '#' in name:
@@ -511,7 +523,7 @@ class dataParser:
         else:
             return None, k, ((0.9, 0.9, 0.9),), False
             
-        return obj, k, user_color, True
+        return obj, k, obj.mainColors, True
 
     @staticmethod
     def parseDict(k:str, v:dict):
@@ -528,7 +540,7 @@ class dataParser:
         else:
             assert 'vertex format error'
 
-        return obj, k, ((0.8, 0.8, 0.8),), False
+        return obj, k, obj.mainColors, False
     
     @staticmethod
     def parseTrimesh(k:str, v:trimesh.parent.Geometry3D, cm:colorManager):
@@ -547,41 +559,33 @@ class dataParser:
             # if hasattr(v, 'scale') and v.scale > 100:
             #     v.apply_scale(1 / v.scale * 10)
             #     self.PopMessageWidgetObj.add_message_stack((('mesh is too large, auto scaled', ''), 'warning'))
+            
+
 
             if hasattr(v, 'visual') and hasattr(v.visual, 'material'):
-                if isinstance(v.visual.material, trimesh.visual.material.SimpleMaterial):
-                    tex = v.visual.material.image
-                elif isinstance(v.visual.material, trimesh.visual.material.PBRMaterial):
-                    tex = v.visual.material.baseColorTexture
+
+                if isinstance(v.visual.material, (SimpleMaterial, PBRMaterial)):
+                    tex = v.visual.material
                 else:
                     tex = None
             else:
                 tex = None
 
-            vertex_color = v.visual.vertex_colors /255. if isinstance(v.visual, trimesh.visual.color.ColorVisuals) else None
-            texcoord = v.visual.uv.view(np.ndarray).astype(np.float32) if isinstance(v.visual, trimesh.visual.texture.TextureVisuals) and hasattr(v.visual, 'uv') and hasattr(v.visual.uv, 'view') else None
+            # vertex_color = v.visual.vertex_colors /255. if isinstance(v.visual, ColorVisuals) else None
+            texcoord = v.visual.uv.view(np.ndarray).astype(np.float32) if isinstance(v.visual, TextureVisuals) and hasattr(v.visual, 'uv') and hasattr(v.visual.uv, 'view') else None
 
             obj = Mesh(v.vertices.view(np.ndarray).astype(np.float32),
                     v.faces.view(np.ndarray).astype(np.int32),
                     # norm=v.face_normals.view(np.ndarray).astype(np.float32),
                     norm=v.vertex_normals.view(np.ndarray).astype(np.float32),
-                    color=vertex_color,
+                    color=None,
                     texture=tex,
                     texcoord=texcoord,
                     faceNorm=False
                     )
 
-            try:
-                if tex is not None and texcoord is not None:
-                    texcolor = colorManager.get_color_from_tex(tex, texcoord[:, ::-1])
-                    main_colors, per = colorManager.extract_dominant_colors(texcolor, n_colors=3)
-                elif vertex_color is not None:
-                    main_colors, per = colorManager.extract_dominant_colors(vertex_color, n_colors=3)
-                else:
-                    main_colors = ((0.9, 0.9, 0.9),)
-            except:
-                main_colors = ((0.9, 0.9, 0.9),)
-            
+
+            main_colors = obj.mainColors
             return obj, k, main_colors, False
 
 
@@ -621,20 +625,41 @@ class dataParser:
 
     @staticmethod
     def loadFromAny(fullpath, extName):
+        
+        
+        
+        def _trimeshGetTransformChain(graph:SceneGraph, nodeName:str, ptransform=np.eye(4).astype(np.float32)):
+            transform, parent = graph.get(nodeName)
+            transform = transform @ ptransform
+            if parent is None:
+                return transform
+            else:
+                return _trimeshGetTransformChain(graph, parent, transform)
+        
+        
         if isinstance(fullpath, str) and os.path.isfile(fullpath):
             _extName = os.path.splitext(fullpath)[-1][1:]
 
-            if _extName.lower() in ['npz', 'npy']:
+            if _extName.lower() in ('npz', 'npy'):
                 obj = dataParser.loadNpFile(fullpath)
-            elif _extName.lower() in ['obj', 'ply', 'stl', 'pcd', 'glb', 'xyz']:
+            elif _extName.lower() in ('obj', 'ply', 'stl', 'pcd', 'glb', 'xyz', 'gltf'):
                 baseName = os.path.basename(fullpath)
                 fileName = os.path.splitext(baseName)[0]
                 tobj = trimesh.load(fullpath, process=False)
                 obj = {}
                 if isinstance(tobj, trimesh.Scene):
-                    for _k, mesh in tobj.geometry.items():
+                    # for _k, mesh in tobj.geometry.items():
+                    #     if isinstance(mesh, trimesh.parent.Geometry3D):
+                    #         obj[f'{_k}'] = mesh
+                    for key, mesh in tobj.geometry.items():
                         if isinstance(mesh, trimesh.parent.Geometry3D):
-                            obj[f'{fileName}.{_k}'] = mesh
+                            nodeName = tobj.graph.geometry_nodes[key][0]
+                            transform = tobj.graph.get(nodeName)[0]
+                            if _extName.lower() in ('glb', 'gltf'):
+                                transform =dataParser.R_YUP_TO_ZUP @ transform
+                            mesh.apply_transform(transform)
+                            obj[f'{key}'] = mesh
+
                 elif isinstance(tobj, trimesh.parent.Geometry3D):
                     obj[fileName] = tobj
                     

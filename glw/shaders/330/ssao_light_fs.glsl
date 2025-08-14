@@ -94,7 +94,9 @@ void main() {
 
         else if (render_mode == 0){
             
-            FragColor = v_Color;
+            vec3 rgb = min(v_Color.rgb * result, vec3(1.0));
+            FragColor = vec4(rgb, v_Color.a);
+
             return;
         }
 

@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 from copy import deepcopy
-import math
+from collections.abc import Iterable, Mapping
 from typing import Any
 import PIL.Image as im
 import numpy as np
@@ -10,8 +10,10 @@ from OpenGL.arrays import vbo
 from ctypes import *
 from .utils.transformations import invHRT, rotation_matrix, rotationMatrixY, rpy2hRT
 from PIL import Image
+from trimesh.visual.material import SimpleMaterial, PBRMaterial
 
-
+DEFAULT_COLOR3 = (0.8, 0.8, 0.8)
+DEFAULT_COLOR4 = (0.8, 0.8, 0.8, 1.0)
 class colorManager:
     _color =  np.array([    
         # [217, 217, 217], # rgb(217, 217, 217),
@@ -119,6 +121,24 @@ class colorManager:
         indices_clipped = np.clip(texcoord_int, [0, 0], [tex_w-1, tex_h-1])
         return image[indices_clipped[:, 1], indices_clipped[:, 0]] / 255.0
 
+    @staticmethod
+    def srgb2Linear(arr: np.ndarray) -> np.ndarray:
+        arr = np.clip(arr, 0.0, 1.0)
+        low = arr <= 0.04045
+        out = np.empty_like(arr)
+        out[low] = arr[low] / 12.92
+        out[~low] = ((arr[~low] + 0.055) / 1.055) ** 2.4
+        return out
+
+    @staticmethod
+    def linear2Srgb(arr: np.ndarray) -> np.ndarray:
+        arr = np.clip(arr, 0.0, 1.0)
+        low = arr <= 0.0031308
+        out = np.empty_like(arr)
+        out[low] = arr[low] * 12.92
+        out[~low] = 1.055 * (arr[~low] ** (1/2.4)) - 0.055
+        return out
+
 
 class BaseObject:
     def __init__(self) -> None:
@@ -147,7 +167,8 @@ class BaseObject:
         self.meanColor = None
         
         self.transform = np.eye(4, dtype=np.float32)
-        
+
+        self.mainColors = np.array([[*DEFAULT_COLOR3]]).astype(np.float32)
         # self.transform[:3, 3] = np.array([1., 10., 0.], dtype=np.float32)
         
     def load(self, ):
@@ -168,9 +189,15 @@ class BaseObject:
             self._indid.delete()
             del self._indid
             
-        if hasattr(self, '_texid') and isinstance(self._texid, tuple):            
-            textureSampler, texcoordid = self._texid
-            glDeleteTextures(1, [textureSampler])
+        if hasattr(self, '_texid') and isinstance(self._texid, Mapping):            
+            
+            datas = list(self._texid.values())
+            toDelete = []
+            for data in datas:
+                if data['type'] == 'texture':
+                    toDelete.append(data['data'])
+            if len(toDelete):
+                glDeleteTextures(len(toDelete), toDelete)
             del self._texid
 
         
@@ -207,12 +234,8 @@ class BaseObject:
                 size = self.props['size']
             else:
                 size = 3
-            # elif size is None:
-            #     size = 3
-            # if size:
-                # if self.pointSize:
+
             glPointSize(size)
-                # elif self.lineWidth:
             glLineWidth(size)
 
             
@@ -225,14 +248,24 @@ class BaseObject:
             self._vboid.unbind()
                    
             
-            if hasattr(self, '_texid') and isinstance(self._texid, tuple) and render_mode == 3:
-                textureSampler, texcoordid = self._texid
+            if hasattr(self, '_texid') and \
+                isinstance(self._texid, Mapping) and \
+                    render_mode == 3 and \
+                        self._vboInfo['vbotype'] == GL_T2F_C4F_N3F_V3F:
 
-                loc = locMap.get('u_Texture', None)
-                if loc is not None and loc != -1:
-                    glActiveTexture(GL_TEXTURE0)
-                    glBindTexture(GL_TEXTURE_2D, textureSampler)
-                    glUniform1i(loc, 0)
+                for i, (locName, params) in enumerate(self._texid.items()):
+                    loc = locMap.get(locName, -1)
+                    if loc != -1:
+                        if params['type'] == 'texture':
+                            glActiveTexture(GL_TEXTURE0 + i)
+                            glBindTexture(GL_TEXTURE_2D, params['data'])
+                            glUniform1i(loc, i)
+
+                # loc = locMap.get('u_Texture', None)
+                # if loc is not None and loc != -1:
+                #     glActiveTexture(GL_TEXTURE0)
+                #     glBindTexture(GL_TEXTURE_2D, textureSampler)
+                #     glUniform1i(loc, 0)
                 
                 loc = locMap.get('render_mode', None)
                 if loc is not None and loc != -1:
@@ -253,10 +286,18 @@ class BaseObject:
             if hasattr(self, '_indid') and self._indid is not None:
                 self._indid.bind()
                 if render_mode == 0:
+                    # glPolygonMode(GL_FRONT_AND_BACK, GL_FILL)
+                    # glDrawElements(self.renderType, self._vboInfo['len_ind'], GL_UNSIGNED_INT, None)
+                    
+                    # glEnable(GL_POLYGON_OFFSET_LINE)
+                    # # glPolygonOffset(-1.0, -1.0)
                     glPolygonMode(GL_FRONT_AND_BACK, GL_LINE)
+                    glDrawElements(self.renderType, self._vboInfo['len_ind'], GL_UNSIGNED_INT, None)
+                    # glDisable(GL_POLYGON_OFFSET_LINE)
+                    
                 else:
                     glPolygonMode(GL_FRONT_AND_BACK, GL_FILL)
-                glDrawElements(self.renderType, self._vboInfo['len_ind'], GL_UNSIGNED_INT, None)
+                    glDrawElements(self.renderType, self._vboInfo['len_ind'], GL_UNSIGNED_INT, None)
                 self._indid.unbind()
             else:
                 glDrawArrays(self.renderType, 0, self._vboInfo['len'])
@@ -271,7 +312,105 @@ class BaseObject:
             return (1., 1., 1., 1.)
  
     @staticmethod
-    def buildVBO(vertex, color=None, norm=None, indices=None, texture=None, texcoord=None):    
+    def _parseMaterial(material:SimpleMaterial|PBRMaterial, texcoord=None):
+        
+        '''
+        trimesh.visual.material.PBRMaterial:
+            - name(str)
+        
+            - baseColorFactor(np.ndarray(4, uint8))
+            - baseColorTexture
+            
+            - emissiveFactor(float)
+            - emissiveTexture
+            
+            - metallicFactor(float)
+            - metallicRoughnessTexture
+            
+
+            - occlusionTexture
+            - normalTexture
+
+            - roughnessFactor(float)
+            
+            - main_color(np.ndarray(4, uint8))
+            
+        trimesh.visual.material.SimpleMaterial
+            - name(str)
+            - ambient(np.ndarray(4, uint8))
+            - diffuse(np.ndarray(4, uint8))
+            - specular(np.ndarray(4, uint8))
+            - shininess(float)
+            - glossiness(float)
+            - image(PIL.Image)
+            - main_color(np.ndarray(4, uint8))
+
+        '''
+        def _safeGetArray(color:np.ndarray):
+            if not isinstance(color, np.ndarray):
+                return None
+            color = color.astype(np.float32).flatten() / 255.
+            if len(color) == 3:
+                color = np.concatenate((color, [1.]), axis=0)
+            if len(color) < 4:
+                return None
+            
+            color = color[:4]
+            linear = colorManager.linear2Srgb(color)
+            return linear
+
+        if texcoord is None:
+            # find simple color
+            if isinstance(material, SimpleMaterial):
+                return {}, _safeGetArray(material.diffuse), []
+            
+            elif isinstance(material, PBRMaterial) and hasattr(material, 'baseColorFactor'):
+                return {}, _safeGetArray(material.baseColorFactor), []
+
+
+            else:
+                return {}, None, []
+
+        if isinstance(material, SimpleMaterial):
+
+            if isinstance(material.image, im.Image):
+                tid = BaseObject.createTexture2d(material.image)
+
+                texcolor = colorManager.get_color_from_tex(material.image, texcoord[:, ::-1])
+                main_colors, per = colorManager.extract_dominant_colors(texcolor, n_colors=3)
+
+                return {
+                    'u_Texture': {'data':tid, 'type':'texture'}
+                }, None, main_colors
+                
+            else:
+                return {}, _safeGetArray(material.diffuse), []
+
+        elif isinstance(material, PBRMaterial):
+            
+            if isinstance(material.baseColorTexture, im.Image):
+                tid = BaseObject.createTexture2d(material.baseColorTexture)
+                
+                texcolor = colorManager.get_color_from_tex(material.baseColorTexture, texcoord[:, ::-1])
+                main_colors, per = colorManager.extract_dominant_colors(texcolor, n_colors=3)
+
+                return {
+                    'u_Texture': {'data':tid, 'type':'texture'}
+                }, None, main_colors
+                
+            else:
+                return {}, _safeGetArray(material.baseColorFactor), []
+        else:
+            raise ValueError('Unknown material type')
+
+    @staticmethod
+    def buildVBO(vertex:np.ndarray, 
+                 color:np.ndarray=None, 
+                 norm:np.ndarray=None, 
+                 indices:np.ndarray=None, 
+                 texture:SimpleMaterial|PBRMaterial=None, 
+                 texcoord:np.ndarray=None
+                 ):
         
         # print('buildVBO vertex:', vertex.shape)
         
@@ -290,7 +429,7 @@ class BaseObject:
         
         
         if color is None:
-            color = [0.8, 0.8, 0.8, 1.]
+            color = [*DEFAULT_COLOR4]
         
         if isinstance(color, str):
             color = BaseObject._decode_HexColor_to_RGB(color)
@@ -311,11 +450,11 @@ class BaseObject:
             else:
                 print('color:', color)
                 # raise ValueError('color shape error')
-                colorArray = np.array([0.8,0.8,0.8, 1.]).repeat(vertex.shape[0], 0)
+                colorArray = np.array([*DEFAULT_COLOR4]).repeat(vertex.shape[0], 0)
         
-        vboArray = np.concatenate((colorArray, normArray, vertex), axis=1, dtype=np.float32)
+        vboArray = [colorArray, normArray, vertex]
                 
-        
+        mainColor, per = colorManager.extract_dominant_colors(colorArray, n_colors=3)
                 
         nbytes = 4
         
@@ -323,7 +462,7 @@ class BaseObject:
         
                 
         indid = None
-        texid = None
+        texid = {}
         
         if indices is not None:
             indices = np.int32(indices.ravel())
@@ -331,15 +470,25 @@ class BaseObject:
             len_ind = len(indices)
             vboInfo.update({'len_ind':len_ind})
 
-        if texcoord is not None and texture is not None:
-            
-            textureSampler = BaseObject.createTexture2d(texture)
+
+        
+        if texcoord is not None:
             texcoord[:,1] = 1. - texcoord[:,1]
-            
-            texid = (textureSampler, None)
-            
-            vboArray = np.concatenate((texcoord, vboArray), axis=1, dtype=np.float32)
-            
+            vboArray.insert(0, texcoord)
+
+        if texture is not None:
+            texid, secondColor, mainColor = BaseObject._parseMaterial(texture, texcoord=texcoord)
+
+
+            if isinstance(secondColor, np.ndarray):
+                # use secondColor from material instead of color
+                secondColor = secondColor[None].repeat(vboArray[0].shape[0], axis=0)
+                vboArray[0] = secondColor
+                mainColor, per = colorManager.extract_dominant_colors(secondColor, n_colors=3)
+                
+        
+
+        vboArray = np.concatenate(vboArray, axis=1, dtype=np.float32)
         vboid = vbo.VBO(vboArray)
         stride = vboArray.shape[1] * nbytes
         
@@ -370,7 +519,7 @@ class BaseObject:
         })
 
         
-        return vboid, vboArray, vboInfo, vboMap, indid, texid
+        return vboid, vboArray, vboInfo, vboMap, indid, texid, mainColor
 
     @staticmethod
     def createTexture2d(texture_file:Image.Image):
@@ -473,15 +622,15 @@ class UnionObject(BaseObject):
             
 
 class PointCloud(BaseObject):
-    def __init__(self, vertex:np.ndarray, color=[1., 0., 0.], norm=None, size=3, transform=None) -> None:
+    def __init__(self, vertex:np.ndarray, color=[*DEFAULT_COLOR4], norm=None, size=3, transform=None) -> None:
         super().__init__()
         
                 
         self.reset()
         
         self.setTransform(transform)
-        # vboArray, self.vbotype, self.l = BaseObject.buildVBO(vertex, color, norm)
-        self._vboid, vboArray, self._vboInfo, self._vboMap, self._indid, self._texid = BaseObject.buildVBO(vertex, color, norm)
+        
+        self._vboid, vboArray, self._vboInfo, self._vboMap, self._indid, self._texid, self.mainColors = BaseObject.buildVBO(vertex, color, norm)
     
         # self._vboid = vbo.VBO(vboArray.flatten())
         
@@ -490,7 +639,7 @@ class PointCloud(BaseObject):
         # self.color = color
 
 class Arrow(BaseObject):
-    def __init__(self, vertex:np.ndarray=None, color=[1., 0., 0.], size=3, transform=None) -> None:
+    def __init__(self, vertex:np.ndarray=None, color=[*DEFAULT_COLOR4], size=3, transform=None) -> None:
         super().__init__()
         self.load(vertex, color, size, transform)
         self.color = color
@@ -534,7 +683,7 @@ class Arrow(BaseObject):
     def load(self, vertex:np.ndarray, color=[1., 0., 0.], size=3, transform=None):
         self.reset()
         self.setTransform(transform)
-        self._vboid, vboArray, self._vboInfo, self._vboMap, self._indid, self._texid = BaseObject.buildVBO(vertex, color)
+        self._vboid, vboArray, self._vboInfo, self._vboMap, self._indid, self._texid, self.mainColors = BaseObject.buildVBO(vertex, color)
         self.pointSize = size
 
 class Grid_old(BaseObject):
@@ -565,7 +714,7 @@ class Grid_old(BaseObject):
         
         # t = time.time()
         
-        self._vboid, vboArray, self._vboInfo, self._vboMap, self._indid, self._texid = BaseObject.buildVBO(line, color)
+        self._vboid, vboArray, self._vboInfo, self._vboMap, self._indid, self._texid, self.mainColors = BaseObject.buildVBO(line, color)
         
         # print('build vbo time:', time.time()-t)
 
@@ -648,7 +797,7 @@ class Grid(BaseObject):
             
         self.transform = self.transformList[5]
         
-        self._vboid, vboArray, self._vboInfo, self._vboMap, self._indid, self._texid = BaseObject.buildVBO(line, color, norm)
+        self._vboid, vboArray, self._vboInfo, self._vboMap, self._indid, self._texid, self.mainColors = BaseObject.buildVBO(line, color, norm)
         
         # print('build vbo time:', time.time()-t)
 
@@ -707,14 +856,14 @@ class Axis(BaseObject):
         
         self.setTransform(transform)
         
-        self._vboid, vboArray, self._vboInfo, self._vboMap, self._indid, self._texid = BaseObject.buildVBO(line, color, )
+        self._vboid, vboArray, self._vboInfo, self._vboMap, self._indid, self._texid, self.mainColors = BaseObject.buildVBO(line, color, )
         
         self.renderType = GL_LINES
         
         self.props['size'] = 6
 
 class BoundingBox(BaseObject):
-    def __init__(self, vertex:np.ndarray, color=[1., 0., 0.], norm=None, size=3, transform=None) -> None:
+    def __init__(self, vertex:np.ndarray, color=[*DEFAULT_COLOR4], norm=None, size=3, transform=None) -> None:
         super().__init__()
 
         lineIndex = [0,1, 1,2, 2,3, 3,0, 4,5, 5,6, 6,7, 7,4, 0,4, 1,5, 2,6, 3,7]
@@ -727,13 +876,13 @@ class BoundingBox(BaseObject):
         self.reset()
         self.setTransform(transform)
         
-        self._vboid, vboArray, self._vboInfo, self._vboMap, self._indid, self._texid = BaseObject.buildVBO(lineArray, color, norm)
+        self._vboid, vboArray, self._vboInfo, self._vboMap, self._indid, self._texid, self.mainColors = BaseObject.buildVBO(lineArray, color, norm)
         
         self.renderType = GL_LINES
         self.lineWidth = size
 
 class Lines(BaseObject):
-    def __init__(self, vertex:np.ndarray, color=[1., 0., 0.], norm=None, size=3, transform=None) -> None:
+    def __init__(self, vertex:np.ndarray, color=[*DEFAULT_COLOR4], norm=None, size=3, transform=None) -> None:
         super().__init__()
 
         self.reset()
@@ -744,24 +893,29 @@ class Lines(BaseObject):
             
         vertex = vertex.reshape(-1, 3)
                 
-        self._vboid, vboArray, self._vboInfo, self._vboMap, self._indid, self._texid = BaseObject.buildVBO(vertex, color, norm)
+        self._vboid, vboArray, self._vboInfo, self._vboMap, self._indid, self._texid, self.mainColors = BaseObject.buildVBO(vertex, color, norm)
         
         self.renderType = GL_LINES
         self.lineWidth = size
 
 class Mesh(BaseObject):
 
-    def __init__(self, vertex:np.ndarray, indices=None, color=[0.8, 0.8, 0.8], norm=None, texture=None, texcoord=None, faceNorm=False, transform=None) -> None:
+    def __init__(self, vertex:np.ndarray, 
+                 indices:np.ndarray=None, 
+                 color=[*DEFAULT_COLOR4], 
+                 norm:np.ndarray=None, 
+                 texture:SimpleMaterial|PBRMaterial=None, 
+                 texcoord:np.ndarray=None, 
+                 faceNorm:np.ndarray=False, 
+                 transform:np.ndarray=None) -> None:
         super().__init__()
 
         self.reset()
         
         self.setTransform(transform)
-        # print(normal.shape, vs.shape, indices.shape)
-    
-        # # 生成纹理坐标
-        # u, v = np.linspace(0, 1, cols), np.linspace(0, 1, rows)
-        # texcoord = np.float32(np.dstack(np.meshgrid(u, v)).reshape(-1, 2))
+
+        
+        
         indices = np.int32(indices.ravel())
         
         if norm is None:
@@ -772,7 +926,7 @@ class Mesh(BaseObject):
                 norm = BaseObject.faceNormal2VertexNormal(norm.repeat(3, axis=0), vertex, indices)
 
         
-        self._vboid, vboArray, self._vboInfo, self._vboMap, self._indid, self._texid = BaseObject.buildVBO(vertex, 
+        self._vboid, vboArray, self._vboInfo, self._vboMap, self._indid, self._texid, self.mainColors = BaseObject.buildVBO(vertex, 
                                                                                                            color, 
                                                                                                            norm, 
                                                                                                            indices,
@@ -784,7 +938,7 @@ class Mesh(BaseObject):
 
 class Sphere(BaseObject):
 
-    def __init__(self, vertex:np.ndarray, indices=None, color=[1., 0., 0.], norm=None, texture=None) -> None:
+    def __init__(self, vertex:np.ndarray, indices=None, color=[*DEFAULT_COLOR4], norm=None, texture=None) -> None:
         super().__init__()
 
         self.reset()
@@ -832,7 +986,7 @@ class Sphere(BaseObject):
         texcoord = np.float32(np.dstack(np.meshgrid(u, v)).reshape(-1, 2))
 
         
-        self._vboid, vboArray, self._vboInfo, self._vboMap, self._indid, self._texid = BaseObject.buildVBO(vs, np.array([1., 1., 0.6, 1.]), normal, indices)
+        self._vboid, vboArray, self._vboInfo, self._vboMap, self._indid, self._texid, self.mainColors = BaseObject.buildVBO(vs, np.array([1., 1., 0.6, 1.]), normal, indices)
             
         
         self.renderType = GL_TRIANGLES
@@ -856,7 +1010,7 @@ class FullScreenQuad(BaseObject):
             0, 2, 3,
         ], dtype=np.uint32)
 
-        self._vboid, vboArray, self._vboInfo, self._vboMap, self._indid, self._texid = BaseObject.buildVBO(vertex=vertices, indices=indices)
+        self._vboid, vboArray, self._vboInfo, self._vboMap, self._indid, self._texid, self.mainColors = BaseObject.buildVBO(vertex=vertices, indices=indices)
         
         self.renderType = GL_TRIANGLES
 

@@ -1057,11 +1057,11 @@ class GLWidget(QOpenGLWidget):
 
             glUniformMatrix4fv(self.SSAOCoreProgLocMap['u_ProjMatrix'], 1, GL_FALSE, projMatrix, None)
 
-            self.SSAOGeoFBO.bindTextureForReading(GL_TEXTURE1, 1)
-            glUniform1i(self.SSAOCoreProgLocMap['u_positionMap'], 1)
+            self.SSAOGeoFBO.bindTextureForReading(GL_TEXTURE21, 1)
+            glUniform1i(self.SSAOCoreProgLocMap['u_positionMap'], 21)
 
-            self.SSAOGeoFBO.bindTextureForReading(GL_TEXTURE2, 2)
-            glUniform1i(self.SSAOCoreProgLocMap['u_normalMap'], 2)
+            self.SSAOGeoFBO.bindTextureForReading(GL_TEXTURE22, 2)
+            glUniform1i(self.SSAOCoreProgLocMap['u_normalMap'], 22)
 
             glActiveTexture(GL_TEXTURE3)
             glBindTexture(GL_TEXTURE_2D, self.SSAONoiseTexture)
@@ -1082,13 +1082,13 @@ class GLWidget(QOpenGLWidget):
 
             glUseProgram(self.SSAOBlurProg)
 
-            self.SSAOCoreFBO.bindTextureForReading(GL_TEXTURE1, 0)
-            glUniform1i(self.SSAOBlurProgLocMap["u_AOMap"], 1)
+            self.SSAOCoreFBO.bindTextureForReading(GL_TEXTURE21, 0)
+            glUniform1i(self.SSAOBlurProgLocMap["u_AOMap"], 21)
 
-            self.SSAOGeoFBO.bindTextureForReading(GL_TEXTURE2, 1)
-            glUniform1i(self.SSAOBlurProgLocMap["u_PositionMap"], 2)
-            self.SSAOGeoFBO.bindTextureForReading(GL_TEXTURE3, 2)
-            glUniform1i(self.SSAOBlurProgLocMap["u_NormalMap"], 3)
+            self.SSAOGeoFBO.bindTextureForReading(GL_TEXTURE22, 1)
+            glUniform1i(self.SSAOBlurProgLocMap["u_PositionMap"], 22)
+            self.SSAOGeoFBO.bindTextureForReading(GL_TEXTURE23, 2)
+            glUniform1i(self.SSAOBlurProgLocMap["u_NormalMap"], 23)
 
             glUniform2f(self.SSAOBlurProgLocMap["u_TexelSize"],
                         1.0 / float(self.raw_window_w),
@@ -1107,8 +1107,8 @@ class GLWidget(QOpenGLWidget):
         glUseProgram(self.SSAOLightProg)
         
         if self.enableSSAO:
-            self.SSAOBlurFBO.bindTextureForReading(GL_TEXTURE1, 0)
-            glUniform1i(self.SSAOLightProgLocMap['u_AOMap'], 1)
+            self.SSAOBlurFBO.bindTextureForReading(GL_TEXTURE21, 0)
+            glUniform1i(self.SSAOLightProgLocMap['u_AOMap'], 21)
 
         glUniform1i(self.SSAOLightProgLocMap['u_enableAO'], self.enableSSAO)
         glUniform3f(self.SSAOLightProgLocMap['u_CamPos'], *campos)

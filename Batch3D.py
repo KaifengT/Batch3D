@@ -8,7 +8,7 @@ import numpy as np
 import numpy.linalg as linalg
 from enum import Enum
 import copy
-from PySide6.QtWidgets import ( QApplication, QMainWindow, QTableWidgetItem, QWidget, QFileDialog, QDialog, QGraphicsOpacityEffect, QGraphicsDropShadowEffect, QFrame, QVBoxLayout, QLabel)
+from PySide6.QtWidgets import ( QApplication, QMainWindow, QTableWidgetItem, QWidget, QFileDialog, QDialog, QTextEdit, QGraphicsDropShadowEffect, QFrame, QVBoxLayout, QLabel)
 from PySide6.QtCore import  QSize, QThread, Signal, Qt, QPropertyAnimation, QEasingCurve, QPoint, QRect, QObject, QTimer
 from PySide6.QtGui import QCloseEvent, QIcon, QFont, QAction, QColor, QSurfaceFormat, QTextCursor
 from ui.PopMessageWidget import PopMessageWidget_fluent as PopMessageWidget
@@ -42,7 +42,7 @@ if sys.platform == 'win32':
 
 
 
-from qfluentwidgets import (setTheme, Theme, setThemeColor, qconfig, RoundMenu, widgets, ToggleToolButton, Slider, Action, PushButton, FluentIconBase)
+from qfluentwidgets import (setTheme, Theme, setThemeColor, qconfig, RoundMenu, widgets, ToggleToolButton, Slider, Action, PushButton, FluentIconBase, LineEdit)
 from qfluentwidgets import FluentIcon as FIF
 
 
@@ -254,6 +254,24 @@ class fileDetailInfoUI(QDialog):
         
         self.verticalLayout = QVBoxLayout(self)
 
+
+class stdoutRedirector:
+
+    def __init__(self, ):
+        self._cache = ''
+
+    def write(self, info:str):
+        self._cache += info
+        
+    def flush(self):
+        pass
+
+    def getCache(self):
+        return self._cache
+
+    def clear(self):
+        self._cache = ''
+
 class consoleUI(QDialog):
 
     def __init__(self, parent:QWidget=None) -> None:
@@ -266,39 +284,128 @@ class consoleUI(QDialog):
         self.verticalLayout = QVBoxLayout(self)
         
         self.textbox = widgets.TextBrowser(self)
-        
+        self.textbox.setLineWrapMode(QTextEdit.LineWrapMode.NoWrap)
+        self.commandBox = LineEdit(self)
         self.verticalLayout.addWidget(self.textbox)
+        self.verticalLayout.addWidget(self.commandBox)
+        
+        self.commandBox.returnPressed.connect(self._on_enter_pressed)
+        self.commandBox.setPlaceholderText('Enter command here and press Enter to execute')
 
         self._cache = ''
+        self._globals = {}
         
         self.original_stdout = sys.stdout
         self.original_stderr = sys.stderr
+
+        self.stdout = stdoutRedirector()
+        self.stderr = stdoutRedirector()
+
+        sys.stdout = self.stdout
+        sys.stderr = self.stderr
         
-        # sys.stdout = self
-        # sys.stderr = self
+        self.flush_timer = QTimer(self)
+        self.flush_timer.timeout.connect(self.flush)
+
+        font = self.textbox.font()
+
+        if sys.platform == 'win32':
+            font.setFamilies([u'Consolas', u'Microsoft Yahei UI'])
+            
+        self.textbox.setFont(font)
+        self.commandBox.setFont(font)
         
-        # self.flush_timer = QTimer(self)
-        # self.flush_timer.timeout.connect(self.flush)
-        # self.flush_timer.start(200)  #
         
+        self.command_history = []
+        self.history_index = -1
+
+
     def restore(self, ):
         sys.stdout = self.original_stdout
         sys.stderr = self.original_stderr
         
-
-    def write(self, info:str):
-        self._cache += info
-        
         
     def flush(self):
-        # self.textbox.moveCursor(QTextCursor.MoveOperation.End)
-        cursor = self.textbox.textCursor()
-        cursor.movePosition(QTextCursor.End)
-        self.textbox.setTextCursor(cursor)
-        self.textbox.insertPlainText(self._cache)
+        self.flushRedirectorOUT()
+        self.flushRedirectorERR()
 
-        self._cache = ''
+    def flushRedirectorOUT(self):
+        out = self.stdout.getCache()
+        if len(out):
+            if out[-1] in ('\n'):
+                out = out[:-1]  # Remove leading newline if exists
+            self.textbox.append(out)
+        self.stdout.clear()
+
+    def flushRedirectorERR(self):
+        out = self.stderr.getCache()
+        if len(out):
+            if out[-1] in ('\n'):
+                out = out[:-1]  # Remove leading newline if exists
+            self.textbox.append(out)
+        self.stderr.clear()
+
+
+    def setGlobals(self, globals: dict):
+        self._globals = globals
+
+    def showEvent(self, arg__1):
+        self.flush_timer.start(100)  # Flush every 100 ms
+        return super().showEvent(arg__1)
+    
+    def closeEvent(self, arg__1):
+        self.flush_timer.stop()
+        return super().closeEvent(arg__1)
+
+    def execCommand(self, command: str):
+        try:
+            code = compile(command, '<console>', 'eval')
+            result = eval(code, self._globals)
+            if result is not None:
+                print(result)
+        except SyntaxError:
+            try:
+                code = compile(command, '<console>', 'exec')
+                exec(code, self._globals)
+
+            except Exception as e:
+                traceback.print_exc()
+        except Exception as e:
+            traceback.print_exc()
         
+    def _on_enter_pressed(self):
+        command = self.commandBox.text()
+        if command.strip():
+            self.add_to_history(command)
+            print('→ ', command)
+            self.commandBox.clear()
+            self.execCommand(command)
+
+    def keyPressEvent(self, event):
+        if event.key() == Qt.Key_Up:
+            self.show_previous_command()
+        elif event.key() == Qt.Key_Down:
+            self.show_next_command()
+        else:
+            super().keyPressEvent(event)
+
+    def show_previous_command(self):
+        if self.command_history and self.history_index < len(self.command_history) - 1:
+            self.history_index += 1
+            self.commandBox.setText(self.command_history[-(self.history_index + 1)])
+
+    def show_next_command(self):
+        if self.command_history and self.history_index > 0:
+            self.history_index -= 1
+            self.commandBox.setText(self.command_history[-(self.history_index + 1)])
+        elif self.history_index == 0:
+            self.history_index = -1
+            self.commandBox.clear()
+
+    def add_to_history(self, command):
+        if command and (not self.command_history or command != self.command_history[-1]):
+            self.command_history.append(command)
+        self.history_index = -1
 
 
 class dataParser:
@@ -417,7 +524,7 @@ class dataParser:
         
         
         
-        print(k, ':', v.nbytes, 'bytes')
+        # print(k, ':', v.nbytes, 'bytes')
         assert v.nbytes < 1e8, 'array too large, must slice to show'
         
         n_color = dataParser._decode_HexColor_to_RGB(dataParser._isHexColorinName(k))
@@ -875,6 +982,7 @@ class App(QMainWindow):
         # rename
         self.GL = self.ui.openGLWidget
         self.reset_script_namespace()
+        self.console.setGlobals(self.script_namespace)
     
     def reset_script_namespace(self, ):
         # delete objects in script namespace
@@ -1512,6 +1620,7 @@ class App(QMainWindow):
                 code = code.replace('import Batch3D', '') # Deprecated
 
             try:
+                self.console.setGlobals(self.script_namespace)
                 exec(code, self.script_namespace)
                 if sys.platform == 'win32':
                     for item_name, item_instance in self.script_namespace.items():
@@ -1694,21 +1803,19 @@ class App(QMainWindow):
     def changeTheme(self, theme):
         global CURRENT_THEME
         self.tgtTheme = theme
-        print('changeTheme:', theme)
+
         self.changeTXTTheme(theme)
 
         setTheme(theme)
         
-        self.applyMicaTheme(self.winId())
-        
         self.saveSettings()
         
-        if not sys.platform == 'win32':
-            t = {
-                Theme.LIGHT:(0.95,0.95,0.95,1.0),
-                Theme.DARK:(0.109, 0.117, 0.125, 1.0),
-            }
-            self.ui.openGLWidget.setBackgroundColor(t[theme])
+        if sys.platform == 'win32':
+            self.applyMicaTheme(self.winId())
+            self.applyMicaTheme(self.console.winId())
+            self.applyMicaTheme(self.remoteUI.winId())
+            self.applyMicaTheme(self.fileDetailUI.winId())
+            
             
     def loadSettings(self, ):
         
@@ -1782,7 +1889,8 @@ class App(QMainWindow):
             
             
     def showConsole(self):
-        self.applyMicaTheme(self.console.winId())
+        if sys.platform == 'win32':
+            self.applyMicaTheme(self.console.winId())
         self.console.show()
             
             
@@ -1815,12 +1923,13 @@ if __name__ == "__main__":
    
     App = App()
     
-    App.setWindowTitle('Batch3D Viewer build 1.7')
+    App.setWindowTitle('Batch3D Viewer build 1.8')
     App.setWindowIcon(QIcon('icon.ico'))
     
 
     App.remoteUI.setWindowIcon(QIcon('icon.ico'))
     App.fileDetailUI.setWindowIcon(QIcon('icon.ico'))
+    App.console.setWindowIcon(QIcon('icon.ico'))
 
     if sys.platform == 'win32':
         import ctypes

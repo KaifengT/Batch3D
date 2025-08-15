@@ -63,8 +63,8 @@ class GLCamera(QObject):
         self.last_arcboall_quat = np.array([1, 0, 0, 0])
         self.arcboall_t = np.array([0, 0, 0])
         
-        self.filterAEV = kalmanFilter(3, R=0.2)
-        self.filterlookatPoint = kalmanFilter(3, R=0.2)
+        self.filterAEV = kalmanFilter(3, R=0.1)
+        self.filterlookatPoint = kalmanFilter(3, R=0.1)
         # BUG TO FIX: filterRotaion cannot deal with quaternion symmetry when R >> Q
         # self.filterRotaion = kalmanFilter(4, Q=0.5, R=0.1)
         self.filterRotaion = kalmanFilter(4, R=0.4)

@@ -864,15 +864,15 @@ class GLWidget(QOpenGLWidget):
         self.axis.manualBuild()
 
         self.fullScreenQuad = FullScreenQuad()
-        print('Initializing OpenGL shaders...')
-            
-        
+        print('Compiling OpenGL shaders...')
+
+
         if sys.platform == 'darwin':
             print('Using OpenGL 1.2')
             _version = '120'
             
         else:
-            print('Using OpenGL 3.3')            
+            print('OpenGL version: 3.3')            
             _version = '330'
 
         # _version = '120'
@@ -915,7 +915,8 @@ class GLWidget(QOpenGLWidget):
                                     'u_screenSize',
         ]
 
-        
+        print('Shaders compiled successfully.')
+
         self.SSAOGeoProgLocMap = self.cacheShaderLocMap(self.SSAOGeoProg, self.geoProgAttribList, self.geoProgUniformList)
         self.SSAOLightProgLocMap = self.cacheShaderLocMap(self.SSAOLightProg, self.lightProgAttribList, self.lightProgUniformList)
         

@@ -164,13 +164,13 @@ class GLSettingWidget(QObject):
         frame.setLayout(QHBoxLayout())
         frame.layout().setContentsMargins(0, 10, 0, 10)
         frame.layout().setSpacing(20)
-        grid_control_toggle = SwitchButton(parent=self.gl_setting_Menu)
-        grid_control_toggle.setChecked(True)
-        grid_control_toggle.checkedChanged.connect(self._on_grid_visibility_changed)
+        self.grid_control_toggle = SwitchButton(parent=self.gl_setting_Menu)
+        self.grid_control_toggle.setChecked(True)
+        self.grid_control_toggle.checkedChanged.connect(self._on_grid_visibility_changed)
         grid_control_label = BodyLabel("Grid Visibility", parent=self.gl_setting_Menu)
         frame.layout().addWidget(grid_control_label)
         frame.layout().addItem(QSpacerItem(40, 20, QSizePolicy.Expanding, QSizePolicy.Minimum))
-        frame.layout().addWidget(grid_control_toggle)
+        frame.layout().addWidget(self.grid_control_toggle)
         frame.adjustSize()
         self.gl_setting_Menu.addWidget(frame, selectable=False)
         
@@ -179,13 +179,13 @@ class GLSettingWidget(QObject):
         frame.setLayout(QHBoxLayout())
         frame.layout().setContentsMargins(0, 10, 0, 10)
         frame.layout().setSpacing(20)
-        axis_control_toggle = SwitchButton(parent=self.gl_setting_Menu)
-        axis_control_toggle.setChecked(True)
-        axis_control_toggle.checkedChanged.connect(self._on_axis_visibility_changed)
+        self.axis_control_toggle = SwitchButton(parent=self.gl_setting_Menu)
+        self.axis_control_toggle.setChecked(True)
+        self.axis_control_toggle.checkedChanged.connect(self._on_axis_visibility_changed)
         axis_control_label = BodyLabel("Axis Visibility", parent=self.gl_setting_Menu)
         frame.layout().addWidget(axis_control_label)
         frame.layout().addItem(QSpacerItem(40, 20, QSizePolicy.Expanding, QSizePolicy.Minimum))
-        frame.layout().addWidget(axis_control_toggle)
+        frame.layout().addWidget(self.axis_control_toggle)
         frame.adjustSize()
         self.gl_setting_Menu.addWidget(frame, selectable=False)
         
@@ -194,13 +194,13 @@ class GLSettingWidget(QObject):
         frame.setLayout(QHBoxLayout())
         frame.layout().setContentsMargins(0, 10, 0, 10)
         frame.layout().setSpacing(20)
-        enable_ssao_toggle = SwitchButton(parent=self.gl_setting_Menu)
-        enable_ssao_toggle.setChecked(True)
-        enable_ssao_toggle.checkedChanged.connect(self._on_ssao_visibility_changed)
+        self.enable_ssao_toggle = SwitchButton(parent=self.gl_setting_Menu)
+        self.enable_ssao_toggle.setChecked(True)
+        self.enable_ssao_toggle.checkedChanged.connect(self._on_ssao_visibility_changed)
         enable_ssao_label = BodyLabel("Enable SSAO", parent=self.gl_setting_Menu)
         frame.layout().addWidget(enable_ssao_label)
         frame.layout().addItem(QSpacerItem(40, 20, QSizePolicy.Expanding, QSizePolicy.Minimum))
-        frame.layout().addWidget(enable_ssao_toggle)
+        frame.layout().addWidget(self.enable_ssao_toggle)
         frame.adjustSize()
         self.gl_setting_Menu.addWidget(frame, selectable=False)
 
@@ -208,14 +208,14 @@ class GLSettingWidget(QObject):
         frame.setLayout(QHBoxLayout())
         frame.layout().setContentsMargins(0, 10, 0, 10)
         frame.layout().setSpacing(20)
-        axis_size_slider = Slider(parent=self.gl_setting_Menu)
-        axis_size_slider.setOrientation(Qt.Horizontal)
-        axis_size_slider.setRange(1, 100)
-        axis_size_slider.setValue(1)
-        axis_size_slider.valueChanged.connect(self._on_axis_length_changed)
+        self.axis_size_slider = Slider(parent=self.gl_setting_Menu)
+        self.axis_size_slider.setOrientation(Qt.Horizontal)
+        self.axis_size_slider.setRange(1, 100)
+        self.axis_size_slider.setValue(1)
+        self.axis_size_slider.valueChanged.connect(self._on_axis_length_changed)
         axis_size_label = BodyLabel("Axis Size", parent=self.gl_setting_Menu)
         frame.layout().addWidget(axis_size_label)
-        frame.layout().addWidget(axis_size_slider)
+        frame.layout().addWidget(self.axis_size_slider)
         frame.adjustSize()
         self.gl_setting_Menu.addWidget(frame, selectable=False)
 
@@ -232,7 +232,6 @@ class GLSettingWidget(QObject):
         
         self.gl_setting_Menu.addSeparator()
         
-        # 深度图相关功能
         
         action_saveDepth = Action(FIF.SAVE, 'Save Depth Maps')
         action_saveDepth.triggered.connect(self._on_save_depth)
@@ -323,3 +322,46 @@ class GLSettingWidget(QObject):
     def get_menu(self):
         return self.gl_setting_Menu
 
+    def getSettings(self) -> dict:
+        
+        return {
+            'render_mode': self.gl_render_mode_combobox.currentRouteKey(),
+            'camera_control': self.gl_camera_control_combobox.currentRouteKey(),
+            'camera_persp': self.gl_camera_perp_combobox.currentRouteKey(),
+            'camera_view': self.gl_camera_view_combobox.currentRouteKey(),
+            'fov': self.fov_spinbox.value(),
+            'far': self.far_spinbox.value(),
+            'near': self.near_spinbox.value(),
+            'grid_visible': self.grid_control_toggle.isChecked(),
+            'axis_visible': self.axis_control_toggle.isChecked(),
+            'axis_length': self.axis_size_slider.value(),
+            'ssao_enabled': self.enable_ssao_toggle.isChecked()
+        }
+        
+    def setSettings(self, settings: dict):
+
+        # SegmentedWidget manually trigger
+        render_mode = settings.get('render_mode', self.gl_render_mode_combobox.currentRouteKey())
+        self.gl_render_mode_combobox.setCurrentItem(render_mode)
+        self._on_render_mode_changed(int(render_mode))
+        
+        camera_control = settings.get('camera_control', self.gl_camera_control_combobox.currentRouteKey())
+        self.gl_camera_control_combobox.setCurrentItem(camera_control)
+        self._on_camera_control_changed(int(camera_control))
+        
+        camera_persp = settings.get('camera_persp', self.gl_camera_perp_combobox.currentRouteKey())
+        self.gl_camera_perp_combobox.setCurrentItem(camera_persp)
+        self._on_camera_persp_changed(int(camera_persp))
+        
+        camera_view = settings.get('camera_view', self.gl_camera_view_combobox.currentRouteKey())
+        self.gl_camera_view_combobox.setCurrentItem(camera_view)
+        self._on_camera_view_changed(int(camera_view))
+        
+        # auto signal
+        self.fov_spinbox.setValue(settings.get('fov', self.fov_spinbox.value()))
+        self.far_spinbox.setValue(settings.get('far', self.far_spinbox.value()))
+        self.near_spinbox.setValue(settings.get('near', self.near_spinbox.value()))
+        self.grid_control_toggle.setChecked(settings.get('grid_visible', self.grid_control_toggle.isChecked()))
+        self.axis_control_toggle.setChecked(settings.get('axis_visible', self.axis_control_toggle.isChecked()))
+        self.axis_size_slider.setValue(settings.get('axis_length', self.axis_size_slider.value()))
+        self.enable_ssao_toggle.setChecked(settings.get('ssao_enabled', self.enable_ssao_toggle.isChecked()))

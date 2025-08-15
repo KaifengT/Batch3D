@@ -542,6 +542,9 @@ class GLWidget(QOpenGLWidget):
         self.point_line_size = 3
         self.enableSSAO = 1
         
+        self.grid = Grid()
+        self.smallGrid = Grid(n=510, scale=0.1)
+        self.axis = Axis()
 
         self.gl_settings = GLSettingWidget(
             parent=self,
@@ -567,6 +570,7 @@ class GLWidget(QOpenGLWidget):
         self.gl_camera_control_combobox = self.gl_settings.gl_camera_control_combobox
         self.gl_camera_perp_combobox = self.gl_settings.gl_camera_perp_combobox
         self.gl_camera_view_combobox = self.gl_settings.gl_camera_view_combobox
+        self.gl_enable_ssao_toggle = self.gl_settings.enable_ssao_toggle
         self.fov_spinbox = self.gl_settings.fov_spinbox
         
 
@@ -853,11 +857,11 @@ class GLWidget(QOpenGLWidget):
         glColorMaterial(GL_FRONT_AND_BACK, GL_AMBIENT_AND_DIFFUSE)
 
         
-        self.resetCamera()
+        # self.resetCamera()
         
-        self.grid = Grid()
-        self.smallGrid = Grid(n=510, scale=0.1)
-        self.axis = Axis()
+        self.grid.manualBuild()
+        self.smallGrid.manualBuild()
+        self.axis.manualBuild()
 
         self.fullScreenQuad = FullScreenQuad()
         print('Initializing OpenGL shaders...')

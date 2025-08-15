@@ -1722,18 +1722,21 @@ class App(QMainWindow):
                     'Auto':Theme.AUTO
                 }
                 
-                self.tgtTheme = m[settings['theme']]
+                if not isinstance(settings, dict):
+                    settings = {}
                 
-                self.ui.openGLWidget.gl_camera_control_combobox.setCurrentItem(settings['camera'])
-                self.ui.openGLWidget.setCameraControl(int(settings['camera']))
+                self.tgtTheme = m[settings.get('theme', 'Light')]
+                
 
-                self.currentScriptPath = settings['lastScript']
+                self.ui.openGLWidget.gl_settings.setSettings(settings.get('gl_settings', {}))
+
+                self.currentScriptPath = settings.get('lastScript', '')
                 if len(self.currentScriptPath) and os.path.isfile(self.currentScriptPath):
                     self.ui.pushButton_runscript.setEnabled(True)
                     self.ui.pushButton_runscript.setText('Run [ ' + os.path.basename(self.currentScriptPath) + ' ]')
 
         except:
-            ...
+            traceback.print_exc()
 
     def saveSettings(self, ):
         
@@ -1742,6 +1745,7 @@ class App(QMainWindow):
                 'theme':self.tgtTheme.value,
                 'camera':self.ui.openGLWidget.gl_camera_control_combobox.currentRouteKey(),
                 'lastScript':self.currentScriptPath,
+                'gl_settings': self.ui.openGLWidget.gl_settings.getSettings()
             }
             
             with open(self.configPath, 'w') as f:

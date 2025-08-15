@@ -760,13 +760,12 @@ class Grid(BaseObject):
         lineX = lineX.reshape(-1, 3)
         lineY = lineY.reshape(-1, 3)
         
-        line = np.concatenate((lineX, lineY), 0)
-        norm = np.zeros_like(line)
-        norm[:, 2] = 1.0
+        self.line = np.concatenate((lineX, lineY), 0)
+        self.norm = np.zeros_like(self.line)
+        self.norm[:, 2] = 1.0
         # color = [0.2, 0.2, 0.2, .7]
-        color = [0.35, 0.35, 0.35, .8]
-        
-        self.reset()
+        self.color = [0.35, 0.35, 0.35, .8]
+    
         
         self.transformList = [
             np.array([[0, 0, 1, 0],
@@ -797,7 +796,6 @@ class Grid(BaseObject):
             
         self.transform = self.transformList[5]
         
-        self._vboid, vboArray, self._vboInfo, self._vboMap, self._indid, self._texid, self.mainColors = BaseObject.buildVBO(line, color, norm)
         
         # print('build vbo time:', time.time()-t)
 
@@ -805,14 +803,16 @@ class Grid(BaseObject):
         self.renderType = GL_LINES
 
 
-
-    
+    def manualBuild(self, ):
+        self.reset()
+        self._vboid, vboArray, self._vboInfo, self._vboMap, self._indid, self._texid, self.mainColors = BaseObject.buildVBO(self.line, self.color, self.norm)
+        
 class Axis(BaseObject):
     def __init__(self, R=None, T=None, length = 1, transform=None) -> None:
         super().__init__()
         
         
-        line = np.array(
+        self.line = np.array(
             [
                 [0.000,0,0],
                 [length,0,0],
@@ -828,19 +828,19 @@ class Axis(BaseObject):
         if isinstance(R, np.ndarray):
             assert R.shape == (3, 3), 'R shape error'
             
-            line[1, :] = R[:, 0] * length
-            line[3, :] = R[:, 1] * length
-            line[5, :] = R[:, 2] * length
+            self.line[1, :] = R[:, 0] * length
+            self.line[3, :] = R[:, 1] * length
+            self.line[5, :] = R[:, 2] * length
             
         if isinstance(T, np.ndarray):
             
             
-            line[:, 0] += T[0]
-            line[:, 1] += T[1]
-            line[:, 2] += T[2]
+            self.line[:, 0] += T[0]
+            self.line[:, 1] += T[1]
+            self.line[:, 2] += T[2]
             
             
-        color = np.array(
+        self.color = np.array(
             [
                 [176, 48, 82, 200],
                 [176, 48, 82, 200],
@@ -850,17 +850,18 @@ class Axis(BaseObject):
                 [2, 76, 170, 200],
             ]
         ) / 255.
-        # vboArray = np.concatenate((color, line), axis=1, dtype=np.float32)
         
-        self.reset()
         
         self.setTransform(transform)
-        
-        self._vboid, vboArray, self._vboInfo, self._vboMap, self._indid, self._texid, self.mainColors = BaseObject.buildVBO(line, color, )
-        
+                
         self.renderType = GL_LINES
         
         self.props['size'] = 6
+
+    def manualBuild(self, ):
+        self.reset()
+        self._vboid, vboArray, self._vboInfo, self._vboMap, self._indid, self._texid, self.mainColors = BaseObject.buildVBO(self.line, self.color)
+
 
 class BoundingBox(BaseObject):
     def __init__(self, vertex:np.ndarray, color=[*DEFAULT_COLOR4], norm=None, size=3, transform=None) -> None:

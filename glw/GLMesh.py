@@ -247,39 +247,29 @@ class BaseObject:
             
             self._vboid.unbind()
                    
-            
             if hasattr(self, '_texid') and \
-                isinstance(self._texid, Mapping) and \
-                    render_mode == 3 and \
-                        self._vboInfo['vbotype'] == GL_T2F_C4F_N3F_V3F:
+                isinstance(self._texid, Mapping):
+                
 
                 for i, (locName, params) in enumerate(self._texid.items()):
                     loc = locMap.get(locName, -1)
                     if loc != -1:
                         if params['type'] == 'texture':
-                            glActiveTexture(GL_TEXTURE0 + i)
-                            glBindTexture(GL_TEXTURE_2D, params['data'])
-                            glUniform1i(loc, i)
+                            if self._vboInfo['vbotype'] == GL_T2F_C4F_N3F_V3F:
+                                glActiveTexture(GL_TEXTURE0 + i)
+                                glBindTexture(GL_TEXTURE_2D, params['data'])
+                                glUniform1i(loc, i)
+                            
+                        elif params['type'] == 'float':
+                            glUniform1f(loc, params['data'])
+                            
+                        elif params['type'] == 'int':
+                            glUniform1i(loc, params['data'])
 
-                # loc = locMap.get('u_Texture', None)
-                # if loc is not None and loc != -1:
-                #     glActiveTexture(GL_TEXTURE0)
-                #     glBindTexture(GL_TEXTURE_2D, textureSampler)
-                #     glUniform1i(loc, 0)
                 
-                loc = locMap.get('render_mode', None)
-                if loc is not None and loc != -1:
-                    glUniform1i(loc, int(render_mode))
-                
-            elif render_mode == 3:
-                loc = locMap.get('render_mode', None)
-                if loc is not None and loc != -1:
-                    glUniform1i(loc, 1)
-                
-            else:
-                loc = locMap.get('render_mode', None)
-                if loc is not None and loc != -1:
-                    glUniform1i(loc, int(render_mode))
+            loc = locMap.get('render_mode', -1)
+            if loc != -1:
+                glUniform1i(loc, int(render_mode))
             
             
                   
@@ -296,7 +286,8 @@ class BaseObject:
                     # glDisable(GL_POLYGON_OFFSET_LINE)
                     
                 else:
-                    glPolygonMode(GL_FRONT_AND_BACK, GL_FILL)
+                    # glPolygonMode(GL_FRONT_AND_BACK, GL_FILL)
+                    glPolygonMode(GL_FRONT, GL_FILL)
                     glDrawElements(self.renderType, self._vboInfo['len_ind'], GL_UNSIGNED_INT, None)
                 self._indid.unbind()
             else:
@@ -357,49 +348,80 @@ class BaseObject:
             
             color = color[:4]
             linear = colorManager.linear2Srgb(color)
+            # linear = color
             return linear
+
+
+        miscParamter = {
+            'vertexColor': {'data': _safeGetArray(np.array([*DEFAULT_COLOR4])), 'type': 'list'},
+        }
+        materialParamter = {'u_Metallic': {'data': 0.0, 'type': 'float'},
+                            'u_Roughness': {'data': 0.0, 'type': 'float'},
+                            'u_EnableAlbedoTexture': {'data': 0, 'type': 'int'},
+                            'u_EnableMetallicRoughnessTexture': {'data': 0, 'type': 'int'}}
 
         if texcoord is None:
             # find simple color
             if isinstance(material, SimpleMaterial):
-                return {}, _safeGetArray(material.diffuse), []
-            
+                miscParamter.update({'vertexColor': {'data': _safeGetArray(material.diffuse), 'type': 'list'}})
+
             elif isinstance(material, PBRMaterial) and hasattr(material, 'baseColorFactor'):
-                return {}, _safeGetArray(material.baseColorFactor), []
+                miscParamter.update({'vertexColor': {'data': _safeGetArray(material.baseColorFactor), 'type': 'list'}})
+                
+                if isinstance(material.metallicFactor, float):
+                    materialParamter.update({'u_Metallic': {'data': material.metallicFactor, 'type': 'float'}})
+                if isinstance(material.roughnessFactor, float):
+                    materialParamter.update({'u_Roughness': {'data': material.roughnessFactor, 'type': 'float'}})
 
-
-            else:
-                return {}, None, []
+            return materialParamter, miscParamter
 
         if isinstance(material, SimpleMaterial):
 
             if isinstance(material.image, im.Image):
                 tid = BaseObject.createTexture2d(material.image)
 
-                texcolor = colorManager.get_color_from_tex(material.image, texcoord[:, ::-1])
+                texcolor = colorManager.get_color_from_tex(material.image, texcoord)
                 main_colors, per = colorManager.extract_dominant_colors(texcolor, n_colors=3)
 
-                return {
-                    'u_Texture': {'data':tid, 'type':'texture'}
-                }, None, main_colors
-                
+                materialParamter.update({'u_AlbedoTexture': {'data':tid, 'type':'texture'},
+                                         'u_EnableAlbedoTexture': {'data': 1, 'type': 'int'}})
+                miscParamter.update({'mainColors':{'data':main_colors, 'type':'list'}})
+
             else:
-                return {}, _safeGetArray(material.diffuse), []
+                miscParamter.update({'vertexColor': {'data': _safeGetArray(material.diffuse), 'type': 'list'}})
+
+            return materialParamter, miscParamter
 
         elif isinstance(material, PBRMaterial):
             
             if isinstance(material.baseColorTexture, im.Image):
+                
                 tid = BaseObject.createTexture2d(material.baseColorTexture)
                 
-                texcolor = colorManager.get_color_from_tex(material.baseColorTexture, texcoord[:, ::-1])
+                texcolor = colorManager.get_color_from_tex(material.baseColorTexture, texcoord)
                 main_colors, per = colorManager.extract_dominant_colors(texcolor, n_colors=3)
 
-                return {
-                    'u_Texture': {'data':tid, 'type':'texture'}
-                }, None, main_colors
+                materialParamter.update({'u_AlbedoTexture': {'data': tid, 'type': 'texture'},\
+                                        'u_EnableAlbedoTexture': {'data': 1, 'type': 'int'}})
+                miscParamter.update({'mainColors': {'data': main_colors, 'type': 'list'}})
+
                 
             else:
-                return {}, _safeGetArray(material.baseColorFactor), []
+                miscParamter.update({'vertexColor': {'data': _safeGetArray(material.baseColorFactor), 'type': 'list'}})
+                
+                
+            if isinstance(material.metallicRoughnessTexture, im.Image):
+                tid = BaseObject.createTexture2d(material.metallicRoughnessTexture)
+                materialParamter.update({'u_MetallicRoughnessTexture': {'data': tid, 'type': 'texture'},
+                                         'u_EnableMetallicRoughnessTexture': {'data': 1, 'type': 'int'}})
+            else:
+                
+                if isinstance(material.metallicFactor, float):
+                    materialParamter.update({'u_Metallic': {'data': material.metallicFactor, 'type': 'float'}})
+                if isinstance(material.roughnessFactor, float):
+                    materialParamter.update({'u_Roughness': {'data': material.roughnessFactor, 'type': 'float'}})
+
+            return materialParamter, miscParamter
         else:
             raise ValueError('Unknown material type')
 
@@ -462,8 +484,13 @@ class BaseObject:
         
                 
         indid = None
-        texid = {}
-        
+        materialParameter = {'u_Metallic': {'data': 0.0, 'type': 'float'},
+                        'u_Roughness': {'data': 0.0, 'type': 'float'},
+                        'u_EnableAlbedoTexture': {'data': 0, 'type': 'int'},
+                        'u_EnableMetallicRoughnessTexture': {'data': 0, 'type': 'int'}}
+
+        validTexture = False
+
         if indices is not None:
             indices = np.int32(indices.ravel())
             indid = vbo.VBO(indices, target=GL_ELEMENT_ARRAY_BUFFER)
@@ -474,17 +501,26 @@ class BaseObject:
         
         if texcoord is not None:
             texcoord[:,1] = 1. - texcoord[:,1]
-            vboArray.insert(0, texcoord)
+            
 
         if texture is not None:
-            texid, secondColor, mainColor = BaseObject._parseMaterial(texture, texcoord=texcoord)
+            materialParameter, miscParamter = BaseObject._parseMaterial(texture, texcoord=texcoord)
 
+            if 'u_AlbedoTexture' in materialParameter.keys():
+                vboArray.insert(0, texcoord)
+                validTexture = True
+                
+                if miscParamter.get('mainColors') is not None:
+                    mainColor = miscParamter['mainColors']['data']
 
-            if isinstance(secondColor, np.ndarray):
-                # use secondColor from material instead of color
-                secondColor = secondColor[None].repeat(vboArray[0].shape[0], axis=0)
-                vboArray[0] = secondColor
-                mainColor, per = colorManager.extract_dominant_colors(secondColor, n_colors=3)
+                
+            else:
+                vertexColor = miscParamter['vertexColor']['data']
+                # use vertexColor from material instead of color
+                if isinstance(vertexColor, np.ndarray):
+                    vertexColor = vertexColor[None].repeat(vboArray[0].shape[0], axis=0)
+                    vboArray[0] = vertexColor
+                    mainColor, per = colorManager.extract_dominant_colors(vertexColor, n_colors=3)
                 
         
 
@@ -492,7 +528,7 @@ class BaseObject:
         vboid = vbo.VBO(vboArray)
         stride = vboArray.shape[1] * nbytes
         
-        if texcoord is not None and texture is not None:
+        if validTexture:
             vbotype = GL_T2F_C4F_N3F_V3F
             vboMap = {
                 'a_Texcoord':{'size':2, 'type':GL_FLOAT, 'normalized':GL_FALSE, 'stride':stride, 'pointer':vboid + 0},   
@@ -519,7 +555,7 @@ class BaseObject:
         })
 
         
-        return vboid, vboArray, vboInfo, vboMap, indid, texid, mainColor
+        return vboid, vboArray, vboInfo, vboMap, indid, materialParameter, mainColor
 
     @staticmethod
     def createTexture2d(texture_file:Image.Image):

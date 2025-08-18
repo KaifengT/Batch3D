@@ -66,13 +66,13 @@ class GLSettingWidget(QObject):
         self.gl_render_mode_combobox.addItem('2', 'Normal', lambda: self._on_render_mode_changed(2))
         self.gl_render_mode_combobox.addItem('3', 'Texture', lambda: self._on_render_mode_changed(3))
         self.gl_render_mode_combobox.addItem('4', 'Occlusion', lambda: self._on_render_mode_changed(4))
-        self.gl_render_mode_combobox.setCurrentItem('1')
+        self.gl_render_mode_combobox.setCurrentItem('3')
         self.gl_render_mode_combobox.setSizePolicy(QSizePolicy.MinimumExpanding, QSizePolicy.Minimum)
         
         self.gl_camera_control_combobox = SegmentedWidget(parent=self.gl_setting_Menu)
         self.gl_camera_control_combobox.addItem('0', 'Arcball', lambda: self._on_camera_control_changed(0))
         self.gl_camera_control_combobox.addItem('1', ' Orbit ', lambda: self._on_camera_control_changed(1))
-        self.gl_camera_control_combobox.setCurrentItem('0')
+        self.gl_camera_control_combobox.setCurrentItem('1')
         self.gl_camera_control_combobox.setSizePolicy(QSizePolicy.MinimumExpanding, QSizePolicy.Minimum)
         
         self.gl_camera_perp_combobox = SegmentedWidget(parent=self.gl_setting_Menu)
@@ -90,7 +90,7 @@ class GLSettingWidget(QObject):
         self.gl_camera_view_combobox.addItem('4', '+Z', lambda: self._on_camera_view_changed(4))
         self.gl_camera_view_combobox.addItem('5', '-Z', lambda: self._on_camera_view_changed(5))
         self.gl_camera_view_combobox.addItem('6', 'Free', lambda: self._on_camera_view_changed(6))
-        self.gl_camera_view_combobox.setCurrentItem('0')    
+        self.gl_camera_view_combobox.setCurrentItem('6')    
         self.gl_camera_view_combobox.setSizePolicy(QSizePolicy.MinimumExpanding, QSizePolicy.Minimum)
         
         
@@ -134,7 +134,7 @@ class GLSettingWidget(QObject):
         self.far_spinbox = SpinBox(parent=self.gl_setting_Menu)
         self.far_spinbox.setSizePolicy(QSizePolicy.MinimumExpanding, QSizePolicy.Minimum)
         self.far_spinbox.setRange(1, 100000)
-        self.far_spinbox.setValue(4000)
+        self.far_spinbox.setValue(1000)
         self.far_spinbox.setSuffix('m')
         self.far_spinbox.valueChanged.connect(self._on_far_changed)
         far_label = BodyLabel("Far", parent=self.gl_setting_Menu)
@@ -142,7 +142,7 @@ class GLSettingWidget(QObject):
 
         self.near_spinbox = DoubleSpinBox(parent=self.gl_setting_Menu)
         self.near_spinbox.setSizePolicy(QSizePolicy.MinimumExpanding, QSizePolicy.Minimum)
-        self.near_spinbox.setRange(0.001, 10)
+        self.near_spinbox.setRange(0.0001, 10)
         self.near_spinbox.setValue(0.100)
         self.near_spinbox.setSingleStep(0.001)
         self.near_spinbox.setSuffix('m')

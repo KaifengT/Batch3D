@@ -485,10 +485,7 @@ class GLWidget(QOpenGLWidget):
         # self.camera.updateSignal.connect(self.updateIndicator)
         
         self.textPainter = QPainter()
-        # self.flush_timer.start()
-        
-        self.labelSwitchList = {}
-        self.labelSwitchStatue = {}
+
         
         #----- MSAA 4X -----#
         GLFormat = self.format()
@@ -518,9 +515,10 @@ class GLWidget(QOpenGLWidget):
         
         self.key_light_pos = np.array([0.0, 1.1, 1.1], dtype=np.float32) * 10000
         self.key_light_color = np.array([0.3, 0.3, 0.3], dtype=np.float32)
+        # self.key_light_color = np.array([0.9, 0.8, 0.7], dtype=np.float32)
 
         self.fill_light_pos = np.array([-1.0, -1.2, -1.2], dtype=np.float32) * 10000
-        self.fill_light_color = np.array([0.2, 0.3, 0.3], dtype=np.float32)
+        self.fill_light_color = np.array([0.3, 0.4, 0.4], dtype=np.float32)
 
         self.back_light_pos = np.array([1.0, -0.9, 1.3], dtype=np.float32) * 10000
         self.back_light_color = np.array([0.4, 0.4, 0.3], dtype=np.float32)
@@ -533,12 +531,12 @@ class GLWidget(QOpenGLWidget):
 
 
         self.ambient = np.array([0.7, 0.7, 0.7], dtype=np.float32)  # 环境光颜色
-        self.shiny = 50                                             # 高光系数
-        self.specular = 0.1                                       # 镜面反射系数
+        self.shiny = 100                                             # 高光系数
+        self.specular = 0.99                                       # 镜面反射系数
         self.diffuse = 1.0                                         # 漫反射系数
         self.pellucid = 0.5                                         # 透光度
 
-        self.gl_render_mode = 1
+        self.gl_render_mode = 3
         self.point_line_size = 3
         self.enableSSAO = 1
         
@@ -848,130 +846,127 @@ class GLWidget(QOpenGLWidget):
         glEnable(GL_LINE_SMOOTH)
         
         
-        glEnable(GL_MULTISAMPLE)
+        # glEnable(GL_MULTISAMPLE)
         glShadeModel(GL_SMOOTH)
         
         glClearColor(*self.bg_color)
-        glEnable(GL_COLOR_MATERIAL)
-
-        glColorMaterial(GL_FRONT_AND_BACK, GL_AMBIENT_AND_DIFFUSE)
-
         
         # self.resetCamera()
+        try:
         
-        self.grid.manualBuild()
-        self.smallGrid.manualBuild()
-        self.axis.manualBuild()
+            self.grid.manualBuild()
+            self.smallGrid.manualBuild()
+            self.axis.manualBuild()
 
-        self.fullScreenQuad = FullScreenQuad()
-        print('Compiling OpenGL shaders...')
+            self.fullScreenQuad = FullScreenQuad()
+            print('Compiling OpenGL shaders...')
 
 
-        if sys.platform == 'darwin':
-            print('Using OpenGL 1.2')
-            _version = '120'
+            if sys.platform == 'darwin':
+                print('Using OpenGL 1.2')
+                _version = '120'
+                
+            else:
+                print('OpenGL version: 3.3')            
+                _version = '330'
+
+            # _version = '120'
+            self.SSAOGeoProg = self.buildShader(
+                vshader_path=f'./glw/shaders/{_version}/ssao_geo_vs.glsl',
+                fshader_path=f'./glw/shaders/{_version}/ssao_geo_fs.glsl'
+            )
+            self.SSAOCoreProg = self.buildShader(
+                vshader_path=f'./glw/shaders/{_version}/ssao_core_vs.glsl',
+                fshader_path=f'./glw/shaders/{_version}/ssao_core_fs.glsl'
+            )
+            self.SSAOBlurProg = self.buildShader(
+                vshader_path=f'./glw/shaders/{_version}/ssao_blur_vs.glsl',
+                fshader_path=f'./glw/shaders/{_version}/ssao_blur_fs.glsl'
+            )
+            self.SSAOLightProg = self.buildShader(
+                vshader_path=f'./glw/shaders/{_version}/ssao_light_vs.glsl',
+                fshader_path=f'./glw/shaders/{_version}/ssao_pbr_fs.glsl'
+            )
+                
+
+            self.geoProgAttribList = ['a_Position', 'a_Normal']
+            self.geoProgUniformList = ['u_ProjMatrix', 'u_ViewMatrix', 'u_ModelMatrix']
+
+            self.coreBlurProgAttribList = ['a_Position']
             
-        else:
-            print('OpenGL version: 3.3')            
-            _version = '330'
+            self.coreProgUniformList = ['u_projMode', 'u_screenSize', 'u_kernelNoise', 'u_normalMap', 'u_positionMap', 'u_ProjMatrix', 'u_kernelSize', 'u_sampleRad', 'u_kernel']
+            self.blurProgUniformList = ['u_AOMap', 'u_TexelSize', 'u_NormalMap', 'u_PositionMap', 'u_Radius', 'u_NormalSigma', 'u_DepthSigma', 'u_SpatialSigma']
+            self.lightProgAttribList = ['a_Position', 'a_Color', 'a_Normal', 'a_Texcoord']
+            self.lightProgUniformList = ['u_ProjMatrix', 'u_ViewMatrix', 'u_ModelMatrix', 'u_CamPos', 'u_AOMap', 'u_enableAO', \
+                                    'u_LightDir', 'u_LightColor', 'u_AmbientColor', 'u_NumLights', \
+                                    'u_Lights[0].position', 'u_Lights[0].color', \
+                                    'u_Lights[1].position', 'u_Lights[1].color', \
+                                    'u_Lights[2].position', 'u_Lights[2].color', \
+                                    'u_Lights[3].position', 'u_Lights[3].color', \
+                                    'u_Lights[4].position', 'u_Lights[4].color', \
+                                        'render_mode', 
+                                        'u_EnableAlbedoTexture', 'u_AlbedoTexture', 'u_Metallic', 'u_Roughness', 
+                                        'u_EnableMetallicRoughnessTexture', 'u_MetallicRoughnessTexture',
+                                        'u_farPlane',
+                                        'u_farPlane_ratio',
+                                        'u_screenSize',
+            ]
 
-        # _version = '120'
-        self.SSAOGeoProg = self.buildShader(
-            vshader_path=f'./glw/shaders/{_version}/ssao_geo_vs.glsl',
-            fshader_path=f'./glw/shaders/{_version}/ssao_geo_fs.glsl'
-        )
-        self.SSAOCoreProg = self.buildShader(
-            vshader_path=f'./glw/shaders/{_version}/ssao_core_vs.glsl',
-            fshader_path=f'./glw/shaders/{_version}/ssao_core_fs.glsl'
-        )
-        self.SSAOBlurProg = self.buildShader(
-            vshader_path=f'./glw/shaders/{_version}/ssao_blur_vs.glsl',
-            fshader_path=f'./glw/shaders/{_version}/ssao_blur_fs.glsl'
-        )
-        self.SSAOLightProg = self.buildShader(
-            vshader_path=f'./glw/shaders/{_version}/ssao_light_vs.glsl',
-            fshader_path=f'./glw/shaders/{_version}/ssao_light_fs.glsl'
-        )
-             
+            print('Shaders compiled successfully.')
 
-        self.geoProgAttribList = ['a_Position', 'a_Normal']
-        self.geoProgUniformList = ['u_ProjMatrix', 'u_ViewMatrix', 'u_ModelMatrix']
+            self.SSAOGeoProgLocMap = self.cacheShaderLocMap(self.SSAOGeoProg, self.geoProgAttribList, self.geoProgUniformList)
+            self.SSAOLightProgLocMap = self.cacheShaderLocMap(self.SSAOLightProg, self.lightProgAttribList, self.lightProgUniformList)
+            
+            self.SSAOCoreProgLocMap = self.cacheShaderLocMap(self.SSAOCoreProg, self.coreBlurProgAttribList, self.coreProgUniformList)
+            self.SSAOBlurProgLocMap = self.cacheShaderLocMap(self.SSAOBlurProg, self.coreBlurProgAttribList, self.blurProgUniformList)
 
-        self.coreBlurProgAttribList = ['a_Position']
-        
-        self.coreProgUniformList = ['u_projMode', 'u_screenSize', 'u_kernelNoise', 'u_normalMap', 'u_positionMap', 'u_ProjMatrix', 'u_kernelSize', 'u_sampleRad', 'u_kernel']
-        self.blurProgUniformList = ['u_AOMap', 'u_TexelSize', 'u_NormalMap', 'u_PositionMap', 'u_Radius', 'u_NormalSigma', 'u_DepthSigma', 'u_SpatialSigma']
-        self.lightProgAttribList = ['a_Position', 'a_Color', 'a_Normal', 'a_Texcoord']
-        self.lightProgUniformList = ['u_ProjMatrix', 'u_ViewMatrix', 'u_ModelMatrix', 'u_CamPos', 'u_AOMap', 'u_enableAO', \
-                                'u_LightDir', 'u_LightColor', 'u_AmbientColor', 'u_Shiny', 'u_Specular', 'u_Diffuse', 'u_Pellucid', 'u_NumLights', \
-                                'u_Lights[0].position', 'u_Lights[0].color', \
-                                'u_Lights[1].position', 'u_Lights[1].color', \
-                                'u_Lights[2].position', 'u_Lights[2].color', \
-                                'u_Lights[3].position', 'u_Lights[3].color', \
-                                'u_Lights[4].position', 'u_Lights[4].color', \
-                                    'u_Texture','render_mode',
-                                    'u_farPlane',
-                                    'u_farPlane_ratio',
-                                    'u_screenSize',
-        ]
+            self.SSAOGeoFBO = FBOManager()
+            self.SSAOCoreFBO = FBOManager()
+            self.SSAOBlurFBO = FBOManager()
 
-        print('Shaders compiled successfully.')
+            self.SSAONoiseTexture = self.generateNoiseTexture(4, 4)
 
-        self.SSAOGeoProgLocMap = self.cacheShaderLocMap(self.SSAOGeoProg, self.geoProgAttribList, self.geoProgUniformList)
-        self.SSAOLightProgLocMap = self.cacheShaderLocMap(self.SSAOLightProg, self.lightProgAttribList, self.lightProgUniformList)
-        
-        self.SSAOCoreProgLocMap = self.cacheShaderLocMap(self.SSAOCoreProg, self.coreBlurProgAttribList, self.coreProgUniformList)
-        self.SSAOBlurProgLocMap = self.cacheShaderLocMap(self.SSAOBlurProg, self.coreBlurProgAttribList, self.blurProgUniformList)
+            # setup SSAO core shaders
 
-        self.SSAOGeoFBO = FBOManager()
-        self.SSAOCoreFBO = FBOManager()
-        self.SSAOBlurFBO = FBOManager()
+            kernelSize = 64
+            kernelLength = 1.0
+            kernel = self.generateSSAOKernel(kernelSize) * kernelLength
+            glUseProgram(self.SSAOCoreProg)
+            
+            glUniform3fv(self.SSAOCoreProgLocMap['u_kernel'], kernelSize, kernel.flatten())
+            glUniform1f(self.SSAOCoreProgLocMap['u_sampleRad'], kernelLength)
+            glUniform1i(self.SSAOCoreProgLocMap['u_kernelSize'], kernelSize)
 
-        self.SSAONoiseTexture = self.generateNoiseTexture(4, 4)
+            glUseProgram(self.SSAOBlurProg)
 
-        # setup SSAO core shaders
+            glUniform1f(self.SSAOBlurProgLocMap["u_SpatialSigma"], 2.0)
+            glUniform1f(self.SSAOBlurProgLocMap["u_DepthSigma"], 0.5)
+            glUniform1f(self.SSAOBlurProgLocMap["u_NormalSigma"], 32.0)
+            glUniform1i(self.SSAOBlurProgLocMap["u_Radius"], 2)
 
-        kernelSize = 64
-        kernelLength = 1.0
-        kernel = self.generateSSAOKernel(kernelSize) * kernelLength
-        glUseProgram(self.SSAOCoreProg)
-        
-        glUniform3fv(self.SSAOCoreProgLocMap['u_kernel'], kernelSize, kernel.flatten())
-        glUniform1f(self.SSAOCoreProgLocMap['u_sampleRad'], kernelLength)
-        glUniform1i(self.SSAOCoreProgLocMap['u_kernelSize'], kernelSize)
+            # setup SSAO lighting shaders
+            
+            glUseProgram(self.SSAOLightProg)
 
-        glUseProgram(self.SSAOBlurProg)
+            glUniform3f(self.SSAOLightProgLocMap['u_Lights[0].position'], *self.key_light_pos)
+            glUniform3f(self.SSAOLightProgLocMap['u_Lights[0].color'],    *self.key_light_color)
+            glUniform3f(self.SSAOLightProgLocMap['u_Lights[1].position'], *self.fill_light_pos)
+            glUniform3f(self.SSAOLightProgLocMap['u_Lights[1].color'],    *self.fill_light_color)
+            glUniform3f(self.SSAOLightProgLocMap['u_Lights[2].position'], *self.back_light_pos)
+            glUniform3f(self.SSAOLightProgLocMap['u_Lights[2].color'],    *self.back_light_color)
+            # glUniform3f(self.SSAOLightProgLocMap.get('u_Lights[3].position'), *self.bottom_light_pos)
+            # glUniform3f(self.SSAOLightProgLocMap.get('u_Lights[3].color'),    *self.bottom_light_color)
+            # glUniform3f(self.SSAOLightProgLocMap.get('u_Lights[4].position'), *self.top_light_pos)
+            # glUniform3f(self.SSAOLightProgLocMap.get('u_Lights[4].color'),    *self.top_light_color)
 
-        glUniform1f(self.SSAOBlurProgLocMap["u_SpatialSigma"], 2.0)
-        glUniform1f(self.SSAOBlurProgLocMap["u_DepthSigma"], 0.5)
-        glUniform1f(self.SSAOBlurProgLocMap["u_NormalSigma"], 32.0)
-        glUniform1i(self.SSAOBlurProgLocMap["u_Radius"], 2)
+            glUniform1i(self.SSAOLightProgLocMap['u_NumLights'], 4)
+            glUniform3f(self.SSAOLightProgLocMap['u_AmbientColor'], *self.ambient)
 
-        # setup SSAO lighting shaders
-        
-        glUseProgram(self.SSAOLightProg)
-        
-        glUniform3f(self.SSAOLightProgLocMap.get('u_Lights[0].position'), *self.key_light_pos)
-        glUniform3f(self.SSAOLightProgLocMap.get('u_Lights[0].color'),    *self.key_light_color)
-        glUniform3f(self.SSAOLightProgLocMap.get('u_Lights[1].position'), *self.fill_light_pos)
-        glUniform3f(self.SSAOLightProgLocMap.get('u_Lights[1].color'),    *self.fill_light_color)
-        glUniform3f(self.SSAOLightProgLocMap.get('u_Lights[2].position'), *self.back_light_pos)
-        glUniform3f(self.SSAOLightProgLocMap.get('u_Lights[2].color'),    *self.back_light_color)
-        # glUniform3f(self.SSAOLightProgLocMap.get('u_Lights[3].position'), *self.bottom_light_pos)
-        # glUniform3f(self.SSAOLightProgLocMap.get('u_Lights[3].color'),    *self.bottom_light_color)
-        # glUniform3f(self.SSAOLightProgLocMap.get('u_Lights[4].position'), *self.top_light_pos)
-        # glUniform3f(self.SSAOLightProgLocMap.get('u_Lights[4].color'),    *self.top_light_color)
-        
-        glUniform1i(self.SSAOLightProgLocMap.get('u_NumLights'), 3)
-        glUniform3f(self.SSAOLightProgLocMap['u_AmbientColor'], *self.ambient)
-        glUniform1f(self.SSAOLightProgLocMap['u_Shiny'], self.shiny)
-        glUniform1f(self.SSAOLightProgLocMap['u_Specular'], self.specular)
-        glUniform1f(self.SSAOLightProgLocMap['u_Diffuse'], self.diffuse)
-        glUniform1f(self.SSAOLightProgLocMap['u_Pellucid'], self.pellucid)
 
-        glUseProgram(0)
+            glUseProgram(0)
 
-        
+        except Exception as e:
+            traceback.print_exc()
 
     def _tempRenderFullScreenQuad(self):
         '''
@@ -1137,8 +1132,6 @@ class GLWidget(QOpenGLWidget):
         
         glDepthMask(GL_FALSE)
         
-        if self.isAxisVisable:
-            self.axis.renderinShader(locMap=self.SSAOLightProgLocMap)
             
         if self.isGridVisable:
             glUniform1i(self.SSAOLightProgLocMap['u_farPlane'], 1)
@@ -1148,6 +1141,8 @@ class GLWidget(QOpenGLWidget):
             glUniform1f(self.SSAOLightProgLocMap['u_farPlane_ratio'], 0.15)
             self.smallGrid.renderinShader(locMap=self.SSAOLightProgLocMap)
             glUniform1i(self.SSAOLightProgLocMap['u_farPlane'], 0)
+        if self.isAxisVisable:
+            self.axis.renderinShader(locMap=self.SSAOLightProgLocMap)
 
         glDepthMask(GL_TRUE)
 

@@ -46,6 +46,8 @@ from qfluentwidgets import (setTheme, Theme, setThemeColor, qconfig, RoundMenu, 
 from qfluentwidgets import FluentIcon as FIF
 
 
+DEFAULT_WORKSPACE = os.getcwd()
+
 class MyFluentIcon(FluentIconBase, Enum):
     """ Custom icons """
 
@@ -55,7 +57,7 @@ class MyFluentIcon(FluentIconBase, Enum):
 
     def path(self, theme=Theme.AUTO):
         # getIconColor() return "white" or "black" according to current theme
-        return f'ui/icons/{self.value}.svg'
+        return os.path.join(DEFAULT_WORKSPACE, 'ui', 'icons', f'{self.value}.svg')
 
 
 class cellWidget(QTableWidgetItem):
@@ -970,8 +972,6 @@ class App(QMainWindow):
         # self.ui.tableWidget.menu.addAction(Action(FIF.SYNC, '刷新', triggered=lambda: self.remoteUI.openFolder_background()))
         # self.ui.tableWidget.contextMenuEvent = lambda event: self.ui.tableWidget.menu.exec_(event.globalPos())
 
-        
-        
         self.configPath = './user.config'
         self.loadSettings()
         self.changeTheme(self.tgtTheme)
@@ -1608,12 +1608,13 @@ class App(QMainWindow):
             
     def runScript(self, ):
         self.reset_script_namespace()
-
+        os.chdir(DEFAULT_WORKSPACE)
         
         if os.path.isfile(self.currentScriptPath):
             fname = os.path.basename(self.currentScriptPath)
-            
-            sys.path.append(os.path.dirname(self.currentScriptPath))
+            scriptFolder = os.path.dirname(self.currentScriptPath)
+            os.chdir(scriptFolder)
+            sys.path.append(scriptFolder)
             with open(self.currentScriptPath, encoding='utf-8') as f:
 
                 code = f.read()
@@ -1647,6 +1648,8 @@ class App(QMainWindow):
                 self.PopMessageWidgetObj.add_message_stack(
                     ((f"Script '{fname}' exec error", str(exc_value)), 'error')
                 )
+                
+                os.chdir(DEFAULT_WORKSPACE)
 
 
     def runScriptStateChangeRunning(self, ):

@@ -4,7 +4,7 @@ from PySide6.QtWidgets import (QFrame, QVBoxLayout, QHBoxLayout, QSizePolicy,
 from PySide6.QtGui import QKeySequence
 import webbrowser
 from qfluentwidgets import (Action, BodyLabel, DropDownToolButton, SegmentedWidget, RoundMenu, \
-                            SpinBox, DoubleSpinBox, SwitchButton, Slider)
+                            SpinBox, DoubleSpinBox, SwitchButton, Slider, ComboBox)
 from qfluentwidgets import FluentIcon as FIF
 
 
@@ -28,7 +28,9 @@ class GLSettingWidget(QObject):
                  axis_length_callback=None,
                  save_depth_callback=None,
                  save_rgba_callback=None,
-                 enable_ssao_callback=None):
+                 enable_ssao_callback=None,
+                 ssao_kernel_size_callback=None,
+                 ssao_strength_callback=None):
         super().__init__()
         
         self.parent = parent
@@ -46,6 +48,8 @@ class GLSettingWidget(QObject):
         self.save_depth_callback = save_depth_callback
         self.save_rgba_callback = save_rgba_callback
         self.enable_ssao_callback = enable_ssao_callback
+        self.ssao_kernel_size_callback = ssao_kernel_size_callback
+        self.ssao_strength_callback = ssao_strength_callback
 
         self._setup_ui()
         
@@ -65,7 +69,7 @@ class GLSettingWidget(QObject):
         self.gl_render_mode_combobox.addItem('1', 'Simple', lambda: self._on_render_mode_changed(1))
         self.gl_render_mode_combobox.addItem('2', 'Normal', lambda: self._on_render_mode_changed(2))
         self.gl_render_mode_combobox.addItem('3', 'Texture', lambda: self._on_render_mode_changed(3))
-        self.gl_render_mode_combobox.addItem('4', 'Occlusion', lambda: self._on_render_mode_changed(4))
+        self.gl_render_mode_combobox.addItem('4', 'AO', lambda: self._on_render_mode_changed(4))
         self.gl_render_mode_combobox.setCurrentItem('3')
         self.gl_render_mode_combobox.setSizePolicy(QSizePolicy.MinimumExpanding, QSizePolicy.Minimum)
         
@@ -160,6 +164,49 @@ class GLSettingWidget(QObject):
         
         self.gl_setting_Menu.addSeparator()
         
+        
+        
+        frame = QFrame()
+        frame.setLayout(QHBoxLayout())
+        frame.layout().setContentsMargins(0, 10, 0, 10)
+        frame.layout().setSpacing(20)
+        self.enable_ssao_toggle = SwitchButton(parent=self.gl_setting_Menu)
+        self.enable_ssao_toggle.setChecked(True)
+        self.enable_ssao_toggle.checkedChanged.connect(self._on_ssao_visibility_changed)
+        enable_ssao_label = BodyLabel("Screen Space Ambient Occlusion", parent=self.gl_setting_Menu)
+        frame.layout().addWidget(enable_ssao_label)
+        frame.layout().addItem(QSpacerItem(40, 20, QSizePolicy.Expanding, QSizePolicy.Minimum))
+        frame.layout().addWidget(self.enable_ssao_toggle)
+        frame.adjustSize()
+        self.gl_setting_Menu.addWidget(frame, selectable=False)
+
+        frame = QFrame()
+        frame.setLayout(QHBoxLayout())
+        frame.layout().setContentsMargins(0, 10, 0, 10)
+        frame.layout().setSpacing(20)
+        ssao_kernel_label = BodyLabel("AO Kernel", parent=self.gl_setting_Menu)
+        frame.layout().addWidget(ssao_kernel_label)
+        self.ssao_kernel_size_spinbox = SpinBox(parent=self.gl_setting_Menu)
+        self.ssao_kernel_size_spinbox.setRange(8, 128)
+        self.ssao_kernel_size_spinbox.setValue(64)
+        self.ssao_kernel_size_spinbox.setSingleStep(8)
+        self.ssao_kernel_size_spinbox.valueChanged.connect(self._on_ssao_kernel_size_changed)
+        frame.layout().addWidget(self.ssao_kernel_size_spinbox)
+
+        ssao_strength_label = BodyLabel("AO Mag.", parent=self.gl_setting_Menu)
+        frame.layout().addWidget(ssao_strength_label)
+        self.ssao_strength_spinbox = SpinBox(parent=self.gl_setting_Menu)
+        self.ssao_strength_spinbox.setRange(1, 300)
+        self.ssao_strength_spinbox.setValue(60)
+        self.ssao_strength_spinbox.setSingleStep(1)
+        self.ssao_strength_spinbox.valueChanged.connect(self._on_ssao_strength_changed)
+        frame.layout().addWidget(self.ssao_strength_spinbox)
+
+        frame.adjustSize()
+        self.gl_setting_Menu.addWidget(frame, selectable=False)
+
+        self.gl_setting_Menu.addSeparator()
+
         frame = QFrame()
         frame.setLayout(QHBoxLayout())
         frame.layout().setContentsMargins(0, 10, 0, 10)
@@ -186,21 +233,6 @@ class GLSettingWidget(QObject):
         frame.layout().addWidget(axis_control_label)
         frame.layout().addItem(QSpacerItem(40, 20, QSizePolicy.Expanding, QSizePolicy.Minimum))
         frame.layout().addWidget(self.axis_control_toggle)
-        frame.adjustSize()
-        self.gl_setting_Menu.addWidget(frame, selectable=False)
-        
-        
-        frame = QFrame()
-        frame.setLayout(QHBoxLayout())
-        frame.layout().setContentsMargins(0, 10, 0, 10)
-        frame.layout().setSpacing(20)
-        self.enable_ssao_toggle = SwitchButton(parent=self.gl_setting_Menu)
-        self.enable_ssao_toggle.setChecked(True)
-        self.enable_ssao_toggle.checkedChanged.connect(self._on_ssao_visibility_changed)
-        enable_ssao_label = BodyLabel("Enable SSAO", parent=self.gl_setting_Menu)
-        frame.layout().addWidget(enable_ssao_label)
-        frame.layout().addItem(QSpacerItem(40, 20, QSizePolicy.Expanding, QSizePolicy.Minimum))
-        frame.layout().addWidget(self.enable_ssao_toggle)
         frame.adjustSize()
         self.gl_setting_Menu.addWidget(frame, selectable=False)
 
@@ -311,7 +343,18 @@ class GLSettingWidget(QObject):
     def _on_ssao_visibility_changed(self, state):
         if self.enable_ssao_callback:
             self.enable_ssao_callback(state)
+            
 
+        self.ssao_kernel_size_spinbox.setEnabled(state)
+        self.ssao_strength_spinbox.setEnabled(state)
+        
+    def _on_ssao_kernel_size_changed(self, size):
+        if self.ssao_kernel_size_callback:
+            self.ssao_kernel_size_callback(size)
+
+    def _on_ssao_strength_changed(self, strength):
+        if self.ssao_strength_callback:
+            self.ssao_strength_callback(strength)
 
     def move(self, x, y):
         self.gl_setting_button.move(x, y)
@@ -335,7 +378,9 @@ class GLSettingWidget(QObject):
             'grid_visible': self.grid_control_toggle.isChecked(),
             'axis_visible': self.axis_control_toggle.isChecked(),
             'axis_length': self.axis_size_slider.value(),
-            'ssao_enabled': self.enable_ssao_toggle.isChecked()
+            'ssao_enabled': self.enable_ssao_toggle.isChecked(),
+            'ssao_kernel_size': self.ssao_kernel_size_spinbox.value(),
+            'ssao_strength': self.ssao_strength_spinbox.value()
         }
         
     def setSettings(self, settings: dict):
@@ -365,3 +410,6 @@ class GLSettingWidget(QObject):
         self.axis_control_toggle.setChecked(settings.get('axis_visible', self.axis_control_toggle.isChecked()))
         self.axis_size_slider.setValue(settings.get('axis_length', self.axis_size_slider.value()))
         self.enable_ssao_toggle.setChecked(settings.get('ssao_enabled', self.enable_ssao_toggle.isChecked()))
+
+        self.ssao_kernel_size_spinbox.setValue(settings.get('ssao_kernel_size', self.ssao_kernel_size_spinbox.value()))
+        self.ssao_strength_spinbox.setValue(settings.get('ssao_strength', self.ssao_strength_spinbox.value()))

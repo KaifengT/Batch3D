@@ -10,7 +10,6 @@ uniform sampler2D u_normalMap;
 uniform sampler2D u_kernelNoise;
 uniform vec2 u_screenSize;
 
-uniform float u_sampleRad;
 uniform mat4 u_ProjMatrix;
 
 const int MAX_KERNEL_SIZE = 256;
@@ -20,7 +19,7 @@ uniform int u_projMode;
 
 const float bias = 0.025;
 
-const float u_radiusPixels = 60.0; // radius in pixels, used to calculate view space radius
+uniform float u_radiusPixels; // radius in pixels, used to calculate view space radius
 
 void main()
 {

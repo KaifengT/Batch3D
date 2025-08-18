@@ -3,7 +3,7 @@ import time
 import numpy as np
 
 
-mesh = trimesh.load_mesh('example\Common fangtooth.glb')
+mesh = trimesh.load_mesh('Common fangtooth.glb')
 
 
 mesh_cus = {

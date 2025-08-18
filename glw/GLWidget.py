@@ -539,6 +539,8 @@ class GLWidget(QOpenGLWidget):
         self.gl_render_mode = 3
         self.point_line_size = 3
         self.enableSSAO = 1
+        self.SSAOkernelSize = 64
+        self.SSAOStrength = 60.0
         
         self.grid = Grid()
         self.smallGrid = Grid(n=510, scale=0.1)
@@ -560,6 +562,8 @@ class GLWidget(QOpenGLWidget):
             save_depth_callback=self.saveDepthMap,
             save_rgba_callback=self.saveRGBAMap,
             enable_ssao_callback=self.setEnableSSAO,
+            ssao_kernel_size_callback=self.setSSAOKernelSize,
+            ssao_strength_callback=self.setSSAOStrength,
         )
         
         self.gl_setting_button = self.gl_settings.get_button()
@@ -828,6 +832,42 @@ class GLWidget(QOpenGLWidget):
         self.enableSSAO = 1 if enable else 0
         self.update()
 
+    def setSSAOKernelSize(self, size):
+        """
+        Set the SSAO kernel size.
+        Args:
+            size (int): The new kernel size.
+        Returns:
+            None
+        """
+        self.SSAOkernelSize = size
+
+        if hasattr(self, 'SSAOCoreProg') and self.SSAOCoreProg is not None:
+            kernel = self.generateSSAOKernel(self.SSAOkernelSize)
+            glUseProgram(self.SSAOCoreProg)
+            glUniform3fv(self.SSAOCoreProgLocMap['u_kernel'], self.SSAOkernelSize, kernel.flatten())
+            glUniform1i(self.SSAOCoreProgLocMap['u_kernelSize'], self.SSAOkernelSize)
+            glUseProgram(0)
+            
+        self.update()
+
+    def setSSAOStrength(self, strength):
+        """
+        Set the SSAO strength.
+        Args:
+            strength (float): The new SSAO strength.
+        Returns:
+            None
+        """
+        self.SSAOStrength = strength
+
+        if hasattr(self, 'SSAOCoreProg') and self.SSAOCoreProg is not None:
+            glUseProgram(self.SSAOCoreProg)
+            glUniform1f(self.SSAOCoreProgLocMap['u_radiusPixels'], self.SSAOStrength)
+            glUseProgram(0)
+            
+        self.update()
+
     def initializeGL(self):
 
         glEnable(GL_DEPTH_TEST)
@@ -868,7 +908,7 @@ class GLWidget(QOpenGLWidget):
                 
             else:
                 print('OpenGL version: 3.3')            
-                _version = '330'
+                _version = '120'
 
             # _version = '120'
             self.SSAOGeoProg = self.buildShader(
@@ -894,7 +934,7 @@ class GLWidget(QOpenGLWidget):
 
             self.coreBlurProgAttribList = ['a_Position']
             
-            self.coreProgUniformList = ['u_projMode', 'u_screenSize', 'u_kernelNoise', 'u_normalMap', 'u_positionMap', 'u_ProjMatrix', 'u_kernelSize', 'u_sampleRad', 'u_kernel']
+            self.coreProgUniformList = ['u_projMode', 'u_screenSize', 'u_kernelNoise', 'u_normalMap', 'u_positionMap', 'u_ProjMatrix', 'u_kernelSize', 'u_radiusPixels', 'u_kernel']
             self.blurProgUniformList = ['u_AOMap', 'u_TexelSize', 'u_NormalMap', 'u_PositionMap', 'u_Radius', 'u_NormalSigma', 'u_DepthSigma', 'u_SpatialSigma']
             self.lightProgAttribList = ['a_Position', 'a_Color', 'a_Normal', 'a_Texcoord']
             self.lightProgUniformList = ['u_ProjMatrix', 'u_ViewMatrix', 'u_ModelMatrix', 'u_CamPos', 'u_AOMap', 'u_enableAO', \
@@ -928,15 +968,13 @@ class GLWidget(QOpenGLWidget):
 
             # setup SSAO core shaders
 
-            kernelSize = 64
-            kernelLength = 1.0
-            kernel = self.generateSSAOKernel(kernelSize) * kernelLength
+            
+            kernel = self.generateSSAOKernel(self.SSAOkernelSize)
             glUseProgram(self.SSAOCoreProg)
             
-            glUniform3fv(self.SSAOCoreProgLocMap['u_kernel'], kernelSize, kernel.flatten())
-            glUniform1f(self.SSAOCoreProgLocMap['u_sampleRad'], kernelLength)
-            glUniform1i(self.SSAOCoreProgLocMap['u_kernelSize'], kernelSize)
-
+            glUniform3fv(self.SSAOCoreProgLocMap['u_kernel'], self.SSAOkernelSize, kernel.flatten())
+            glUniform1i(self.SSAOCoreProgLocMap['u_kernelSize'], self.SSAOkernelSize)
+            glUniform1f(self.SSAOCoreProgLocMap['u_radiusPixels'], self.SSAOStrength)
             glUseProgram(self.SSAOBlurProg)
 
             glUniform1f(self.SSAOBlurProgLocMap["u_SpatialSigma"], 2.0)

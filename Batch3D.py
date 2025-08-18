@@ -1,5 +1,5 @@
 '''
-copyright: (c) 2024 by KaifengTang
+copyright: (c) 2025 by KaifengTang
 '''
 import sys, os
 wdir = os.path.abspath(os.path.dirname(__file__))
@@ -113,7 +113,7 @@ class RemoteUI(QDialog):
         self.ui.pushButton_go.setDisabled(True)
         self.ui.pushButton_refresh.setDisabled(True)
         
-        self.configPath = './ssh.config'
+        self.configPath = os.path.join(DEFAULT_WORKSPACE, 'ssh.config')
         
     def bytestoReadable(self, n):
         symbols = ('K', 'M', 'G', 'T', 'P', 'E', 'Z', 'Y')
@@ -278,8 +278,7 @@ class consoleUI(QDialog):
 
     def __init__(self, parent:QWidget=None) -> None:
         super().__init__(parent,)
-        if sys.platform == 'win32':
-            self.setAttribute(Qt.WA_TranslucentBackground)
+
         self.resize(500, 700)
         self.setWindowTitle('Console')
         
@@ -312,8 +311,15 @@ class consoleUI(QDialog):
         font = self.textbox.font()
 
         if sys.platform == 'win32':
-            font.setFamilies([u'Consolas', u'Microsoft Yahei UI'])
-            
+            self.setAttribute(Qt.WA_TranslucentBackground)
+            font = QFont(['Consolas', 'Microsoft Yahei UI'], 10, QFont.Weight.Medium)
+
+        elif sys.platform == 'darwin':
+            font = QFont(['SF Mono', 'SF Pro Display'], 10, QFont.Weight.Medium)
+
+        else:
+            font = QFont(['Consolas', 'Ubuntu Mono'], 10, QFont.Weight.Medium)
+
         self.textbox.setFont(font)
         self.commandBox.setFont(font)
         
@@ -972,7 +978,7 @@ class App(QMainWindow):
         # self.ui.tableWidget.menu.addAction(Action(FIF.SYNC, '刷新', triggered=lambda: self.remoteUI.openFolder_background()))
         # self.ui.tableWidget.contextMenuEvent = lambda event: self.ui.tableWidget.menu.exec_(event.globalPos())
 
-        self.configPath = './user.config'
+        self.configPath = os.path.join(DEFAULT_WORKSPACE, 'user.config')
         self.loadSettings()
         self.changeTheme(self.tgtTheme)
         # self.changeTXTTheme(self.tgtTheme)
@@ -1943,7 +1949,7 @@ if __name__ == "__main__":
             app.setFont(font)
 
         except:
-            ...
+            traceback.print_exc()
 
     elif sys.platform == 'darwin':
         font = QFont(['SF Pro Display', 'Helvetica Neue', 'Arial'], 10, QFont.Weight.Normal)

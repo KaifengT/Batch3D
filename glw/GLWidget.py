@@ -164,7 +164,7 @@ class FBOManager:
         else:
             raise ValueError(f"Unsupported internal type: {internalType}")
     
-    def getFBO(self, width, height, depth=False, colors=[]):
+    def getFBO(self, width, height, depth=False, ms=False, samples=1, colors=[]):
         '''
         Get or create a Frame Buffer Object (FBO) with a depth texture.
         If the FBO already exists and the dimensions match, it will return the existing FBO.
@@ -179,7 +179,7 @@ class FBOManager:
             self._width != width or 
             self._height != height):
             # print(f"Creating FBO: {width}x{height}")
-            self._createFBO(width, height, depth, colors)
+            self._createFBO(width, height, depth, ms, samples, colors)
         # self._create_fbo(width, height)
         return self._fbo, self._depth_texture
     
@@ -202,6 +202,25 @@ class FBOManager:
         glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT,
                                 GL_TEXTURE_2D, depth_texture, 0)
         self._attachments_id.append(depth_texture)
+
+    def _addDepthAttachmentMultisample(self, width, height, samples=1):
+        '''
+        Add a depth attachment to the FBO.
+        Args:
+            width (int): The width of the FBO.
+            height (int): The height of the FBO.
+        Returns:
+            None
+        '''
+        depth_texture = glGenTextures(1)
+        glBindTexture(GL_TEXTURE_2D_MULTISAMPLE, depth_texture)
+        glTexImage2DMultisample(GL_TEXTURE_2D_MULTISAMPLE, samples, GL_DEPTH_COMPONENT32,
+                                 width, height, True)
+        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT,
+                                GL_TEXTURE_2D_MULTISAMPLE, depth_texture, 0)
+        glBindTexture(GL_TEXTURE_2D_MULTISAMPLE, 0)
+        self._attachments_id.append(depth_texture)
+
 
     def _addAttachment(self, width, height, internalType, attachment=GL_COLOR_ATTACHMENT0, filter=GL_NEAREST):
         '''
@@ -236,7 +255,41 @@ class FBOManager:
         
         self._attachments_id.append(texID)
 
-    def _createFBO(self, width, height, depth=False, colors=[]):
+
+    def _addAttachmentMultisample(self, width, height, internalType, attachment=GL_COLOR_ATTACHMENT0, filter=GL_NEAREST, samples=1):
+        '''
+        Add a multisampled color attachment to the FBO.
+        Args:
+            internalType (int): The internal format of the texture.
+                supported types: GL_RGBA32F, GL_RGB32F, GL_R32F, GL_RGB
+            attachment (int): The attachment point of the texture. Choose from GL_COLOR_ATTACHMENT0 - GL_COLOR_ATTACHMENT31.
+            filter (int): The texture filter mode.
+                supported types: GL_LINEAR, GL_NEAREST
+            samples (int): The number of samples to use for multisampling.
+
+        Returns:
+            None
+        '''
+        
+        texID = glGenTextures(1)
+
+        glBindTexture(GL_TEXTURE_2D_MULTISAMPLE, texID)
+        glTexImage2DMultisample(GL_TEXTURE_2D_MULTISAMPLE, samples, internalType,
+                                 width, height, True)
+
+        # glTexParameteri(GL_TEXTURE_2D_MULTISAMPLE, GL_TEXTURE_MIN_FILTER, filter)
+        # glTexParameteri(GL_TEXTURE_2D_MULTISAMPLE, GL_TEXTURE_MAG_FILTER, filter)
+        # glTexParameteri(GL_TEXTURE_2D_MULTISAMPLE, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE)
+        # glTexParameteri(GL_TEXTURE_2D_MULTISAMPLE, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE)
+
+        glFramebufferTexture2D(GL_FRAMEBUFFER, attachment,
+                            GL_TEXTURE_2D_MULTISAMPLE, texID, 0)
+
+        glBindTexture(GL_TEXTURE_2D_MULTISAMPLE, 0)
+
+        self._attachments_id.append(texID)
+
+    def _createFBO(self, width, height, depth=False, ms=False, samples=1, colors=[]):
 
         # print(f"FBOManager: Creating FBO: {width}x{height}")
         
@@ -251,10 +304,16 @@ class FBOManager:
 
         # depth attachment, necessary.
         if depth:
-            self._addDepthAttachment(width, height)
-            
+            if ms:
+                self._addDepthAttachmentMultisample(width, height, samples=samples)
+            else:
+                self._addDepthAttachment(width, height)
+
         for i, iType in enumerate(colors):
-            self._addAttachment(width, height, iType, attachment=GL_COLOR_ATTACHMENT0 + i, filter=GL_LINEAR)
+            if ms:
+                self._addAttachmentMultisample(width, height, iType, attachment=GL_COLOR_ATTACHMENT0 + i, filter=GL_NEAREST, samples=samples)
+            else:
+                self._addAttachment(width, height, iType, attachment=GL_COLOR_ATTACHMENT0 + i, filter=GL_LINEAR)
 
         glDrawBuffers(len(colors), [GL_COLOR_ATTACHMENT0 + i for i in range(len(colors))])
 
@@ -489,7 +548,7 @@ class GLWidget(QOpenGLWidget):
         
         #----- MSAA 4X -----#
         GLFormat = self.format()
-        GLFormat.setSamples(1)
+        GLFormat.setSamples(4)
         self.setFormat(GLFormat)
         
         self.objMap = {
@@ -903,12 +962,12 @@ class GLWidget(QOpenGLWidget):
 
 
             if sys.platform == 'darwin':
-                print('Using OpenGL 1.2')
+                print('OpenGL version: 1.2')
                 _version = '120'
                 
             else:
                 print('OpenGL version: 3.3')            
-                _version = '120'
+                _version = '330'
 
             # _version = '120'
             self.SSAOGeoProg = self.buildShader(
@@ -1052,10 +1111,31 @@ class GLWidget(QOpenGLWidget):
             0, 0, self.raw_window_w, self.raw_window_h,
             0, 0, self.raw_window_w, self.raw_window_h,
             GL_COLOR_BUFFER_BIT,
-            GL_LINEAR
+            GL_NEAREST
         )
         glBindFramebuffer(GL_FRAMEBUFFER, self.defaultFramebufferObject())
-        
+
+    def _copyBuffer(self, src:FBOManager, dst:FBOManager, srcatt=GL_COLOR_ATTACHMENT0, dstatt=GL_COLOR_ATTACHMENT0):
+        '''
+        Copy the contents of the specified framebuffer object to another framebuffer object.
+        Args:
+            src (FBOManager): The source framebuffer object.
+            dst (FBOManager): The destination framebuffer object.
+            srcatt (GLenum): The color attachment to read from the source framebuffer.
+            dstatt (GLenum): The color attachment to write to the destination framebuffer.
+        '''
+        glBindFramebuffer(GL_READ_FRAMEBUFFER, src._fbo)
+        glReadBuffer(srcatt)
+
+        glBindFramebuffer(GL_DRAW_FRAMEBUFFER, dst._fbo)
+        glDrawBuffer(dstatt)
+
+        glBlitFramebuffer(
+            0, 0, self.raw_window_w, self.raw_window_h,
+            0, 0, self.raw_window_w, self.raw_window_h,
+            GL_COLOR_BUFFER_BIT,
+            GL_NEAREST
+        )
 
     def paintGL(self):
         
@@ -1081,7 +1161,6 @@ class GLWidget(QOpenGLWidget):
 
         # render objs
         self._renderObjs(locMap=self.SSAOGeoProgLocMap, render_mode=self.gl_render_mode, size=self.point_line_size)
-
 
         ''' stage 2: SSAO Core Pass '''
         if self.enableSSAO:

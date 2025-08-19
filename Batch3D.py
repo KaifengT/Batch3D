@@ -939,7 +939,7 @@ class App(QMainWindow):
 
         self.ui.pushButton_openconsole.clicked.connect(self.showConsole)
         self.ui.pushButton_openconsole.setIcon(FIF.COMMAND_PROMPT)
-        self.console = consoleUI(self)
+        self.console = consoleUI()
         
         self.ui.checkBox_arrow.setOnText('On')
         self.ui.checkBox_arrow.setOffText('Off')
@@ -995,7 +995,7 @@ class App(QMainWindow):
         try:
             if hasattr(self, 'script_namespace'):
                 for k, v in self.script_namespace.items():
-                    if k == 'Batch3D':
+                    if k in ('Batch3D', 'b3d'):
                         continue
                     if isinstance(v, QThread):
                         v.quit()
@@ -1012,7 +1012,7 @@ class App(QMainWindow):
                 
         
         finally:
-            self.script_namespace = {'Batch3D':self,}
+            self.script_namespace = {'Batch3D':self, 'b3d':self}
     
     def moveToolWidget(self, hide=True):
         self.tool_anim.stop()
@@ -1820,10 +1820,11 @@ class App(QMainWindow):
         self.saveSettings()
         
         if sys.platform == 'win32':
-            self.applyMicaTheme(self.winId())
             self.applyMicaTheme(self.console.winId())
             self.applyMicaTheme(self.remoteUI.winId())
             self.applyMicaTheme(self.fileDetailUI.winId())
+            
+            self.applyMicaTheme(self.winId())
             
             
     def loadSettings(self, ):

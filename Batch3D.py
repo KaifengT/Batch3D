@@ -8,8 +8,8 @@ import numpy as np
 import numpy.linalg as linalg
 from enum import Enum
 import copy
-from PySide6.QtWidgets import ( QApplication, QMainWindow, QTableWidgetItem, QWidget, QFileDialog, QDialog, QTextEdit, QGraphicsDropShadowEffect, QFrame, QVBoxLayout, QLabel)
-from PySide6.QtCore import  QSize, QThread, Signal, Qt, QPropertyAnimation, QEasingCurve, QPoint, QRect, QObject, QTimer
+from PySide6.QtWidgets import ( QApplication, QMainWindow, QTableWidgetItem, QWidget, QFileDialog, QDialog, QTextEdit, QGraphicsDropShadowEffect, QHBoxLayout, QVBoxLayout, QLabel)
+from PySide6.QtCore import  QSize, QThread, Signal, Qt, QPropertyAnimation, QEasingCurve, QPoint, QRect, QObject, QTimer, QEvent
 from PySide6.QtGui import QCloseEvent, QIcon, QFont, QAction, QColor, QSurfaceFormat, QTextCursor
 from ui.PopMessageWidget import PopMessageWidget_fluent as PopMessageWidget
 import multiprocessing
@@ -29,6 +29,7 @@ from trimesh.visual.material import SimpleMaterial, PBRMaterial
 from trimesh.visual.texture import TextureVisuals
 from trimesh.visual.color import ColorVisuals
 from trimesh.scene.transforms import SceneGraph
+import importlib
 # This is to avoid the error: "ImportError: numpy.core.multiarray failed to import"
 import numpy.core.multiarray
 
@@ -42,11 +43,14 @@ if sys.platform == 'win32':
 
 
 
-from qfluentwidgets import (setTheme, Theme, setThemeColor, qconfig, RoundMenu, widgets, ToggleToolButton, Slider, Action, PushButton, FluentIconBase, LineEdit)
+from qfluentwidgets import (setTheme, Theme, setThemeColor, qconfig, RoundMenu, widgets, ToggleToolButton, Slider, BodyLabel, PushButton, FluentIconBase, LineEdit)
 from qfluentwidgets import FluentIcon as FIF
 
 
 DEFAULT_WORKSPACE = os.getcwd()
+TOOL_UI_WIDTH = 350
+PROGBAR_HEIGHT = 50
+CONSOLE_HEIGHT = 250
 
 class MyFluentIcon(FluentIconBase, Enum):
     """ Custom icons """
@@ -274,24 +278,49 @@ class stdoutRedirector:
     def clear(self):
         self._cache = ''
 
-class consoleUI(QDialog):
+class consoleUI(QWidget):
 
     def __init__(self, parent:QWidget=None) -> None:
         super().__init__(parent,)
 
-        self.resize(500, 700)
-        self.setWindowTitle('Console')
+        # self.resize(500, 700)
+        # self.setWindowTitle('Console')
         
         self.verticalLayout = QVBoxLayout(self)
+        self.verticalLayout.setContentsMargins(0, 0, 0, 0)
+
+        self.dragArea = QWidget(self)
+        self.dragArea.setFixedHeight(6)
+        self.dragArea.setMaximumWidth(100)
+        self.dragArea.setCursor(Qt.SizeVerCursor)
+        self.dragArea.setStyleSheet("""
+            QWidget {
+                background-color: rgba(128, 128, 128, 100);
+                border-radius: 3px;
+                
+            }
+        """)
+        self.dragLayout = QHBoxLayout()
+        self.dragLayout.setContentsMargins(0, 0, 0, 0)
+        self.dragLayout.setSpacing(0)
+        
+        self.dragging = False
+        self.drag_start_y = 0
+        self.original_height = 0
         
         self.textbox = widgets.TextBrowser(self)
         self.textbox.setLineWrapMode(QTextEdit.LineWrapMode.NoWrap)
         self.commandBox = LineEdit(self)
+        
+        self.dragLayout.addWidget(self.dragArea)
+        self.verticalLayout.addLayout(self.dragLayout)
         self.verticalLayout.addWidget(self.textbox)
         self.verticalLayout.addWidget(self.commandBox)
         
-        self.commandBox.returnPressed.connect(self._on_enter_pressed)
+        self.commandBox.returnPressed.connect(self._onEnterPressed)
         self.commandBox.setPlaceholderText('Enter command here and press Enter to execute')
+        self.commandBox.textChanged.connect(self._onType)
+        self._commandBoxLastText = ''
 
         self._cache = ''
         self._globals = {}
@@ -323,9 +352,42 @@ class consoleUI(QDialog):
         self.textbox.setFont(font)
         self.commandBox.setFont(font)
         
+        self.dragArea.installEventFilter(self)
         
         self.command_history = []
         self.history_index = -1
+
+    def eventFilter(self, obj, event:QEvent):
+        if obj == self.dragArea:
+            if event.type() == event.Type.MouseButtonPress:
+                if event.button() == Qt.LeftButton:
+                    self.dragging = True
+                    self.drag_start_y = event.globalPosition().y()
+                    self.original_height = self.height()
+                    return True
+            elif event.type() == event.Type.MouseMove:
+                if self.dragging:
+                    # calculate height change
+                    delta_y = event.globalPosition().y() - self.drag_start_y
+                    new_height = max(100, self.original_height - delta_y)  # min height 100px
+
+                    # get current position
+                    current_x = self.x()
+                    current_y = self.y()
+                    current_width = self.width()
+
+                    # only change height, keep position and width unchanged
+                    # since dragging from the top, adjust y position to keep bottom position unchanged
+                    new_y = current_y + (self.height() - new_height)
+                    
+                    self.setGeometry(current_x, new_y, current_width, new_height)
+                    
+                    return True
+            elif event.type() == event.Type.MouseButtonRelease:
+                if event.button() == Qt.LeftButton:
+                    self.dragging = False
+                    return True
+        return super().eventFilter(obj, event)
 
 
     def restore(self, ):
@@ -381,28 +443,28 @@ class consoleUI(QDialog):
         except Exception as e:
             traceback.print_exc()
         
-    def _on_enter_pressed(self):
+    def _onEnterPressed(self):
         command = self.commandBox.text()
         if command.strip():
-            self.add_to_history(command)
+            self.add2History(command)
             print('→ ', command)
             self.commandBox.clear()
             self.execCommand(command)
 
     def keyPressEvent(self, event):
         if event.key() == Qt.Key_Up:
-            self.show_previous_command()
+            self.showPreviousCommand()
         elif event.key() == Qt.Key_Down:
-            self.show_next_command()
+            self.showNextCommand()
         else:
             super().keyPressEvent(event)
 
-    def show_previous_command(self):
+    def showPreviousCommand(self):
         if self.command_history and self.history_index < len(self.command_history) - 1:
             self.history_index += 1
             self.commandBox.setText(self.command_history[-(self.history_index + 1)])
 
-    def show_next_command(self):
+    def showNextCommand(self):
         if self.command_history and self.history_index > 0:
             self.history_index -= 1
             self.commandBox.setText(self.command_history[-(self.history_index + 1)])
@@ -410,10 +472,29 @@ class consoleUI(QDialog):
             self.history_index = -1
             self.commandBox.clear()
 
-    def add_to_history(self, command):
+    def add2History(self, command):
         if command and (not self.command_history or command != self.command_history[-1]):
             self.command_history.append(command)
         self.history_index = -1
+
+    def hideEvent(self, event):
+        self.flush_timer.stop()
+        return super().hideEvent(event)
+    
+    def _onType(self, text: str):
+    
+        pairs = {'(': ')', '[': ']', '{': '}', '<': '>', '\'': '\'', '\"': '\"'}
+        cursor_pos = self.commandBox.cursorPosition()
+
+        if cursor_pos > 0 and text[cursor_pos - 1] in pairs and len(text) > len(self._commandBoxLastText):
+            last_char = text[cursor_pos - 1]
+            closing_char = pairs[last_char]
+            self.commandBox.blockSignals(True)
+            self.commandBox.insert(closing_char)
+            self.commandBox.setCursorPosition(cursor_pos)
+            self.commandBox.blockSignals(False)
+            
+        self._commandBoxLastText = text    
 
 
 class dataParser:
@@ -838,8 +919,8 @@ class App(QMainWindow):
         # self.toolframe = QFrame(self.ui.openGLWidget)
         # self.ui.tool.setFixedSize(200, 200)
         
-        self.ui.tool.setFixedWidth(320)
-        self.ui.tool.setMinimumHeight(320)
+        self.ui.tool.setFixedWidth(TOOL_UI_WIDTH)
+        self.ui.tool.setMinimumHeight(TOOL_UI_WIDTH)
         self.ui.tool.setParent(self)
         self.ui.tool.move(15, 10)
         # add shadow
@@ -856,7 +937,7 @@ class App(QMainWindow):
         self.tool_anim.setEasingCurve(QEasingCurve.InOutQuart)
 
         self.tool_anim_button = ToggleToolButton(FIF.PIN, self)
-        self.tool_anim_button.move(350, 15)
+        self.tool_anim_button.move(380, 15)
         self.tool_anim_button.setFixedSize(30, 30)
         self.tool_anim_button.toggle()
         self.tool_anim_button.toggled.connect(self.moveToolWidget)
@@ -939,8 +1020,10 @@ class App(QMainWindow):
 
         self.ui.pushButton_openconsole.clicked.connect(self.showConsole)
         self.ui.pushButton_openconsole.setIcon(FIF.COMMAND_PROMPT)
-        self.console = consoleUI()
-        
+        self.console = consoleUI(self)
+        self.console.setHidden(True)
+        self.console.setGeometry(350, 600, 800, 200)
+
         self.ui.checkBox_arrow.setOnText('On')
         self.ui.checkBox_arrow.setOffText('Off')
 
@@ -987,10 +1070,11 @@ class App(QMainWindow):
         
         # rename
         self.GL = self.ui.openGLWidget
-        self.reset_script_namespace()
+        self.resetScriptNamespace()
+        self.scriptModules = set()
         self.console.setGlobals(self.script_namespace)
     
-    def reset_script_namespace(self, ):
+    def resetScriptNamespace(self, ):
         # delete objects in script namespace
         try:
             if hasattr(self, 'script_namespace'):
@@ -1613,7 +1697,12 @@ class App(QMainWindow):
             self.ui.pushButton_runscript.setText('Run [ ' + os.path.basename(self.currentScriptPath) + ' ]')
             
     def runScript(self, ):
-        self.reset_script_namespace()
+        
+        if not hasattr(self, 'sysModules'):
+            # This should only be done once
+            self.sysModules = set(sys.modules.keys())
+
+        self.resetScriptNamespace()
         os.chdir(DEFAULT_WORKSPACE)
         
         if os.path.isfile(self.currentScriptPath):
@@ -1628,7 +1717,26 @@ class App(QMainWindow):
 
             try:
                 self.console.setGlobals(self.script_namespace)
+                
+                code = compile(code, fname, 'exec')
+                # exec(code, self._globals)
+                
+                for scriptmodule in self.scriptModules:
+                    if scriptmodule in sys.modules.keys():
+                        modulePath = sys.modules[scriptmodule].__file__
+                        print(f"Try to reloading module: {scriptmodule} from {modulePath}")
+                        if modulePath is not None and os.path.exists(modulePath):
+                            importlib.reload(sys.modules[scriptmodule])
+                        else:
+                            print(f"Try to reload Module {scriptmodule} from {modulePath} but it does not exist.")
+
+                print(f" --- Executing script: {fname} .... --- ")
                 exec(code, self.script_namespace)
+                
+                print(f" --- Executing script: {fname} done --- ")
+
+                self.scriptModules = set(sys.modules.keys()) - self.sysModules
+
                 if sys.platform == 'win32':
                     for item_name, item_instance in self.script_namespace.items():
                         if isinstance(item_instance, QWidget) and item_instance.isWindow():
@@ -1646,9 +1754,9 @@ class App(QMainWindow):
                 error_details_str = "".join(error_details_list)
                 
                 # 1. 在控制台打印详细的错误信息和追溯
-                print(f"--- Error executing script: {fname} ---")
+                print(f" --- Error executing script: {fname} --- ")
                 print(error_details_str)
-                print(f"--- End of script error for: {fname} ---")
+                print(f" --- End of script error for: {fname} --- ")
                 
                 # 2. 在UI的PopMessageWidget中显示错误摘要
                 self.PopMessageWidgetObj.add_message_stack(
@@ -1709,10 +1817,10 @@ class App(QMainWindow):
         self.backendSFTPThread.wait(200)
         self.backendSFTPThread.terminate()
         
-        self.reset_script_namespace()
+        self.resetScriptNamespace()
         self.fileDetailUI.close()
         self.remoteUI.close()
-        self.console.close()
+
         self.console.restore()
         
         return super().closeEvent(event)
@@ -1748,9 +1856,14 @@ class App(QMainWindow):
         
     def resizeEvent(self, event: QCloseEvent) -> None:
         self.windowBlocker.resize(self.size())   
-        
-        self.ui.tool.setFixedWidth(320)
-        self.ui.tool.setFixedHeight(self.height()-50)
+
+        self.ui.tool.setFixedWidth(TOOL_UI_WIDTH)
+        self.ui.tool.setFixedHeight(self.height() - PROGBAR_HEIGHT)
+
+
+        current_height = self.console.height()
+        self.console.setGeometry(TOOL_UI_WIDTH+30, self.height()-current_height-PROGBAR_HEIGHT+5, self.width()-TOOL_UI_WIDTH-45, min(current_height, self.height()-PROGBAR_HEIGHT))
+
         return super().resizeEvent(event)
 
     def serverConnected(self, ):
@@ -1820,10 +1933,8 @@ class App(QMainWindow):
         self.saveSettings()
         
         if sys.platform == 'win32':
-            self.applyMicaTheme(self.console.winId())
             self.applyMicaTheme(self.remoteUI.winId())
             self.applyMicaTheme(self.fileDetailUI.winId())
-            
             self.applyMicaTheme(self.winId())
             
             
@@ -1899,13 +2010,12 @@ class App(QMainWindow):
             
             
     def showConsole(self):
-        if sys.platform == 'win32':
-            self.applyMicaTheme(self.console.winId())
-        self.console.show()
-            
-            
+        if self.console.isHidden():
+            # self.console.setGeometry(TOOL_UI_WIDTH+30, self.height()-CONSOLE_HEIGHT-PROGBAR_HEIGHT+5, self.width()-TOOL_UI_WIDTH-45, CONSOLE_HEIGHT)
+            self.console.setHidden(False)
+        else:
+            self.console.setHidden(True)
 
-        
 
 def changeGlobalTheme(x):
     global CURRENT_THEME
@@ -1939,7 +2049,7 @@ if __name__ == "__main__":
 
     App.remoteUI.setWindowIcon(QIcon('icon.ico'))
     App.fileDetailUI.setWindowIcon(QIcon('icon.ico'))
-    App.console.setWindowIcon(QIcon('icon.ico'))
+
 
     if sys.platform == 'win32':
         import ctypes

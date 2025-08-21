@@ -983,16 +983,23 @@ class App(QMainWindow):
         self.ui.pushButton_runscript.clicked.connect(self.runScript)
         
 
-        self.backendEngine = backendEngine()
-        self.backend = QThread(self, )
-        self.backendEngine.moveToThread(self.backend)
+        # self.backendEngine = backendEngine()
+        # self.backend = QThread(self, )
+        # self.backendEngine.moveToThread(self.backend)
 
 
         self.backendSFTP = backendSFTP()
         self.backendSFTPThread = QThread(self, )
         self.backendSFTP.moveToThread(self.backendSFTPThread)
         self.backendSFTP.executeSignal.connect(self.backendExeUICallback)
-        self.backendSFTP.infoSignal.connect(self.PopMessageWidgetObj.add_message_stack)
+        
+        # NOTE BUGS infoSignal
+        
+        # self.backendSFTP.infoSignal.connect(lambda data: QWidget().show())
+        
+        
+        
+        # self.backendSFTP.infoSignal.connect(lambda msg: print(msg))
         self.sftpDownloadCancelSignal.connect(self.backendSFTP.cancelDownload)
 
         self.remoteUI = RemoteUI()
@@ -1006,16 +1013,16 @@ class App(QMainWindow):
         self.ui.pushButton_opendetail.clicked.connect(self.openDetailUI)
         self.ui.pushButton_opendetail.setIcon(FIF.INFO)
 
-        self.backendEngine.executeGLSignal.connect(self.backendExeGLCallback)
-        self.backendEngine.executeUISignal.connect(self.backendExeUICallback)
-        self.backendEngine.infoSignal.connect(self.PopMessageWidgetObj.add_message_stack)
-        self.sendCodeSignal.connect(self.backendEngine.run)
+        # self.backendEngine.executeGLSignal.connect(self.backendExeGLCallback)
+        # self.backendEngine.executeUISignal.connect(self.backendExeUICallback)
+        # self.backendEngine.infoSignal.connect(self.PopMessageWidgetObj.add_message_stack)
+        # self.sendCodeSignal.connect(self.backendEngine.run)
         
-        self.backendEngine.started.connect(self.runScriptStateChangeRunning)
-        self.backendEngine.finished.connect(self.runScriptStateChangeFinish)
-        self.quitBackendSignal.connect(self.backendEngine.quitLoop)
+        # self.backendEngine.started.connect(self.runScriptStateChangeRunning)
+        # self.backendEngine.finished.connect(self.runScriptStateChangeFinish)
+        # self.quitBackendSignal.connect(self.backendEngine.quitLoop)
 
-        self.backend.start()
+        # self.backend.start()
         self.backendSFTPThread.start()
 
         self.ui.pushButton_openconsole.clicked.connect(self.showConsole)
@@ -1073,6 +1080,8 @@ class App(QMainWindow):
         self.resetScriptNamespace()
         self.scriptModules = set()
         self.console.setGlobals(self.script_namespace)
+        
+        self.lastScriptPaths = ''
     
     def resetScriptNamespace(self, ):
         # delete objects in script namespace
@@ -1148,7 +1157,7 @@ class App(QMainWindow):
         for k, v in filelist.items():
             self.addFiletoTable(k, isRemote=True)
 
-
+        self.currentPath = DEFAULT_WORKSPACE
         # filelist = filelist[::-1]
         # for f in filelist:
         #     self.addFiletoTable(f, isRemote=True)
@@ -1704,12 +1713,22 @@ class App(QMainWindow):
 
         self.resetScriptNamespace()
         os.chdir(DEFAULT_WORKSPACE)
-        
+        # print(f'Current working directory: {os.getcwd()}')
+
+        if self.lastScriptPaths in sys.path:
+            print(f'Remove last script path: {self.lastScriptPaths}')
+            sys.path.remove(self.lastScriptPaths)
+
         if os.path.isfile(self.currentScriptPath):
+            
             fname = os.path.basename(self.currentScriptPath)
             scriptFolder = os.path.dirname(self.currentScriptPath)
             os.chdir(scriptFolder)
             sys.path.append(scriptFolder)
+            self.lastScriptPaths = scriptFolder
+            
+            print(f'Current working directory: {os.getcwd()}')
+            
             with open(self.currentScriptPath, encoding='utf-8') as f:
 
                 code = f.read()
@@ -1723,12 +1742,23 @@ class App(QMainWindow):
                 
                 for scriptmodule in self.scriptModules:
                     if scriptmodule in sys.modules.keys():
-                        modulePath = sys.modules[scriptmodule].__file__
-                        print(f"Try to reloading module: {scriptmodule} from {modulePath}")
-                        if modulePath is not None and os.path.exists(modulePath):
-                            importlib.reload(sys.modules[scriptmodule])
+                        if hasattr(sys.modules[scriptmodule], '__file__'):
+                            modulePath = sys.modules[scriptmodule].__file__
+                            if isinstance(modulePath, str):
+                                if (DEFAULT_WORKSPACE in modulePath) or ('site-packages' in modulePath):
+                                    print(f"Pass for sys module: {scriptmodule} from {modulePath}")
+                                    ...
+                                else:
+                                    # print(f"Try to delete script module: {scriptmodule} from {modulePath}")
+                                    del sys.modules[scriptmodule]
+                                    # if os.path.exists(modulePath):
+                                    #     importlib.reload(sys.modules[scriptmodule])
+                                    # else:
+                                    #     ...
+                                    #     print(f"Try to reload Module {scriptmodule} from {modulePath} but it does not exist.")
                         else:
-                            print(f"Try to reload Module {scriptmodule} from {modulePath} but it does not exist.")
+                            ...
+                            # print(f"Try to sys module: {scriptmodule} but it does not have a file path: {sys.modules[scriptmodule]}")
 
                 print(f" --- Executing script: {fname} .... --- ")
                 exec(code, self.script_namespace)
@@ -1763,33 +1793,34 @@ class App(QMainWindow):
                     ((f"Script '{fname}' exec error", str(exc_value)), 'error')
                 )
                 
-                os.chdir(DEFAULT_WORKSPACE)
+                # NOTE
+                # os.chdir(DEFAULT_WORKSPACE)
 
 
-    def runScriptStateChangeRunning(self, ):
-        self.ui.pushButton_runscript.setText('Terminate Script')
-        # self.ui.pushButton_runscript.applyStyleSheet(**Button_Style_R)
-        self.ui.pushButton_runscript.setIcon(FIF.CANCEL)
-        self.ui.pushButton_runscript.disconnect(self)
-        self.ui.pushButton_runscript.clicked.connect(self.runScriptTerminate)
-        self.ui.widget_circle.start()
+    # def runScriptStateChangeRunning(self, ):
+    #     self.ui.pushButton_runscript.setText('Terminate Script')
+    #     # self.ui.pushButton_runscript.applyStyleSheet(**Button_Style_R)
+    #     self.ui.pushButton_runscript.setIcon(FIF.CANCEL)
+    #     self.ui.pushButton_runscript.disconnect(self)
+    #     self.ui.pushButton_runscript.clicked.connect(self.runScriptTerminate)
+    #     self.ui.widget_circle.start()
         
-    def runScriptStateChangeFinish(self, ):
-        # print('nb')
-        self.ui.pushButton_runscript.setText('Run Script')
-        self.ui.pushButton_runscript.setIcon(FIF.SEND)
-        # self.ui.pushButton_runscript.applyStyleSheet(**Button_Style_G)
-        self.ui.pushButton_runscript.disconnect(self)
-        self.ui.pushButton_runscript.clicked.connect(self.runScript)
-        self.ui.widget_circle.stop()
+    # def runScriptStateChangeFinish(self, ):
+    #     # print('nb')
+    #     self.ui.pushButton_runscript.setText('Run Script')
+    #     self.ui.pushButton_runscript.setIcon(FIF.SEND)
+    #     # self.ui.pushButton_runscript.applyStyleSheet(**Button_Style_G)
+    #     self.ui.pushButton_runscript.disconnect(self)
+    #     self.ui.pushButton_runscript.clicked.connect(self.runScript)
+    #     self.ui.widget_circle.stop()
         
-    def runScriptTerminate(self, ):
-        self.quitBackendSignal.emit()
-        self.backend.quit()
-        self.backend.wait()
+    # def runScriptTerminate(self, ):
+    #     self.quitBackendSignal.emit()
+    #     self.backend.quit()
+    #     self.backend.wait()
         
-        self.runScriptStateChangeFinish()
-        self.backend.start()
+    #     self.runScriptStateChangeFinish()
+    #     self.backend.start()
 
     def getFilePathFromList(self, row:int):
         fullpath = self.ui.tableWidget.item(row, 0).fullpath
@@ -1809,9 +1840,9 @@ class App(QMainWindow):
         
         self.saveSettings()
         
-        self.backend.quit()
-        self.backend.wait(200)
-        self.backend.terminate()
+        # self.backend.quit()
+        # self.backend.wait(200)
+        # self.backend.terminate()
         # 
         self.backendSFTPThread.quit()
         self.backendSFTPThread.wait(200)
@@ -1963,6 +1994,8 @@ class App(QMainWindow):
                     self.ui.pushButton_runscript.setEnabled(True)
                     self.ui.pushButton_runscript.setText('Run [ ' + os.path.basename(self.currentScriptPath) + ' ]')
 
+                self.openFolder(settings.get('localPath', DEFAULT_WORKSPACE))
+
         except:
             traceback.print_exc()
 
@@ -1973,6 +2006,7 @@ class App(QMainWindow):
                 'theme':self.tgtTheme.value,
                 'camera':self.ui.openGLWidget.gl_camera_control_combobox.currentRouteKey(),
                 'lastScript':self.currentScriptPath,
+                'localPath': self.currentPath,
                 'gl_settings': self.ui.openGLWidget.gl_settings.getSettings()
             }
             
@@ -2021,7 +2055,15 @@ def changeGlobalTheme(x):
     global CURRENT_THEME
     CURRENT_THEME = [Theme.LIGHT, Theme.DARK][x]
     
-
+def setup_opengl_format():
+    """设置OpenGL格式"""
+    format = QSurfaceFormat()
+    format.setVersion(3, 3)
+    format.setProfile(QSurfaceFormat.CompatibilityProfile)
+    format.setSamples(4)  # 4x MSAA
+    format.setDepthBufferSize(24)
+    format.setStencilBufferSize(8)
+    QSurfaceFormat.setDefaultFormat(format)
 
 if __name__ == "__main__":
     
@@ -2040,7 +2082,8 @@ if __name__ == "__main__":
     multiprocessing.freeze_support()
     app = QApplication(sys.argv)
 
-   
+    # setup_opengl_format()
+
     App = App()
     
     App.setWindowTitle('Batch3D Viewer build 1.8')

@@ -373,23 +373,22 @@ class FBOManager:
         # print(f'FBOManager: trying to cleanup FBO resources {self._fbo}, textures {self._attachments_id}')
         try:
             if len(self._attachments_id):
-                glDeleteTextures(self._attachments_id)
+                glDeleteTextures(len(self._attachments_id), self._attachments_id)
                 self._attachments_id = []
         except Exception as e:
             print(f"FBOManager: error occurred while cleaning texture resources: {e}")
 
         try:
             if self._fbo is not None:
-                glDeleteFramebuffers([self._fbo])
+                glDeleteFramebuffers(1, [self._fbo])
                 self._fbo = None
         except Exception as e:
             print(f"FBOManager: error occurred while cleaning FBO resources: {e}")
 
 
-    def __del__(self):
-        self.cleanUp()
-        return super().__del__()
-
+    # def __del__(self):
+    #     print('calling __del__')
+    #     self.cleanUp()
 
 class DepthReader:
     def __init__(self, width, height):
@@ -928,30 +927,30 @@ class GLWidget(QOpenGLWidget):
         self.update()
 
     def initializeGL(self):
+        try:
+            glEnable(GL_DEPTH_TEST)
+            
+            # glEnable(GL_POINT_SMOOTH)
+            glHint(GL_POINT_SMOOTH_HINT, GL_NICEST)
 
-        glEnable(GL_DEPTH_TEST)
-        
-        glEnable(GL_POINT_SMOOTH)
-        glHint(GL_POINT_SMOOTH_HINT, GL_NICEST)
+            glEnable(GL_BLEND)
+            glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
+            
 
-        glEnable(GL_BLEND)
-        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
-        
+            # glRenderMode(GL_RENDER)
 
-        glRenderMode(GL_RENDER)
-
-        glPointSize(3)
-        glEnable(GL_NORMALIZE)
-        glEnable(GL_LINE_SMOOTH)
-        
-        
-        # glEnable(GL_MULTISAMPLE)
-        glShadeModel(GL_SMOOTH)
-        
-        glClearColor(*self.bg_color)
+            # glPointSize(3)
+            # glEnable(GL_NORMALIZE)
+            # glEnable(GL_LINE_SMOOTH)
+            
+            
+            # glEnable(GL_MULTISAMPLE)
+            glShadeModel(GL_SMOOTH)
+            
+            glClearColor(*self.bg_color)
         
         # self.resetCamera()
-        try:
+        # try:
         
             self.grid.manualBuild()
             self.smallGrid.manualBuild()
@@ -1187,7 +1186,8 @@ class GLWidget(QOpenGLWidget):
             glUniform1i(self.SSAOCoreProgLocMap['u_projMode'], 
                         0 if self.camera.projection_mode == GLCamera.projectionMode.perspective else 1)
 
-            self._tempRenderFullScreenQuad()
+            # self._tempRenderFullScreenQuad()
+            self.fullScreenQuad.renderinShader(locMap=self.SSAOCoreProgLocMap, render_mode=self.gl_render_mode)
             
 
 
@@ -1213,7 +1213,8 @@ class GLWidget(QOpenGLWidget):
 
 
 
-            self._tempRenderFullScreenQuad()
+            # self._tempRenderFullScreenQuad()
+            self.fullScreenQuad.renderinShader(locMap=self.SSAOBlurProgLocMap, render_mode=self.gl_render_mode)
 
 
         ''' stage 4: SSAO Lighting Pass '''

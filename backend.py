@@ -95,7 +95,7 @@ class backendEngine(QObject):
 
 class backendSFTP(QObject):
     executeSignal = Signal(str, dict)
-    infoSignal = Signal(tuple)
+    infoSignal = Signal(dict)
     listFolderContextSignal = Signal(dict, str)
 
     started = Signal()
@@ -129,9 +129,7 @@ class backendSFTP(QObject):
         self.sftp = paramiko.SFTPClient.from_transport(self.transport)
         
 
-        
-        
-        self.infoSignal.emit((('Server Connected', f'Remote Host:{host}'), 'complete'))
+        self.infoSignal.emit({'title':'Server Connected', 'message':f'Remote Host:{host}', 'mtype':'complete'})
 
         # print('connect to sftp server success')
         try:
@@ -228,7 +226,7 @@ class backendSFTP(QObject):
         except:
             traceback.print_exc()
             exc_type, exc_value, exc_traceback = sys.exc_info()
-            self.infoSignal.emit((('Remote Error', str(exc_value)), 'error'))
+            self.infoSignal.emit({'title':'Remote Error', 'message':str(exc_value), 'mtype':'error'})
         # self.quitFlag = False
         finally:
             self.executeSignal.emit('setDownloadProgressHidden', {'hidden':True, })
@@ -321,7 +319,7 @@ class backendSFTP(QObject):
         except:
             traceback.print_exc()
             exc_type, exc_value, exc_traceback = sys.exc_info()
-            self.infoSignal.emit((('Remote Error', str(exc_value) + '\n' + remoteName + '->' + tgtPath), 'error'))
+            self.infoSignal.emit({'title':'Remote Error', 'message':str(exc_value) + '\n' + remoteName + '->' + tgtPath, 'mtype':'error'})
             
         
     

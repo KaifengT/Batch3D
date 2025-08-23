@@ -34,7 +34,7 @@ window.resize(300, 200)
 def switch_objects(value):
     # NOTE: if you want to display lines and bboxs, 'line' or 'bbox' should be in the key
     #       and the shape of the data should be (..., 2, 3/6/7) or (..., 8, 3/6/7) respectively
-    Batch3D.addObj({
+    b3d.addObj({
         'points':pointslist[value],
         'lines':lineslist[value],
         'bboxs':bboxslist[value],
@@ -47,13 +47,13 @@ def switch_objects(value):
 
 def random_transform():
     transform = trimesh.transformations.rotation_matrix(np.random.randn()*0.1, [0, 1, 0], [0, 0, 0])
-    Batch3D.setObjTransform('bboxs', transform)
+    b3d.setObjTransform('bboxs', transform)
 
 def resetCamera():
-    Batch3D.GL.resetCamera()
+    b3d.GL.resetCamera()
 
 def translateCamera():
-    Batch3D.GL.camera.translateTo(10, 10, 10, True)
+    b3d.GL.camera.translateTo(10, 10, 10, True)
 
 
 # connect the signals

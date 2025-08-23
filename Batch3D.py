@@ -8,10 +8,11 @@ import numpy as np
 import numpy.linalg as linalg
 from enum import Enum
 import copy
+from typing import List, Tuple, Union, TextIO
+from types import ModuleType
 from PySide6.QtWidgets import ( QApplication, QMainWindow, QTableWidgetItem, QWidget, QFileDialog, QDialog, QTextEdit, QGraphicsDropShadowEffect, QHBoxLayout, QVBoxLayout, QLabel)
 from PySide6.QtCore import  QSize, QThread, Signal, Qt, QPropertyAnimation, QEasingCurve, QPoint, QRect, QObject, QTimer, QEvent
-from PySide6.QtGui import QCloseEvent, QIcon, QFont, QAction, QColor, QSurfaceFormat, QTextCursor
-from ui.PopMessageWidget import PopMessageWidget_fluent as PopMessageWidget
+from PySide6.QtGui import QCloseEvent, QIcon, QFont, QAction, QColor, QSurfaceFormat, QTextCursor, QCursor
 import multiprocessing
 import io
 from ui.ui_main_ui import Ui_MainWindow
@@ -39,18 +40,23 @@ if sys.platform == 'win32':
     except:
         ...
 
-########################################################################
 
+import warnings
+warnings.filterwarnings("ignore", message="Failed to disconnect*", category=RuntimeWarning)
+import gc
 
-
-from qfluentwidgets import (setTheme, Theme, setThemeColor, qconfig, RoundMenu, widgets, ToggleToolButton, Slider, BodyLabel, PushButton, FluentIconBase, LineEdit)
+from qfluentwidgets import (setTheme, Theme, setThemeColor, qconfig, RoundMenu, widgets, ToggleToolButton, Slider, BodyLabel, PushButton, FluentIconBase, LineEdit, Flyout, InfoBarIcon, MessageBox)
 from qfluentwidgets import FluentIcon as FIF
 
+########################################################################
 
 DEFAULT_WORKSPACE = os.getcwd()
 TOOL_UI_WIDTH = 350
 PROGBAR_HEIGHT = 50
 CONSOLE_HEIGHT = 250
+
+B3D_VERSION = '1.8.1 Beta'
+B3D_BUILD = '2502'
 
 class MyFluentIcon(FluentIconBase, Enum):
     """ Custom icons """
@@ -170,6 +176,7 @@ class RemoteUI(QDialog):
             traceback.print_exc()
 
     def connectSFTP(self, ):
+        self.saveSettings()
         self.executeSignal.emit('connectSFTP', {
             'host':self.ui.lineEdit_host.text(), 
             'port':self.ui.lineEdit_port.text(), 
@@ -232,14 +239,36 @@ class RemoteUI(QDialog):
         self.ui.tableWidget.insertRow(0)
         event_widget = cellWidget('..', os.path.dirname(dirname), True, True)
         self.ui.tableWidget.setItem(0, 0, event_widget)
-            
+        
+    def showInfo(self, data:dict):
+        
+        
+        '''
+        INFORMATION = "Info"
+        SUCCESS = "Success"
+        WARNING = "Warning"
+        ERROR = "Error"
+        '''
+        map = {
+            'error': InfoBarIcon.ERROR,
+            'warning': InfoBarIcon.WARNING,
+            'complete': InfoBarIcon.SUCCESS,
+            'msg': InfoBarIcon.INFORMATION
+        }
+        
+        Flyout.create(
+            icon=map.get(data.get('mtype', 'error'), InfoBarIcon.ERROR),
+            title=data.get('title', 'UNKNOWN'),
+            content=data.get('message', 'UNKNOWN'),
+            target=self,
+            parent=self,
+            isClosable=True
+        )
         
 
-            
-        
     def closeEvent(self, event: QCloseEvent) -> None:
         self.closedSignal.emit()
-        self.saveSettings()
+        
         return super().closeEvent(event)
     
     def showEvent(self, event: QCloseEvent) -> None:
@@ -263,14 +292,16 @@ class fileDetailInfoUI(QDialog):
 
 class stdoutRedirector:
 
-    def __init__(self, ):
+    def __init__(self, texio: TextIO):
         self._cache = ''
+        self.texio = texio
 
     def write(self, info:str):
         self._cache += info
-        
+        self.texio.write(info)
+
     def flush(self):
-        pass
+        self.texio.flush()
 
     def getCache(self):
         return self._cache
@@ -328,8 +359,8 @@ class consoleUI(QWidget):
         self.original_stdout = sys.stdout
         self.original_stderr = sys.stderr
 
-        self.stdout = stdoutRedirector()
-        self.stderr = stdoutRedirector()
+        self.stdout = stdoutRedirector(self.original_stdout)
+        self.stderr = stdoutRedirector(self.original_stderr)
 
         sys.stdout = self.stdout
         sys.stderr = self.stderr
@@ -754,7 +785,6 @@ class dataParser:
 
             # if hasattr(v, 'scale') and v.scale > 100:
             #     v.apply_scale(1 / v.scale * 10)
-            #     self.PopMessageWidgetObj.add_message_stack((('mesh is too large, auto scaled', ''), 'warning'))
             
 
 
@@ -897,6 +927,7 @@ class App(QMainWindow):
     quitBackendSignal = Signal()
     sftpDownloadCancelSignal = Signal()
     
+    # NOTE: this signal should not be used for internal
     workspaceUpdatedSignal = Signal(dict)
 
     def __init__(self,):
@@ -946,7 +977,6 @@ class App(QMainWindow):
         self.tool_b_anim.setDuration(200)
         self.tool_b_anim.setEasingCurve(QEasingCurve.InOutQuart)
         
-        self.PopMessageWidgetObj = PopMessageWidget(self)
         self.windowBlocker = windowBlocker(self) 
         
         self.colormanager = colorManager()
@@ -995,7 +1025,7 @@ class App(QMainWindow):
         
         # NOTE BUGS infoSignal
         
-        # self.backendSFTP.infoSignal.connect(lambda data: QWidget().show())
+        
         
         
         
@@ -1005,7 +1035,8 @@ class App(QMainWindow):
         self.remoteUI = RemoteUI()
         self.remoteUI.executeSignal.connect(self.backendSFTP.run)
         self.sftpSignal.connect(self.backendSFTP.run)
-        
+        # self.backendSFTP.infoSignal.connect(self.remoteUI.showInfo)
+        self.backendSFTP.infoSignal.connect(self.popMessage)
         
         self.fileDetailUI = fileDetailInfoUI()
         self.ui.label_info.setParent(self.fileDetailUI)
@@ -1062,27 +1093,30 @@ class App(QMainWindow):
         
         self.ui.spinBox.valueChanged.connect(self.slicefromBatch)
         
-        
-        
-        # self.ui.tableWidget.menu = RoundMenu(parent=self.ui.tableWidget)
-        # self.ui.tableWidget.menu.addAction(Action(FIF.SYNC, '刷新', triggered=lambda: self.remoteUI.openFolder_background()))
-        # self.ui.tableWidget.contextMenuEvent = lambda event: self.ui.tableWidget.menu.exec_(event.globalPos())
 
         self.configPath = os.path.join(DEFAULT_WORKSPACE, 'user.config')
         self.loadSettings()
         self.changeTheme(self.tgtTheme)
-        # self.changeTXTTheme(self.tgtTheme)
+        # self.changeTextTheme(self.tgtTheme)
+
+        self.ui.openGLWidget.infoSignal.connect(self.popMessage)
         
-        # self.setUpWatchForThemeChange()
-        
+        self.setupScriptEnv()
+
+
+    def setupScriptEnv(self, ):
         # rename
         self.GL = self.ui.openGLWidget
         self.resetScriptNamespace()
         self.scriptModules = set()
-        self.console.setGlobals(self.script_namespace)
         
         self.lastScriptPaths = ''
-    
+
+        stubsModule = ModuleType('b3d')
+        stubsModule.b3d = self
+        sys.modules['b3d'] = stubsModule        
+
+
     def resetScriptNamespace(self, ):
         # delete objects in script namespace
         try:
@@ -1100,13 +1134,25 @@ class App(QMainWindow):
                             v.deleteLater()
                     else:
                         del v
+                        
+            self.workspaceUpdatedSignal.disconnect()
+            self.GL.leftMouseClickSignal.disconnect()
+            self.GL.rightMouseClickSignal.disconnect()
+            self.GL.middleMouseClickSignal.disconnect()
+            self.GL.mouseReleaseSignal.disconnect()
+            self.GL.mouseMoveSignal.disconnect()
+            
+            
         except:
-            traceback.print_exc()
+            # traceback.print_exc()
+            ...
                 
         
         finally:
-            self.script_namespace = {'Batch3D':self, 'b3d':self}
-    
+            self.script_namespace = {'Batch3D':self, 'b3d':self, '__name__':'__script__', '__builtins__': __builtins__,}
+            self.console.setGlobals(self.script_namespace)
+            # self.script_namespace = {'Batch3D':self, 'b3d':self}
+
     def moveToolWidget(self, hide=True):
         self.tool_anim.stop()
         self.tool_b_anim.stop()
@@ -1236,8 +1282,7 @@ class App(QMainWindow):
                         return
                     
         except Exception as e:
-            print(f'Error setting object properties for {key}: {e}')
-            self.PopMessageWidgetObj.add_message_stack(((f'Error setting object properties for {key}', f'{e}'), 'error'))
+            self.popMessage(f'Error setting object properties for {key}', str(e), 'error')
 
     def add2ObjPropsTable(self, obj, name:str, colors=None, adjustable=False):
         
@@ -1489,7 +1534,7 @@ class App(QMainWindow):
         except:
             traceback.print_exc()
             exc_type, exc_value, exc_traceback = sys.exc_info()
-            self.PopMessageWidgetObj.add_message_stack((('slice error occurred', str(exc_value)), 'error'))
+            self.popMessage('slice error occurred', str(exc_value), 'error')
 
     def resetSliceFunc(self, ):
         self.ui.spinBox.valueChanged.disconnect(self.slicefromBatch)
@@ -1596,8 +1641,8 @@ class App(QMainWindow):
         except:
             traceback.print_exc()
             exc_type, exc_value, exc_traceback = sys.exc_info()
-            self.PopMessageWidgetObj.add_message_stack((('file load error', str(exc_value)), 'error'))
-            
+            self.popMessage('file load error', str(exc_value), 'error')
+
         self.clearObjPropsTable()
         self.changeObjectProps()
         
@@ -1663,8 +1708,8 @@ class App(QMainWindow):
         except:
             traceback.print_exc()
             exc_type, exc_value, exc_traceback = sys.exc_info()
-            self.PopMessageWidgetObj.add_message_stack((('file load error', str(exc_value)), 'error'))
-            
+            self.popMessage('file load error', str(exc_value), 'error')
+
         self.clearObjPropsTable()
         self.changeObjectProps()
         
@@ -1696,7 +1741,11 @@ class App(QMainWindow):
         if fullpath:
             currentScriptPath = fullpath
         else:
-            currentScriptPath = QFileDialog.getOpenFileName(self,"Select Script",self.currentPath, '*.py')[0] # 起始路径
+            currentScriptPath = QFileDialog.getOpenFileName(self, 
+                                                            "Select Script", 
+                                                            os.path.dirname(self.currentScriptPath) if os.path.isfile(self.currentScriptPath) else DEFAULT_WORKSPACE, 
+                                                            '*.py'
+                                                            )[0] # 起始路径
 
         # print(self.currentScriptPath)
 
@@ -1713,6 +1762,7 @@ class App(QMainWindow):
 
         self.resetScriptNamespace()
         os.chdir(DEFAULT_WORKSPACE)
+        gc.collect()
         # print(f'Current working directory: {os.getcwd()}')
 
         if self.lastScriptPaths in sys.path:
@@ -1732,10 +1782,9 @@ class App(QMainWindow):
             with open(self.currentScriptPath, encoding='utf-8') as f:
 
                 code = f.read()
-                code = code.replace('import Batch3D', '') # Deprecated
+                # code = code.replace('import Batch3D', '') # Deprecated
 
             try:
-                self.console.setGlobals(self.script_namespace)
                 
                 code = compile(code, fname, 'exec')
                 # exec(code, self._globals)
@@ -1789,12 +1838,9 @@ class App(QMainWindow):
                 print(f" --- End of script error for: {fname} --- ")
                 
                 # 2. 在UI的PopMessageWidget中显示错误摘要
-                self.PopMessageWidgetObj.add_message_stack(
-                    ((f"Script '{fname}' exec error", str(exc_value)), 'error')
-                )
-                
-                # NOTE
-                # os.chdir(DEFAULT_WORKSPACE)
+                self.popMessage(f'Script <{fname}> exec error', str(exc_value), 'error')
+
+                os.chdir(DEFAULT_WORKSPACE)
 
 
     # def runScriptStateChangeRunning(self, ):
@@ -1831,10 +1877,25 @@ class App(QMainWindow):
     def getListLength(self, ):
         return self.ui.tableWidget.rowCount()
 
-    def popMessage(self, title:str='', message:str='', mtype='msg'):
-        self.PopMessageWidgetObj.add_message_stack(((title, message), mtype))
 
+    def popMessage(self, title:str='', message:str='', mtype='msg', followMouse=False):
 
+        map = {
+            'error': InfoBarIcon.ERROR,
+            'warning': InfoBarIcon.WARNING,
+            'complete': InfoBarIcon.SUCCESS,
+            'msg': InfoBarIcon.INFORMATION,
+            'success': InfoBarIcon.SUCCESS
+        }
+
+        Flyout.create(
+            icon=map.get(mtype, InfoBarIcon.ERROR),
+            title=title,
+            content=message,
+            target=QCursor.pos() if followMouse else self.ui.openGLWidget.statusbar,
+            parent=self,
+            isClosable=True
+        )
 
     def closeEvent(self, event: QCloseEvent) -> None:
         
@@ -2085,8 +2146,8 @@ if __name__ == "__main__":
     # setup_opengl_format()
 
     App = App()
-    
-    App.setWindowTitle('Batch3D Viewer build 1.8')
+
+    App.setWindowTitle(f'Batch3D Viewer {B3D_VERSION} Build {B3D_BUILD}')
     App.setWindowIcon(QIcon('icon.ico'))
     
 

@@ -52,7 +52,7 @@ class DistanceMeasureWidget(QWidget):
         layout.addLayout(button_layout)
         
         # 连接外部信号
-        Batch3D.GL.middleMouseClickSignal.connect(self.on_point_selected)
+        b3d.GL.middleMouseClickSignal.connect(self.on_point_selected)
 
     def start_distance_measurement(self):
         self.mode = 'distance'
@@ -78,7 +78,7 @@ class DistanceMeasureWidget(QWidget):
         self.point3 = None
         self.status_label.setText('状态：等待开始')
         self.result_label.setText('结果：未计算')
-        Batch3D.rm(['point1', 'point2', 'point3', 'line1', 'line2'])
+        b3d.rm(['point1', 'point2', 'point3', 'line1', 'line2'])
 
     def on_point_selected(self, UV, P3D):
         point = np.array(P3D[:3])
@@ -130,22 +130,22 @@ class DistanceMeasureWidget(QWidget):
 
     def add_point_to_scene(self, point, name='point'):
         point_cloud = point[None, :]  # shape: (1, 3)
-        Batch3D.add({name: point_cloud})
-        Batch3D.setObjectProps(name, {'size': 20})
+        b3d.add({name: point_cloud})
+        b3d.setObjectProps(name, {'size': 20})
 
     def draw_line_between_points(self, p1_name, p2_name, line_name):
         p1 = getattr(self, p1_name.replace('point', 'point'))
         p2 = getattr(self, p2_name.replace('point', 'point'))
         if p1 is not None and p2 is not None:
             line_points = np.stack([p1, p2], axis=0)
-            Batch3D.add({line_name: line_points})
-            Batch3D.setObjectProps(line_name, {'size': 20})
+            b3d.add({line_name: line_points})
+            b3d.setObjectProps(line_name, {'size': 20})
 
     def calculate_distance(self):
         if self.point1 is not None and self.point2 is not None:
             dist = np.linalg.norm(self.point2 - self.point1)
             self.result_label.setText(f'距离：{dist:.3f}')
-            Batch3D.popMessage(title='距离计算完成', message=f'测量的距离为 {dist:.3f}', mtype='msg')
+            b3d.popMessage(title='距离计算完成', message=f'测量的距离为 {dist:.3f}', mtype='msg', followMouse=True)
         else:
             self.result_label.setText('距离：无法计算')
 
@@ -162,7 +162,7 @@ class DistanceMeasureWidget(QWidget):
             angle_deg = np.rad2deg(angle_rad)
             
             self.result_label.setText(f'夹角：{angle_deg:.2f}°')
-            Batch3D.popMessage(title='夹角计算完成', message=f'测量的夹角为 {angle_deg:.2f}°', mtype='msg')
+            b3d.popMessage(title='夹角计算完成', message=f'测量的夹角为 {angle_deg:.2f}°', mtype='msg')
         else:
             self.result_label.setText('夹角：无法计算')
             

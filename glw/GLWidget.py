@@ -1,5 +1,5 @@
 '''
-copyright: (c) 2024 by KaifengTang, TingruiGuo
+copyright: (c) 2025 by KaifengTang, TingruiGuo
 '''
 import sys, os
 sys.path.append(os.path.abspath('.'))
@@ -8,7 +8,7 @@ import math
 import time
 import traceback
 import numpy as np
-from PySide6.QtCore import (Qt, Signal, QPoint)
+from PySide6.QtCore import (Qt, Signal, QPoint, QTimer)
 from PySide6.QtGui import (QColor,QWheelEvent,QMouseEvent, QPainter, QSurfaceFormat, QFont)
 from PySide6.QtWidgets import (QApplication, QWidget, QFileDialog)
 from OpenGL.GL import *
@@ -161,6 +161,8 @@ class FBOManager:
             return GL_RED, GL_FLOAT
         elif internalType == GL_RGB: # somthing strange may be GL_RGB8I
             return GL_RGB, GL_UNSIGNED_BYTE
+        elif internalType == GL_RED:
+            return GL_RED, GL_FLOAT
         else:
             raise ValueError(f"Unsupported internal type: {internalType}")
     
@@ -252,7 +254,7 @@ class FBOManager:
 
         glFramebufferTexture2D(GL_FRAMEBUFFER, attachment,
                             GL_TEXTURE_2D, texID, 0)
-        
+
         self._attachments_id.append(texID)
 
 
@@ -466,11 +468,15 @@ class DepthReader:
 
 class GLWidget(QOpenGLWidget):
 
+    # NOTE: these signals should not be used for internal communication
     leftMouseClickSignal = Signal(np.ndarray, np.ndarray)
     rightMouseClickSignal = Signal(np.ndarray, np.ndarray)
     middleMouseClickSignal = Signal(np.ndarray, np.ndarray)
     mouseReleaseSignal = Signal(np.ndarray, np.ndarray)
     mouseMoveSignal = Signal(np.ndarray, np.ndarray)
+
+    # NOTE: signals belows are used for internal communication
+    infoSignal = Signal(str, str, str) # title, message, type
 
     def __init__(self, 
         parent: QWidget=None,
@@ -507,40 +513,24 @@ class GLWidget(QOpenGLWidget):
         self.bg_color = background_color
 
 
-        self.objectList = {}
-
-        self.worldTextList = {}
-        
+        self.objectList = {}        
 
         self.statusbar = StatusBar(self)
         self.statusbar.setHidden(True)
 
 
-
-        self.lookat_point = [0,0,0]
-        self.elevation_angle = 0
-        
-        self.lastU = 0
-        self.lastV = 0
-        self.textShift = 0
         self.lastPos = QPoint(0, 0)
         
         self.mouseClickPointinWorldCoordinate = np.array([0,0,0,1])
         self.mouseClickPointinUV = np.array([0, 0])
 
         self.canonicalModelMatrix = np.identity(4, dtype=np.float32)
-        
-        self.filter = kalmanFilter(7)
-        
-        self.scale = 1.0
-        
-        self.axis_scale = 1.0
+                        
+        self.axisScale = 1.0
                 
-        self.tempMat = np.identity(4, dtype=np.float32)
         
         self.camera = GLCamera()
         self.camera.updateSignal.connect(self.update)
-        # self.camera.updateSignal.connect(self.updateIndicator)
         
         self.textPainter = QPainter()
 
@@ -550,13 +540,6 @@ class GLWidget(QOpenGLWidget):
         GLFormat.setSamples(4)
         self.setFormat(GLFormat)
         
-        self.objMap = {
-            'p':PointCloud,
-            'l':Lines,
-            'b':BoundingBox,
-            'a':Arrow,
-            'm':Mesh,
-        }
         
         self.isAxisVisable = True
         self.isGridVisable = True
@@ -589,13 +572,10 @@ class GLWidget(QOpenGLWidget):
 
 
         self.ambient = np.array([0.7, 0.7, 0.7], dtype=np.float32)  # 环境光颜色
-        self.shiny = 100                                             # 高光系数
-        self.specular = 0.99                                       # 镜面反射系数
-        self.diffuse = 1.0                                         # 漫反射系数
-        self.pellucid = 0.5                                         # 透光度
 
-        self.gl_render_mode = 3
-        self.point_line_size = 3
+
+        self.glRenderMode = 3
+        self.pointLineSize = 3
         self.enableSSAO = 1
         self.SSAOkernelSize = 64
         self.SSAOStrength = 60.0
@@ -637,8 +617,19 @@ class GLWidget(QOpenGLWidget):
         self.setMinimumSize(200, 200)
         
         self.depthMap = None
-            
-            
+
+        # self.timer = QTimer()
+        # self.timer.timeout.connect(self.countFPS)
+        # self.timer.start(1000)
+        
+        self.fps = 0
+        
+        self.lastSavePath = ''
+        
+    def countFPS(self):
+        print(self.fps)
+        self.fps = 0
+
     def setBackgroundColor(self, color: Tuple[float, float, float, float]):
         '''
         this method sets the background color of the OpenGL widget.
@@ -674,9 +665,9 @@ class GLWidget(QOpenGLWidget):
         self.update()
         
     def setAxisScale(self, scale=1.0):
-        self.axis_scale = scale
+        self.axisScale = scale
         scaledMatrix = np.identity(4, dtype=np.float32)
-        scaledMatrix[:3,:3] *= self.axis_scale
+        scaledMatrix[:3,:3] *= self.axisScale
         self.axis.setTransform(scaledMatrix)
         self.update()
     
@@ -786,7 +777,7 @@ class GLWidget(QOpenGLWidget):
         self.update()
 
     def setRenderMode(self, mode):
-        self.gl_render_mode = mode
+        self.glRenderMode = mode
         self.update()
 
     @staticmethod
@@ -1061,6 +1052,11 @@ class GLWidget(QOpenGLWidget):
 
             glUseProgram(0)
 
+            # extensions = glGetString(GL_EXTENSIONS).decode('utf-8')
+            # print('Supported extensions:', extensions)
+            # supports_r32f = 'GL_ARB_texture_float' in extensions or 'GL_ATI_texture_float' in extensions
+            # print('Supports GL_R32F:', supports_r32f)
+
         except Exception as e:
             traceback.print_exc()
 
@@ -1147,7 +1143,7 @@ class GLWidget(QOpenGLWidget):
 
         ''' stage 1: SSAO Geometry Pass'''
 
-        self.SSAOGeoFBO.getFBO(self.raw_window_w, self.raw_window_h, depth=True, colors=[GL_RGBA32F, GL_RGBA32F])
+        self.SSAOGeoFBO.getFBO(self.raw_window_w, self.raw_window_h, depth=True, colors=[GL_RGB32F, GL_RGB32F])
         self.SSAOGeoFBO.bindForWriting()
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
         
@@ -1159,12 +1155,12 @@ class GLWidget(QOpenGLWidget):
         glUniformMatrix4fv(self.SSAOGeoProgLocMap['u_ViewMatrix'],  1, GL_FALSE, camtrans.T, None)
 
         # render objs
-        self._renderObjs(locMap=self.SSAOGeoProgLocMap, render_mode=self.gl_render_mode, size=self.point_line_size)
+        self._renderObjs(locMap=self.SSAOGeoProgLocMap, render_mode=self.glRenderMode, size=self.pointLineSize)
 
         ''' stage 2: SSAO Core Pass '''
         if self.enableSSAO:
             
-            self.SSAOCoreFBO.getFBO(self.raw_window_w, self.raw_window_h, depth=False, colors=[GL_RGBA32F])
+            self.SSAOCoreFBO.getFBO(self.raw_window_w, self.raw_window_h, depth=False, colors=[GL_R32F])
             self.SSAOCoreFBO.bindForWriting()
             glClear(GL_COLOR_BUFFER_BIT)
             
@@ -1187,13 +1183,13 @@ class GLWidget(QOpenGLWidget):
                         0 if self.camera.projection_mode == GLCamera.projectionMode.perspective else 1)
 
             # self._tempRenderFullScreenQuad()
-            self.fullScreenQuad.renderinShader(locMap=self.SSAOCoreProgLocMap, render_mode=self.gl_render_mode)
+            self.fullScreenQuad.renderinShader(locMap=self.SSAOCoreProgLocMap, render_mode=self.glRenderMode)
             
-
+            
 
             ''' stage 3: SSAO Blur Pass '''
 
-            self.SSAOBlurFBO.getFBO(self.raw_window_w, self.raw_window_h, depth=False, colors=[GL_RGBA32F])
+            self.SSAOBlurFBO.getFBO(self.raw_window_w, self.raw_window_h, depth=False, colors=[GL_R32F])
             self.SSAOBlurFBO.bindForWriting()
             glClear(GL_COLOR_BUFFER_BIT)
 
@@ -1214,7 +1210,7 @@ class GLWidget(QOpenGLWidget):
 
 
             # self._tempRenderFullScreenQuad()
-            self.fullScreenQuad.renderinShader(locMap=self.SSAOBlurProgLocMap, render_mode=self.gl_render_mode)
+            self.fullScreenQuad.renderinShader(locMap=self.SSAOBlurProgLocMap, render_mode=self.glRenderMode)
 
 
         ''' stage 4: SSAO Lighting Pass '''
@@ -1238,7 +1234,7 @@ class GLWidget(QOpenGLWidget):
         
         glUniform2f(self.SSAOLightProgLocMap['u_screenSize'], float(self.raw_window_w), float(self.raw_window_h))
 
-        self._renderObjs(locMap=self.SSAOLightProgLocMap, render_mode=self.gl_render_mode, size=self.point_line_size)
+        self._renderObjs(locMap=self.SSAOLightProgLocMap, render_mode=self.glRenderMode, size=self.pointLineSize)
         
         
         # stage Final: Copy framebuffer to screen (default) framebuffer
@@ -1264,6 +1260,7 @@ class GLWidget(QOpenGLWidget):
 
         glDepthMask(GL_TRUE)
 
+        # self.fps += 1
         
         glFlush()
 
@@ -1370,16 +1367,13 @@ class GLWidget(QOpenGLWidget):
                 
         self.update()
         
-        self.getDepthMap()
-        
         mouseCoordinateinViewPortX = int((self.lastPos.x()) * self.PixelRatio )
         mouseCoordinateinViewPortY = int((self.scaled_window_h -  self.lastPos.y()) * self.PixelRatio)
+        mouseCoordinateinViewPortRY = int(self.lastPos.y() * self.PixelRatio)
 
         self.mouseClickPointinUV = np.array([mouseCoordinateinViewPortX, mouseCoordinateinViewPortY])
         
-        depth_value = self.depthMap[int(self.lastPos.y() * self.PixelRatio), mouseCoordinateinViewPortX] if self.depthMap is not None else self.camera.far
-        liner_depth_value = DepthReader.convertNDC2Liner(depth_value, self.camera)
-        # print(f'Depth value at ({mouseCoordinateinViewPortX}, {mouseCoordinateinViewPortY}): {liner_depth_value}')
+        liner_depth_value = self.getDepthPoint(mouseCoordinateinViewPortX, mouseCoordinateinViewPortY)[0]
 
         self.mouseClickPointinWorldCoordinate = self.camera.rayVector(mouseCoordinateinViewPortX, mouseCoordinateinViewPortY, dis=liner_depth_value)
         
@@ -1426,7 +1420,7 @@ class GLWidget(QOpenGLWidget):
 
         self.mouseMoveSignal.emit(self.mouseClickPointinUV, self.mouseClickPointinWorldCoordinate)
 
-        self.triggerFlush()
+        self.update()
 
     def wheelEvent(self, event:QWheelEvent):
         angle = event.angleDelta()
@@ -1435,7 +1429,7 @@ class GLWidget(QOpenGLWidget):
         
         self.camera.updateIntr(self.raw_window_h, self.raw_window_w)
 
-        self.triggerFlush()
+        self.update()
 
     def mouseDoubleClickEvent(self, event:QMouseEvent) -> None:
         super().mouseDoubleClickEvent(event)
@@ -1443,7 +1437,7 @@ class GLWidget(QOpenGLWidget):
         if event.buttons() & Qt.LeftButton:
             self.resetCamera()
 
-        self.triggerFlush()
+        self.update()
         
     def mouseReleaseEvent(self, event):
         self.mouseReleaseSignal.emit(self.mouseClickPointinUV, self.mouseClickPointinWorldCoordinate)
@@ -1466,27 +1460,64 @@ class GLWidget(QOpenGLWidget):
         return liner_depth
     
     
-    def saveDepthMap(self, path=None):
-        # if self.depthMap is not None:
-        liner_depth = self.getDepthMap()
-        depth_image = liner_depth.astype(np.uint16)
-        depth_image_pil = Image.fromarray(depth_image, mode='I;16')
-
-        if path is None:
-            path, _ = QFileDialog.getSaveFileName(self, 'Save Depth Map', './depth.png', 'PNG Files (*.png);;All Files (*)')
-
-        if path:
-            depth_image_pil.save(path)
-            print(f'Depth map saved to {path}')
-
-            
-    def saveRGBAMap(self, path=None):
-        if path is None:
-            path, _ = QFileDialog.getSaveFileName(self, 'Save RGBA Image', './image.png', 'PNG Files (*.png);;All Files (*)')
+    def getDepthPoint(self, x, y):
         
-        if path:
-            image = self.grabFramebuffer()
-            image.save(path)
-            print(f'RGBA image saved to {path}')
-        else:
-            print('No path specified to save RGBA image.')
+        self.SSAOGeoFBO.bindForWriting()
+        depth_data = glReadPixels(x, y, 1, 1,
+                                GL_DEPTH_COMPONENT, GL_FLOAT)
+        
+        depth_array = np.frombuffer(depth_data, dtype=np.float32)
+        depth_array = depth_array.flatten()
+
+        liner_depth = DepthReader.convertNDC2Liner(depth_array, self.camera)
+
+        # glBindFramebuffer(GL_FRAMEBUFFER, self.defaultFramebufferObject())
+
+        return liner_depth
+    
+    
+    def saveDepthMap(self, path=None):
+        try:
+            liner_depth = self.getDepthMap()
+            depth_image = liner_depth.astype(np.uint16)
+            depth_image_pil = Image.fromarray(depth_image, mode='I;16')
+
+            if path is None:
+                path, _ = QFileDialog.getSaveFileName(self, 
+                                                      'Save Depth Map', 
+                                                      self.lastSavePath if os.path.exists(self.lastSavePath) else './depth.png', 
+                                                      'PNG Files (*.png);;All Files (*)')
+
+            if path:
+                self.lastSavePath = path
+                depth_image_pil.save(path)
+                print(f'Depth map saved to {path}')
+                self.infoSignal.emit('Depth Map Saved', f'Depth map saved to {path}', 'complete')
+            else:
+                print('No path specified to save depth map.')
+                self.infoSignal.emit('Save Depth Map', 'No path specified to save depth map.', 'warning')
+        except Exception as e:
+            print(f'Error saving depth map: {e}')
+            self.infoSignal.emit('Save Depth Map', f'Error saving depth map: {e}', 'error')
+
+    def saveRGBAMap(self, path=None):
+        try:
+            if path is None:
+                path, _ = QFileDialog.getSaveFileName(self, 
+                                                      'Save RGBA Image',
+                                                      self.lastSavePath if os.path.exists(self.lastSavePath) else './rgba_image.png',
+                                                      'PNG Files (*.png);;All Files (*)')
+            
+            if path:
+                self.lastSavePath = path
+                image = self.grabFramebuffer()
+                image.save(path)
+                print(f'RGBA image saved to {path}')
+                self.infoSignal.emit('RGBA Image Saved', f'RGBA image saved to {path}', 'complete')
+            else:
+                print('No path specified to save RGBA image.')
+                self.infoSignal.emit('Save RGBA Image', 'No path specified to save RGBA image.', 'warning')
+                
+        except Exception as e:
+            print(f'Error saving RGBA image: {e}')
+            self.infoSignal.emit('Save RGBA Image', f'Error saving RGBA image: {e}', 'error')

@@ -11,6 +11,6 @@ mesh_cus = {
     'face':mesh.faces,
 }
 
-Batch3D.addObj({'mesh':mesh,
+b3d.addObj({'mesh':mesh,
                 'mesh_cus':mesh_cus})
 

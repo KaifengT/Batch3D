@@ -28,7 +28,7 @@
 
 
 
-#version 330
+#version 330 core
 in vec2 TexCoord;
 out vec4 FragColor;
 
@@ -96,6 +96,6 @@ void main() {
     float ao = (sumW > 0.0) ? (aoAccum / sumW) : centerAO;
     ao = clamp(ao, 0.0, 1.0);
 
-    FragColor = vec4(vec3(ao), 1.0);
+    FragColor = vec4(ao);
 }
 

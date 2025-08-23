@@ -101,9 +101,9 @@ class TransformProcessor:
                 print(f'Incremental transform: R({r}, {p}, {y}), T({tx}, {ty}, {tz})')
                 target = self.target_widget.currentText()
                 if target == "all":
-                    for name in Batch3D.GL.objectList.keys():
+                    for name in b3d.GL.objectList.keys():
                         self.transform_point(r, p, y, tx, ty, tz, name)
-                elif target and 'Batch3D' in globals():
+                elif target and 'b3d' in globals():
                     self.transform_point(r, p, y, tx, ty, tz, target)
                 
             if any(values):
@@ -111,8 +111,8 @@ class TransformProcessor:
 
     def transform_point(self, r, p, y, tx, ty, tz, name):
         transform = self.transform_manager.apply_incremental_transform(name, r, p, y, tx, ty, tz)
-        if 'Batch3D' in globals():
-            Batch3D.setObjTransform(name, transform)
+        if 'b3d' in globals():
+            b3d.setObjTransform(name, transform)
         else:
             print(f"transform {name}")
 
@@ -134,8 +134,8 @@ class UIController:
 
     def get_workspace(self):
         objlist = []
-        if 'Batch3D' in globals() and hasattr(Batch3D, 'GL'):
-            objlist = list(Batch3D.GL.objectList.keys())
+        if 'b3d' in globals() and hasattr(b3d, 'GL'):
+            objlist = list(b3d.GL.objectList.keys())
             if objlist:
                 objlist.append("all")
         self.target_widget.clear()
@@ -146,14 +146,14 @@ class UIController:
     def reset_current_transform(self):
         target = self.target_widget.currentText()
         if target == "all":
-            for name in Batch3D.GL.objectList.keys():
+            for name in b3d.GL.objectList.keys():
                 self.transform_manager.reset_transform(name)
-                if 'Batch3D' in globals():
-                    Batch3D.setObjTransform(name, np.eye(4))
+                if 'b3d' in globals():
+                    b3d.setObjTransform(name, np.eye(4))
         elif target:
             self.transform_manager.reset_transform(target)
-            if 'Batch3D' in globals():
-                Batch3D.setObjTransform(target, np.eye(4))
+            if 'b3d' in globals():
+                b3d.setObjTransform(target, np.eye(4))
 
     def save_transform(self):
         r1, r2 = QFileDialog.getSaveFileName(

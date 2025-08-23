@@ -1,7 +1,7 @@
 // reference from https://john-chapman-graphics.blogspot.com/2013/01/ssao-tutorial.html
 // reference from https://learnopengl.com/Advanced-Lighting/SSAO, https://blog.csdn.net/u013617851/article/details/122397080
 
-#version 330
+#version 330 core
 
 in vec2 TexCoord;
 
@@ -77,6 +77,9 @@ void main()
 
     // FragColor = vec4(A0_vec3, 1.0);
     FragColor = vec4(AO);
+    // FragColor = vec3(AO);
+    // FragColor = AO;
+    // FragColor = 1.0;
     // FragColor = vec4(AO, AO, AO, 1.0);
     // FragColor = vec4(Noise, 1.0);
 

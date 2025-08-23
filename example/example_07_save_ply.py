@@ -31,11 +31,11 @@ class PCDExportWidget(QWidget):
         super().__init__()
         self.current_data = {}  # 缓存 workspace 数据 {name: (N,3) numpy array}
         self.init_ui()
-        self.load_workspace_from_b3d(Batch3D.getWorkspaceObj())  # 初始化加载一次
+        self.load_workspace_from_b3d(b3d.getWorkspaceObj())  # 初始化加载一次
 
-        # 连接 Batch3D 的 workspace 更新信号
+        # 连接 b3d 的 workspace 更新信号
         try:
-            Batch3D.workspaceUpdatedSignal.connect(self.load_workspace_from_b3d)
+            b3d.workspaceUpdatedSignal.connect(self.load_workspace_from_b3d)
         except Exception as e:
             print(f"无法连接 workspaceUpdatedSignal: {e}")
 
@@ -78,7 +78,7 @@ class PCDExportWidget(QWidget):
         layout.addLayout(btn_layout)
 
     def load_workspace_from_b3d(self, data: dict):
-        """接收 Batch3D workspace 更新，更新列表"""
+        """接收 b3d workspace 更新，更新列表"""
         if not isinstance(data, dict):
             return
 
@@ -93,7 +93,7 @@ class PCDExportWidget(QWidget):
     def on_refresh(self):
         """手动刷新对象列表"""
         try:
-            data = Batch3D.getWorkspaceObj()
+            data = b3d.getWorkspaceObj()
             self.load_workspace_from_b3d(data)
             InfoBar.success(
                 title="刷新成功",

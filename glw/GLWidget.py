@@ -21,7 +21,7 @@ from OpenGL.GL.framebufferobjects import *
 from .utils.kalman import kalmanFilter
 from typing import Tuple
 import copy
-from .GLMesh import Mesh, PointCloud, Grid, Axis, BoundingBox, Lines, Arrow, BaseObject, FullScreenQuad
+from .GLMesh import Mesh, PointCloud, Grid, Axis, BoundingBox, Lines, Arrow, BaseObject, FullScreenQuad, Sphere
 
 from ui.statusBar import StatusBar
 import trimesh
@@ -30,109 +30,6 @@ from PIL import Image
 # from memory_profiler import profile
 from .GLCamera import GLCamera
 from .GLMenu import GLSettingWidget
-
-class FBOManager_singleton:
-    '''
-    FBOManager is a singleton class that manages the Frame Buffer Object (FBO) and its associated textures.
-    '''
-    _instance = None
-    _fbo = None
-    _depth_texture = None
-    _color_texture = None
-    _width = 0
-    _height = 0
-    
-    def __new__(cls):
-        if cls._instance is None:
-            cls._instance = super(FBOManager, cls).__new__(cls)
-        return cls._instance
-    
-    def get_fbo(self, width, height):
-        '''
-        Get or create a Frame Buffer Object (FBO) with a depth texture.
-        If the FBO already exists and the dimensions match, it will return the existing FBO.
-        Args:
-            width (int): The width of the FBO.
-            height (int): The height of the FBO.
-        Returns:
-            tuple (int, int): A tuple containing the FBO and the depth texture.
-        '''
-
-        if (self._fbo is None or 
-            self._width != width or 
-            self._height != height):
-            # print(f"Creating FBO: {width}x{height}")
-            self._create_fbo(width, height)
-        # self._create_fbo(width, height)
-        return self._fbo, self._depth_texture
-    
-    def _create_fbo(self, width, height):
-        
-        
-        if self._fbo is not None:
-            self.cleanup()
-            ...
-        
-
-        self._fbo = glGenFramebuffers(1)
-        glBindFramebuffer(GL_FRAMEBUFFER, self._fbo)
-
-        # depth attachment, necessary.
-        self._depth_texture = glGenTextures(1)
-        glBindTexture(GL_TEXTURE_2D, self._depth_texture)
-        glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT32,
-                    width, height, 0,
-                    GL_DEPTH_COMPONENT, GL_FLOAT, None)
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST)
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST)
-        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT,
-                                GL_TEXTURE_2D, self._depth_texture, 0)
-        
-        # color attachment, optional.
-        # self._color_texture = glGenTextures(1)
-        # glBindTexture(GL_TEXTURE_2D, self._color_texture)
-        # glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA,
-        #             width, height, 0,
-        #             GL_RGBA, GL_UNSIGNED_BYTE, None)
-        # glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR)
-        # glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,
-        #                     GL_TEXTURE_2D, self._color_texture, 0)     
-                
-        # check if the framebuffer is complete
-        if glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE:
-            raise RuntimeError('FBO creation failed')
-        
-        glBindFramebuffer(GL_FRAMEBUFFER, 0)
-        self._width = width
-        self._height = height
-            
-            
-
-    
-    def cleanup(self):
-        '''
-        cleanup the FBO and its associated textures.
-        '''
-        try:
-            if self._depth_texture is not None:
-                glDeleteTextures([self._depth_texture])
-                self._depth_texture = None
-        except Exception as e:
-            print(f"error occurred while cleaning depth texture resources: {e}")
-
-        try:
-            if self._color_texture is not None:
-                glDeleteTextures([self._color_texture])
-                self._color_texture = None
-        except Exception as e:
-            print(f"error occurred while cleaning color texture resources: {e}")
-
-        try:
-            if self._fbo is not None:
-                glDeleteFramebuffers([self._fbo])
-                self._fbo = None
-        except Exception as e:
-            print(f"error occurred while cleaning FBO resources: {e}")
 
 
 class FBOManager:
@@ -498,15 +395,18 @@ class GLWidget(QOpenGLWidget):
         if sys.platform == 'darwin':
             background_color = [0.109, 0.117, 0.125, 1.0]
             self.font = QFont(['SF Pro Display', 'Helvetica Neue', 'Arial'], 10, QFont.Weight.Normal)
+            self.shaderVersion = '120'
         
         # For Windows
         elif sys.platform == 'win32':
             background_color = [0., 0., 0., 0.]
             self.font = QFont([u'Cascadia Mono', u'Microsoft Yahei UI'], 9, )
+            self.shaderVersion = '330'
 
         else:
             background_color = [0.109, 0.117, 0.125, 1.0]
             self.font = QFont([u'Cascadia Mono', u'Microsoft Yahei UI'], 9, )
+            self.shaderVersion = '330'
 
 
 
@@ -537,7 +437,12 @@ class GLWidget(QOpenGLWidget):
         
         #----- MSAA 4X -----#
         GLFormat = self.format()
-        GLFormat.setSamples(4)
+        GLFormat.setVersion(4, 6)
+        GLFormat.setProfile(QSurfaceFormat.CoreProfile)
+        GLFormat.setSamples(4)  # 4x MSAA
+        GLFormat.setAlphaBufferSize(8)
+        # GLFormat.setDepthBufferSize(24)
+        # GLFormat.setStencilBufferSize(8)
         self.setFormat(GLFormat)
         
         
@@ -583,6 +488,7 @@ class GLWidget(QOpenGLWidget):
         self.grid = Grid()
         self.smallGrid = Grid(n=510, scale=0.1)
         self.axis = Axis()
+        
 
         self.gl_settings = GLSettingWidget(
             parent=self,
@@ -616,16 +522,15 @@ class GLWidget(QOpenGLWidget):
 
         self.setMinimumSize(200, 200)
         
-        self.depthMap = None
-
-        # self.timer = QTimer()
-        # self.timer.timeout.connect(self.countFPS)
-        # self.timer.start(1000)
+        self.timer = QTimer()
+        self.timer.timeout.connect(self.countFPS)
+        self.timer.start(1000)
         
         self.fps = 0
         
         self.lastSavePath = ''
-        
+
+
     def countFPS(self):
         print(self.fps)
         self.fps = 0
@@ -733,7 +638,7 @@ class GLWidget(QOpenGLWidget):
         
         _ID = str(ID)
         if _ID in self.objectList.keys():
-            self.objectList[_ID].updateProps(props)
+            self.objectList[_ID].setMultiProp(props)
 
         self.update()
 
@@ -766,8 +671,13 @@ class GLWidget(QOpenGLWidget):
         Returns:
             None
         '''
+        
+        self.makeCurrent()
+        
         _ID = str(ID)
-        if obj is not None:
+        if isinstance(obj, BaseObject):
+            if obj.vao.getVAO() == 0:
+                obj.load()
             self.objectList.update({_ID:obj})
             
         else:
@@ -781,7 +691,7 @@ class GLWidget(QOpenGLWidget):
         self.update()
 
     @staticmethod
-    def buildShader(vshader_path, fshader_path):
+    def buildShader(vshader_path, fshader_path, gshader_path=None):
         '''
         Compile and link the vertex and fragment shaders.
         Args:
@@ -796,7 +706,13 @@ class GLWidget(QOpenGLWidget):
 
             vshader = shaders.compileShader(vshader_src, GL_VERTEX_SHADER)
             fshader = shaders.compileShader(fshader_src, GL_FRAGMENT_SHADER)
-            program = shaders.compileProgram(vshader, fshader)
+
+            if gshader_path is not None:
+                gshader_src = open(gshader_path, encoding='utf-8').read()
+                gshader = shaders.compileShader(gshader_src, GL_GEOMETRY_SHADER)
+                program = shaders.compileProgram(vshader, gshader, fshader)
+            else:
+                program = shaders.compileProgram(vshader, fshader)
             return program
         except Exception as e:
             print(f"Error compiling/linking shaders: {e}")
@@ -922,61 +838,62 @@ class GLWidget(QOpenGLWidget):
             glEnable(GL_DEPTH_TEST)
             
             # glEnable(GL_POINT_SMOOTH)
-            glHint(GL_POINT_SMOOTH_HINT, GL_NICEST)
+            # glHint(GL_POINT_SMOOTH_HINT, GL_NICEST)
 
             glEnable(GL_BLEND)
             glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
             
-
-            # glRenderMode(GL_RENDER)
+            glEnable(GL_PROGRAM_POINT_SIZE)
 
             # glPointSize(3)
             # glEnable(GL_NORMALIZE)
             # glEnable(GL_LINE_SMOOTH)
             
             
-            # glEnable(GL_MULTISAMPLE)
-            glShadeModel(GL_SMOOTH)
+            # glShadeModel(GL_SMOOTH)
             
             glClearColor(*self.bg_color)
-        
         # self.resetCamera()
         # try:
         
-            self.grid.manualBuild()
-            self.smallGrid.manualBuild()
-            self.axis.manualBuild()
+            self.grid.load()
+            self.smallGrid.load()
+            self.axis.load()
 
-            self.fullScreenQuad = FullScreenQuad()
+            self.quad = FullScreenQuad()
+            
+
+            print(f'OpenGL version: {self.context().format().version()[0]}{self.context().format().version()[1]}0', )
+            print(f'OpenGL profile: {self.context().format().profile()}')
+
             print('Compiling OpenGL shaders...')
 
 
-            if sys.platform == 'darwin':
-                print('OpenGL version: 1.2')
-                _version = '120'
-                
-            else:
-                print('OpenGL version: 3.3')            
-                _version = '330'
 
+            print(f'OpenGL shader version: {self.shaderVersion}')
             # _version = '120'
             self.SSAOGeoProg = self.buildShader(
-                vshader_path=f'./glw/shaders/{_version}/ssao_geo_vs.glsl',
-                fshader_path=f'./glw/shaders/{_version}/ssao_geo_fs.glsl'
+                vshader_path=f'./glw/shaders/{self.shaderVersion}/ssao_geo_vs.glsl',
+                fshader_path=f'./glw/shaders/{self.shaderVersion}/ssao_geo_fs.glsl'
             )
             self.SSAOCoreProg = self.buildShader(
-                vshader_path=f'./glw/shaders/{_version}/ssao_core_vs.glsl',
-                fshader_path=f'./glw/shaders/{_version}/ssao_core_fs.glsl'
+                vshader_path=f'./glw/shaders/{self.shaderVersion}/ssao_core_vs.glsl',
+                fshader_path=f'./glw/shaders/{self.shaderVersion}/ssao_core_fs.glsl'
             )
             self.SSAOBlurProg = self.buildShader(
-                vshader_path=f'./glw/shaders/{_version}/ssao_blur_vs.glsl',
-                fshader_path=f'./glw/shaders/{_version}/ssao_blur_fs.glsl'
+                vshader_path=f'./glw/shaders/{self.shaderVersion}/ssao_blur_vs.glsl',
+                fshader_path=f'./glw/shaders/{self.shaderVersion}/ssao_blur_fs.glsl'
             )
             self.SSAOLightProg = self.buildShader(
-                vshader_path=f'./glw/shaders/{_version}/ssao_light_vs.glsl',
-                fshader_path=f'./glw/shaders/{_version}/ssao_pbr_fs.glsl'
+                vshader_path=f'./glw/shaders/{self.shaderVersion}/ssao_light_vs.glsl',
+                fshader_path=f'./glw/shaders/{self.shaderVersion}/ssao_light_fs.glsl',
             )
-                
+
+            self.SSAOLightLineProg = self.buildShader(
+                vshader_path=f'./glw/shaders/{self.shaderVersion}/ssao_light_line_vs.glsl',
+                fshader_path=f'./glw/shaders/{self.shaderVersion}/ssao_light_fs.glsl',
+                gshader_path=f'./glw/shaders/{self.shaderVersion}/ssao_light_line_gs.glsl'
+            )                
 
             self.geoProgAttribList = ['a_Position', 'a_Normal']
             self.geoProgUniformList = ['u_ProjMatrix', 'u_ViewMatrix', 'u_ModelMatrix']
@@ -993,12 +910,13 @@ class GLWidget(QOpenGLWidget):
                                     'u_Lights[2].position', 'u_Lights[2].color', \
                                     'u_Lights[3].position', 'u_Lights[3].color', \
                                     'u_Lights[4].position', 'u_Lights[4].color', \
-                                        'render_mode', 
+                                        'u_renderMode', 
                                         'u_EnableAlbedoTexture', 'u_AlbedoTexture', 'u_Metallic', 'u_Roughness', 
                                         'u_EnableMetallicRoughnessTexture', 'u_MetallicRoughnessTexture',
                                         'u_farPlane',
-                                        'u_farPlane_ratio',
+                                        'u_farPlaneRatio',
                                         'u_screenSize',
+                                        'u_pointSize','u_lineWidth',
             ]
 
             print('Shaders compiled successfully.')
@@ -1008,6 +926,8 @@ class GLWidget(QOpenGLWidget):
             
             self.SSAOCoreProgLocMap = self.cacheShaderLocMap(self.SSAOCoreProg, self.coreBlurProgAttribList, self.coreProgUniformList)
             self.SSAOBlurProgLocMap = self.cacheShaderLocMap(self.SSAOBlurProg, self.coreBlurProgAttribList, self.blurProgUniformList)
+
+            self.SSAOLightLineProgLocMap = self.cacheShaderLocMap(self.SSAOLightLineProg, self.lightProgAttribList, self.lightProgUniformList)
 
             self.SSAOGeoFBO = FBOManager()
             self.SSAOCoreFBO = FBOManager()
@@ -1052,11 +972,6 @@ class GLWidget(QOpenGLWidget):
 
             glUseProgram(0)
 
-            # extensions = glGetString(GL_EXTENSIONS).decode('utf-8')
-            # print('Supported extensions:', extensions)
-            # supports_r32f = 'GL_ARB_texture_float' in extensions or 'GL_ATI_texture_float' in extensions
-            # print('Supports GL_R32F:', supports_r32f)
-
         except Exception as e:
             traceback.print_exc()
 
@@ -1073,19 +988,15 @@ class GLWidget(QOpenGLWidget):
       
         glEnd()
 
-    def _renderObjs(self, locMap:dict, render_mode:int, size:float):
+    def _renderObjs(self, locMap:dict):
         '''
         A helper function to render all objects in the scene.
         Args:
             locMap (dict): The location map for shader variables.
-            render_mode (int): The rendering mode (points, lines, or faces).
-            size (float): The size of the points/lines.
-        Returns:
-            None
         '''
-        for k, v in self.objectList.items():
-            if hasattr(v, 'renderinShader'):
-                v.renderinShader(locMap=locMap, render_mode=render_mode, size=size)
+        for obj in self.objectList.values():
+            obj.render(locMap=locMap)
+
 
 
     def _copyBuffer2Screen(self, buffer:FBOManager):
@@ -1138,6 +1049,7 @@ class GLWidget(QOpenGLWidget):
         self.camera.setAspectRatio(float(self.scaled_window_w) / float(self.scaled_window_h))
         projMatrix = self.camera.updateProjTransform(isEmit=False)
         camtrans = self.camera.updateTransform(isEmit=False)
+        
         campos = np.linalg.inv(camtrans)[:3,3]        
 
 
@@ -1155,9 +1067,9 @@ class GLWidget(QOpenGLWidget):
         glUniformMatrix4fv(self.SSAOGeoProgLocMap['u_ViewMatrix'],  1, GL_FALSE, camtrans.T, None)
 
         # render objs
-        self._renderObjs(locMap=self.SSAOGeoProgLocMap, render_mode=self.glRenderMode, size=self.pointLineSize)
+        self._renderObjs(locMap=self.SSAOGeoProgLocMap)
 
-        ''' stage 2: SSAO Core Pass '''
+        # ''' stage 2: SSAO Core Pass '''
         if self.enableSSAO:
             
             self.SSAOCoreFBO.getFBO(self.raw_window_w, self.raw_window_h, depth=False, colors=[GL_R32F])
@@ -1182,8 +1094,7 @@ class GLWidget(QOpenGLWidget):
             glUniform1i(self.SSAOCoreProgLocMap['u_projMode'], 
                         0 if self.camera.projection_mode == GLCamera.projectionMode.perspective else 1)
 
-            # self._tempRenderFullScreenQuad()
-            self.fullScreenQuad.renderinShader(locMap=self.SSAOCoreProgLocMap, render_mode=self.glRenderMode)
+            self.quad.render()
             
             
 
@@ -1209,8 +1120,7 @@ class GLWidget(QOpenGLWidget):
 
 
 
-            # self._tempRenderFullScreenQuad()
-            self.fullScreenQuad.renderinShader(locMap=self.SSAOBlurProgLocMap, render_mode=self.glRenderMode)
+            self.quad.render()
 
 
         ''' stage 4: SSAO Lighting Pass '''
@@ -1231,38 +1141,65 @@ class GLWidget(QOpenGLWidget):
         glUniformMatrix4fv(self.SSAOLightProgLocMap['u_ProjMatrix'],  1, GL_FALSE, projMatrix, None)
         glUniformMatrix4fv(self.SSAOLightProgLocMap['u_ViewMatrix'],  1, GL_FALSE, camtrans.T, None)
 
-        
+        glUniform1i(self.SSAOLightProgLocMap['u_renderMode'], self.glRenderMode)
         glUniform2f(self.SSAOLightProgLocMap['u_screenSize'], float(self.raw_window_w), float(self.raw_window_h))
 
-        self._renderObjs(locMap=self.SSAOLightProgLocMap, render_mode=self.glRenderMode, size=self.pointLineSize)
+        
+        glUseProgram(self.SSAOLightLineProg)
+        if self.enableSSAO:
+            glUniform1i(self.SSAOLightLineProgLocMap['u_AOMap'], 21)
+
+        glUniform1i(self.SSAOLightLineProgLocMap['u_enableAO'], self.enableSSAO)
+        glUniform3f(self.SSAOLightLineProgLocMap['u_CamPos'], *campos)
+
+        glUniformMatrix4fv(self.SSAOLightLineProgLocMap['u_ModelMatrix'], 1, GL_FALSE, self.canonicalModelMatrix, None)
+        glUniformMatrix4fv(self.SSAOLightLineProgLocMap['u_ProjMatrix'],  1, GL_FALSE, projMatrix, None)
+        glUniformMatrix4fv(self.SSAOLightLineProgLocMap['u_ViewMatrix'],  1, GL_FALSE, camtrans.T, None)
+
+        glUniform1i(self.SSAOLightLineProgLocMap['u_renderMode'], self.glRenderMode)
+        glUniform2f(self.SSAOLightLineProgLocMap['u_screenSize'], float(self.raw_window_w), float(self.raw_window_h))
+
+
+        for obj in self.objectList.values():
+            if obj.renderType == GL_LINES:
+                glUseProgram(self.SSAOLightLineProg)
+                obj.render(locMap=self.SSAOLightLineProgLocMap)
+            else:
+                glUseProgram(self.SSAOLightProg)
+                obj.render(locMap=self.SSAOLightProgLocMap)
+
+        # self._renderObjs(locMap=self.SSAOLightProgLocMap)
         
         
         # stage Final: Copy framebuffer to screen (default) framebuffer
         # NOTE: remove before flight
         
         # self._copyBuffer2Screen(self.SSAOBlurFBO)
-        
-        
+        glUseProgram(self.SSAOLightLineProg)
         
         glDepthMask(GL_FALSE)
         
             
         if self.isGridVisable:
-            glUniform1i(self.SSAOLightProgLocMap['u_farPlane'], 1)
-            glUniform1f(self.SSAOLightProgLocMap['u_farPlane_ratio'], 0.02)
+            glUniform1i(self.SSAOLightLineProgLocMap['u_farPlane'], 1)
+            glUniform1f(self.SSAOLightLineProgLocMap['u_farPlaneRatio'], 0.02)
 
-            self.grid.renderinShader(locMap=self.SSAOLightProgLocMap)
-            glUniform1f(self.SSAOLightProgLocMap['u_farPlane_ratio'], 0.15)
-            self.smallGrid.renderinShader(locMap=self.SSAOLightProgLocMap)
-            glUniform1i(self.SSAOLightProgLocMap['u_farPlane'], 0)
+            
+
+            self.grid.render(locMap=self.SSAOLightLineProgLocMap)
+            glUniform1f(self.SSAOLightLineProgLocMap['u_farPlaneRatio'], 0.15)
+            self.smallGrid.render(locMap=self.SSAOLightLineProgLocMap)
+            glUniform1i(self.SSAOLightLineProgLocMap['u_farPlane'], 0)
         if self.isAxisVisable:
-            self.axis.renderinShader(locMap=self.SSAOLightProgLocMap)
+            self.axis.render(locMap=self.SSAOLightLineProgLocMap)
+
 
         glDepthMask(GL_TRUE)
 
-        # self.fps += 1
+        self.fps += 1
         
         glFlush()
+        
 
 
 
@@ -1397,6 +1334,7 @@ class GLWidget(QOpenGLWidget):
         dx = event.x() - self.lastPos.x()
         dy = event.y() - self.lastPos.y()
         
+        # self.fps += 1
 
         if event.buttons() & Qt.LeftButton:
                     
@@ -1450,10 +1388,9 @@ class GLWidget(QOpenGLWidget):
         depth_data = glReadPixels(0, 0, self.raw_window_w, self.raw_window_h,
                                 GL_DEPTH_COMPONENT, GL_FLOAT)
         
-        depth_array = np.frombuffer(depth_data, dtype=np.float32)
-        self.depthMap = depth_array.reshape((self.raw_window_h, self.raw_window_w))[::-1, :]
+        depth_array = np.frombuffer(depth_data, dtype=np.float32).reshape((self.raw_window_h, self.raw_window_w))[::-1, :]
 
-        liner_depth = DepthReader.convertNDC2Liner(self.depthMap, self.camera)
+        liner_depth = DepthReader.convertNDC2Liner(depth_array, self.camera)
 
         # glBindFramebuffer(GL_FRAMEBUFFER, self.defaultFramebufferObject())
 
@@ -1485,11 +1422,11 @@ class GLWidget(QOpenGLWidget):
             if path is None:
                 path, _ = QFileDialog.getSaveFileName(self, 
                                                       'Save Depth Map', 
-                                                      self.lastSavePath if os.path.exists(self.lastSavePath) else './depth.png', 
+                                                      os.path.join(self.lastSavePath, 'depth.png') if os.path.exists(self.lastSavePath) else './depth.png', 
                                                       'PNG Files (*.png);;All Files (*)')
 
             if path:
-                self.lastSavePath = path
+                self.lastSavePath = os.path.dirname(path)
                 depth_image_pil.save(path)
                 print(f'Depth map saved to {path}')
                 self.infoSignal.emit('Depth Map Saved', f'Depth map saved to {path}', 'complete')
@@ -1505,11 +1442,11 @@ class GLWidget(QOpenGLWidget):
             if path is None:
                 path, _ = QFileDialog.getSaveFileName(self, 
                                                       'Save RGBA Image',
-                                                      self.lastSavePath if os.path.exists(self.lastSavePath) else './rgba_image.png',
+                                                      os.path.join(self.lastSavePath, 'image.png') if os.path.exists(self.lastSavePath) else './image.png',
                                                       'PNG Files (*.png);;All Files (*)')
             
             if path:
-                self.lastSavePath = path
+                self.lastSavePath = os.path.dirname(path)
                 image = self.grabFramebuffer()
                 image.save(path)
                 print(f'RGBA image saved to {path}')

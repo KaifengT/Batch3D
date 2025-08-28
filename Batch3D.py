@@ -671,10 +671,6 @@ class dataParser:
             else:
                 obj = lines
                 
-            if hasattr(user_color, 'ndim') and user_color.ndim > 1:
-                user_color = colorManager.extract_dominant_colors(user_color, n_colors=3)[0]
-            else:
-                user_color = (user_color,)
 
         # -------- bounding box
         elif (len(v.shape) >= 2 and v.shape[-2] == 8 and v.shape[-1] in (3, 6, 7) and 'bbox' in k): # (..., 8, 3)
@@ -686,18 +682,12 @@ class dataParser:
             v = v.reshape(-1, 8, 3)
             obj = BoundingBox(vertex=v, color=user_color)
             
-            if hasattr(user_color, 'ndim') and user_color.ndim > 1:
-                user_color = colorManager.extract_dominant_colors(user_color, n_colors=3)[0]
-            else:
-                user_color = (user_color,)
-
         
         # -------- pointcloud
         elif len(v.shape) >= 2 and v.shape[-1] == 3: # (..., 3)
             v = v.reshape(-1, 3)
             obj = PointCloud(vertex=v, color=user_color, size=dataParser._isSizeinName(k))
             
-            user_color = (user_color,)
                 
         # -------- pointcloud with point-wise color
         elif len(v.shape) >= 2 and v.shape[-1] in (6, 7): # (..., 6)
@@ -708,9 +698,7 @@ class dataParser:
                 color = v[..., 3:7].reshape(-1, 4)
                 
             obj = PointCloud(vertex=vertex, color=color, size=dataParser._isSizeinName(k))
-            
-            user_color, per = colorManager.extract_dominant_colors(color, n_colors=3)
-            
+                        
             
         # -------- coordinate axis
         elif len(v.shape) >= 2 and v.shape[-1] == 4 and v.shape[-2] == 4: # (..., 4, 4)
@@ -744,9 +732,6 @@ class dataParser:
             line_trans = line_trans.reshape(-1, 3)
             obj = Lines(vertex=line_trans, color=color)
 
-            
-            user_color, per = colorManager.extract_dominant_colors(color, n_colors=3)
-            
         else:
             return None, k, ((0.9, 0.9, 0.9),), False
             
@@ -801,7 +786,7 @@ class dataParser:
             texcoord = v.visual.uv.view(np.ndarray).astype(np.float32) if isinstance(v.visual, TextureVisuals) and hasattr(v.visual, 'uv') and hasattr(v.visual.uv, 'view') else None
 
             obj = Mesh(v.vertices.view(np.ndarray).astype(np.float32),
-                    v.faces.view(np.ndarray).astype(np.int32),
+                    v.faces.view(np.ndarray).astype(np.uint32),
                     # norm=v.face_normals.view(np.ndarray).astype(np.float32),
                     norm=v.vertex_normals.view(np.ndarray).astype(np.float32),
                     color=None,
@@ -2116,15 +2101,23 @@ def changeGlobalTheme(x):
     global CURRENT_THEME
     CURRENT_THEME = [Theme.LIGHT, Theme.DARK][x]
     
-def setup_opengl_format():
-    """设置OpenGL格式"""
-    format = QSurfaceFormat()
-    format.setVersion(3, 3)
-    format.setProfile(QSurfaceFormat.CompatibilityProfile)
-    format.setSamples(4)  # 4x MSAA
-    format.setDepthBufferSize(24)
-    format.setStencilBufferSize(8)
-    QSurfaceFormat.setDefaultFormat(format)
+
+def enable_discrete_gpu():
+    import platform
+    """Try to force discrete GPU on Windows"""
+    if platform.system() == "Windows":
+        try:
+            ctypes.CDLL("nvcuda.dll")
+            print("[GPU] NVIDIA CUDA DLL loaded (may enable dGPU)")
+        except:
+            pass
+        try:
+            ctypes.CDLL("nvapi64.dll")
+        except:
+            pass
+        
+        
+# enable_discrete_gpu()
 
 if __name__ == "__main__":
     

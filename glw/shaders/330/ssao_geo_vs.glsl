@@ -1,7 +1,7 @@
 #version 330 core
 
-in vec4 a_Position;
-in vec3 a_Normal;
+layout (location=0) in vec4 a_Position;
+layout (location=2) in vec3 a_Normal;
 
 uniform mat4 u_ProjMatrix;
 uniform mat4 u_ViewMatrix;

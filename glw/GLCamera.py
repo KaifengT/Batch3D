@@ -63,11 +63,11 @@ class GLCamera(QObject):
         self.last_arcboall_quat = np.array([1, 0, 0, 0])
         self.arcboall_t = np.array([0, 0, 0])
         
-        self.filterAEV = kalmanFilter(3, R=0.2)
-        self.filterlookatPoint = kalmanFilter(3, R=0.2)
+        self.filterAEV = kalmanFilter(3, R=0.4, Q=0.015)
+        self.filterlookatPoint = kalmanFilter(3, R=0.4, Q=0.015)
         # BUG TO FIX: filterRotaion cannot deal with quaternion symmetry when R >> Q
         # self.filterRotaion = kalmanFilter(4, Q=0.5, R=0.1)
-        self.filterRotaion = kalmanFilter(4, R=0.4)
+        self.filterRotaion = kalmanFilter(4, R=0.4, Q=0.015)
         self.filterAngle = kalmanFilter(1)
         
         self.filterPersp = kalmanFilter(16, R=0.5)
@@ -270,7 +270,7 @@ class GLCamera(QObject):
             axis, angle = self.calculateRotation(start_norm, end_norm)
             # print('axis, angle', axis, angle)
             # transform screen space to world space
-            angle *= 16
+            angle *= 6
             axis = self.CameraTransformMat[:3,:3].T.dot(axis)
             if angle == 0:
                 rmat = np.eye(3)
@@ -287,7 +287,7 @@ class GLCamera(QObject):
             
             rmat = self.CameraTransformMat[:3,:3] @ rmat.T
             
-            last_quat = quaternion_from_matrix(self.CameraTransformMat)
+            # last_quat = quaternion_from_matrix(self.CameraTransformMat)
             
             targetTransformMat = np.identity(4)
             targetTransformMat[:3,:3] = rmat
@@ -308,7 +308,6 @@ class GLCamera(QObject):
         self.viewPortDistance -= ddistance * self.viewPortDistance * 0.1
         
     def translate(self, x=0, y=0,):
-        self.updateTransform()
         
         scale = self.viewPortDistance * 1e-3
         

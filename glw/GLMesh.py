@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 from copy import deepcopy
 from collections.abc import Iterable, Mapping
-from typing import Any
+from typing import Optional, Union
 import PIL.Image as im
 import numpy as np
 from OpenGL.GL import *
@@ -12,8 +12,8 @@ from .utils.transformations import invHRT, rotation_matrix, rotationMatrixY, rpy
 from PIL import Image
 from trimesh.visual.material import SimpleMaterial, PBRMaterial
 
-DEFAULT_COLOR3 = (0.8, 0.8, 0.8)
-DEFAULT_COLOR4 = (0.8, 0.8, 0.8, 1.0)
+DEFAULT_COLOR3 = np.array([0.8, 0.8, 0.8], dtype=np.float32)
+DEFAULT_COLOR4 = np.array([0.8, 0.8, 0.8, 1.0], dtype=np.float32)
 class colorManager:
     _color =  np.array([    
         # [217, 217, 217], # rgb(217, 217, 217),
@@ -140,168 +140,470 @@ class colorManager:
         return out
 
 
-class BaseObject:
-    def __init__(self) -> None:
-        self.pointSize = 0
-        self.lineWidth = 0
-        
-        self.isShow = True
-        
-        self.props = {
-            'isShow':True,
-            'size':3
-        }
 
-        self.renderType = GL_POINTS
-        self.vbotype = GL_C3F_V3F
-        
-        self._vboInfo = {
-            'vbotype':self.vbotype,
-            'len':0,
-            'nbytes':4,
-            'stride':0,
-        }
-        self._vboMap = {}
-        
-        self.isDefaultColor = True
-        self.meanColor = None
-        
-        self.transform = np.eye(4, dtype=np.float32)
+class VAOManager:
+    '''
+    Manages the Vertex Array Object (VAO) and its associated Vertex Buffer Objects (VBOs) and Element Buffer Object (EBO).
+    '''
+    def __init__(self):
+        '''
+        Initialize the VAOManager. You should call createVAO() after initializing an OpenGL context.
+        '''
+        self._vaoid = 0
+        self._vboids = {}
+        self._eboid = 0
+        self._eboLen = 0
+        self._len = 0
 
-        self.mainColors = np.array([[*DEFAULT_COLOR3]]).astype(np.float32)
-        # self.transform[:3, 3] = np.array([1., 10., 0.], dtype=np.float32)
-        
-    def load(self, ):
-        pass
+    def createVAO(self) -> int:
+        '''
+        Create a Vertex Array Object (VAO). This function generates a new VAO if one does not already exist, 
+        and this function should be called after initializing an OpenGL context.
+        '''
+        if self._vaoid != 0:
+            return self._vaoid
+        self._vaoid = glGenVertexArrays(1)
+        return self._vaoid
     
+    def bind(self, ):
+        '''
+        Bind the Vertex Array Object (VAO) for the current context.
+        '''
+        if self._vaoid != 0:
+            glBindVertexArray(self._vaoid)
+        else:
+            print('VAO not created!')
+            
+    def unbind(self, ):
+        '''
+        Unbind the Vertex Array Object (VAO) for the current context.
+        '''
+        glBindVertexArray(0)
+
+    def cleanup(self, ):
+        '''
+        Cleanup the VAOManager by deleting the VAO, VBOs, and EBO.
+        '''
+
+
+        for vbo in self._vboids.values():
+            if vbo != 0:
+                glDeleteBuffers(1, [vbo])
+                # print(f'VBO {vbo} deleted!')
+
+        if self._eboid != 0:
+            glDeleteBuffers(1, [self._eboid])
+            # print(f'EBO {self._eboid} deleted!')
+            self._eboid = 0
+            self._eboLen = 0
+            
+        if self._vaoid != 0:
+            glDeleteVertexArrays(1, [self._vaoid])
+            # print(f'VAO {self._vaoid} deleted!')
+            self._vaoid = 0    
+
+        self._len = 0
+        self._vboids.clear()
+        
+
+    @staticmethod
+    def _createVBO(data:np.ndarray):
+        data = np.float32(data)
+        vbo = glGenBuffers(1)
+        glBindBuffer(GL_ARRAY_BUFFER, vbo)
+        glBufferData(GL_ARRAY_BUFFER, data.nbytes, data, GL_STATIC_DRAW)
+        glBindBuffer(GL_ARRAY_BUFFER, 0)
+        return vbo
+    
+    @staticmethod
+    def _createEBO(data:np.ndarray):
+        data = np.uint32(data.ravel())
+        ebo = glGenBuffers(1)
+        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ebo)
+        glBufferData(GL_ELEMENT_ARRAY_BUFFER, data.nbytes, data, GL_STATIC_DRAW)
+        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0)
+        return ebo, len(data)
+
+    def bindVertexBuffer(self, index:int, data:np.ndarray, size:int, type:ctypes.c_uint=GL_FLOAT, nbytes:int=4):
+        '''
+        Bind the vertex buffer object (VBO) for the current VAO.
+        This function creates a new VBO and binds it to the specified vertex attribute index.
+        Args:
+            index (int): The index of the vertex attribute.
+            data (np.ndarray): The vertex data to bind.
+            size (int): The number of components per vertex attribute. If data is position, size should be 3.
+            type (ctypes.c_uint, optional): The data type of each component. Defaults to GL_FLOAT.
+            nbytes (int, optional): The size of each component in bytes. Defaults to 4.
+        '''
+        if self._vaoid != 0:
+            
+            vertexlen = len(data.flatten()) // size
+            if self._len != 0 and vertexlen != self._len:
+                raise ValueError(f'Warning: Vertex length mismatch! Expected {self._len}, got {vertexlen}')
+            self._len = vertexlen
+
+            vbo = self._createVBO(data)
+            self._vboids.update({index: vbo})
+            
+            glBindVertexArray(self._vaoid)
+            glEnableVertexAttribArray(index)
+            
+            glBindBuffer(GL_ARRAY_BUFFER, vbo)
+
+            glVertexAttribPointer(index, size, type, GL_FALSE, size * nbytes, ctypes.c_void_p(0))
+
+            glBindVertexArray(0)
+            glBindBuffer(GL_ARRAY_BUFFER, 0)
+        else:
+            print('bindVertexBuffer: VAO not created!')
+
+
+    def bindElementBuffer(self, data:np.ndarray):
+        '''
+        Bind the element buffer object (EBO) for current VAO.
+        This function creates a new EBO and binds it to the current VAO.
+        Args:
+            data (np.ndarray): The index data for the EBO. Type should be uint32.
+        '''
+        if self._vaoid != 0:
+            if self._eboid == 0:
+
+                # assert data.dtype == np.uint32, 'EBO data must be of type uint32'
+                data = data.astype(np.uint32)
+
+                self._eboid, self._eboLen = self._createEBO(data)
+                
+                glBindVertexArray(self._vaoid)
+                glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, self._eboid)
+                glBindVertexArray(0)
+                glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0)
+            else:
+                print('bindElementBuffer: EBO already exists!')
+        else:
+            print('bindElementBuffer: VAO not created!')
+
+    def getEBOLen(self, ):
+        '''
+        Get the length of the element buffer.
+        Returns:
+            int: The number of elements in the buffer.
+        '''
+        return self._eboLen
+
+    def setVertexLen(self, length:int):
+        '''
+        Set the length of the vertex buffer.
+        Args:
+            length (int): The number of vertices in the buffer.
+        '''
+        self._len = length
+        
+    def getVertexLen(self, ):
+        '''
+        Get the length of the vertex buffer.
+        Returns:
+            int: The number of vertices in the buffer.
+        '''
+        return self._len
+
+    def getVAO(self):
+        '''
+        Get the VAO ID for the current mesh.
+        Returns:
+            int: The VAO ID.
+        '''
+        return self._vaoid
+
+    def __del__(self, ):
+        self.cleanup()
+
+class BaseObject:
+    def __init__(self):
+        self.vao = VAOManager()
+        self.__renderType = GL_POINTS
+        
+
+        
+        self.__props = {
+            'isShow':True,
+            'size':3,
+            'transform':np.eye(4, dtype=np.float32)
+        }
+
+
+        self.__mainColors = DEFAULT_COLOR3[None]
+
+    @property
+    def renderType(self):
+        return self.__renderType
+    
+    @property
+    def isShow(self):
+        return self.__props.get('isShow', True)
+    
+    @property
+    def transform(self):
+        return self.__props.get('transform', np.eye(4, dtype=np.float32))
+
+    @property
+    def size(self):
+        return self.__props.get('size', 3)
+    
+    @property
+    def mainColors(self):
+        return self.__mainColors
+
+    @mainColors.setter
+    def mainColors(self, value):
+        self.__mainColors = value
+
+    @transform.setter
+    def transform(self, value: np.ndarray):
+        self.setTransform(value)
+        
+    @renderType.setter
+    def renderType(self, value: ctypes.c_uint):
+        self.setRenderType(value)
+        
+    @isShow.setter
+    def isShow(self, value: bool):
+        self.setProp('isShow', value)
+        
+    @size.setter
+    def size(self, value):
+        self.setProp('size', value)
+
+    def setRenderType(self, renderType:ctypes.c_uint=GL_POINTS):
+        '''
+        Set the rendering type for the object.
+        Args:
+            renderType (ctypes.c_uint): The rendering type to set. Available types are GL_POINTS, GL_LINES, GL_TRIANGLES, etc.
+        '''
+        assert renderType in (GL_POINTS, GL_LINES, GL_TRIANGLES, GL_QUADS, GL_LINE_STRIP, GL_LINE_LOOP, GL_TRIANGLE_STRIP, GL_TRIANGLE_FAN), 'Invalid render type'
+        self.__renderType = renderType
+
     def setTransform(self, transform:np.ndarray):
+        '''
+        Set the transformation matrix for the object.
+        This is a shorthand for setting the 'transform' property.
+        Args:
+            transform (np.ndarray): The transformation matrix to set. Must be of shape (4, 4).
+        '''
         if transform is None:
             return
+        assert isinstance(transform, np.ndarray), 'transform must be a numpy array'
         assert transform.shape == (4, 4), 'transform shape error'
-        self.transform = transform
-    
-    def reset(self, ):
-        if hasattr(self, '_vboid'):
-            self._vboid.delete()
-            del self._vboid
-            
-        if hasattr(self, '_indid') and self._indid is not None:
-            self._indid.delete()
-            del self._indid
-            
-        if hasattr(self, '_texid') and isinstance(self._texid, Mapping):            
-            
-            datas = list(self._texid.values())
+        self.setProp('transform', transform)
+
+    def setProp(self, key:str, value):
+        '''
+        Set a property for the object.
+        Args:
+            key (str): The property key to set.
+            value: The value to set for the property.
+        '''
+        self.__props.update({key:value})
+
+    def setMultiProp(self, props:dict):
+        '''
+        Set multiple properties for the object.
+        Args:
+            props (dict): A dictionary of properties to set.
+        '''
+        self.__props.update(props)
+
+    def getProp(self, key:str, default=None):
+        '''
+        Get a property for the object.
+        Args:
+            key (str): The property key to get.
+            default: The default value to return if the property is not found.
+        Returns:
+            The value of the property, or the default value if not found.
+        '''
+        return self.__props.get(key, default)
+
+
+    def cleanup(self):
+
+        if hasattr(self, 'materialParameter') and isinstance(self.materialParameter, Mapping):
+
+            datas = list(self.materialParameter.values())
             toDelete = []
             for data in datas:
                 if data['type'] == 'texture':
                     toDelete.append(data['data'])
             if len(toDelete):
                 glDeleteTextures(len(toDelete), toDelete)
-            del self._texid
-
+                # print(f'Deleted textures: {toDelete}')
+            del self.materialParameter
         
-    def updateProps(self, props:dict):
-        self.props.update(props)
-    
         
-    def render(self, ratio=1.):
-        if hasattr(self, '_vboid') and self.props['isShow']:
-            self._vboid.bind()
-            glInterleavedArrays(self.vbotype,0,None)
-            if ratio > 5: ratio = 5
-            if self.pointSize:
-                glPointSize(self.pointSize * ratio)
-            elif self.lineWidth:
-                glLineWidth(self.lineWidth * ratio)
-                                
-            else:
-                glDrawArrays(self.renderType, 0, self.l)
-            self._vboid.unbind()
-            
-    def renderinShader(self, locMap:dict={}, render_mode=0, size=None):
+        self.vao.cleanup()
         
-        if hasattr(self, '_vboid') and self.props['isShow']:
-            
-            model_matrix_loc = locMap.get('u_ModelMatrix', None)
-            if model_matrix_loc is not None and model_matrix_loc != -1:
-                glUniformMatrix4fv(model_matrix_loc, 1, GL_FALSE, self.transform.T, None)
-            
-            
-            self._vboid.bind()
-            
-            if self.props['size'] is not None:
-                size = self.props['size']
-            else:
-                size = 3
+    def __del__(self, ):
+        self.cleanup()
 
-            glPointSize(size)
-            glLineWidth(size)
-
-            
-            for attr, args in self._vboMap.items():
-                loc = locMap.get(attr, None)
-                if loc is not None and loc != -1:
-                    glEnableVertexAttribArray(loc)
-                    glVertexAttribPointer(loc, **args)
-            
-            self._vboid.unbind()
-                   
-            if hasattr(self, '_texid') and \
-                isinstance(self._texid, Mapping):
-                
-
-                for i, (locName, params) in enumerate(self._texid.items()):
-                    loc = locMap.get(locName, -1)
-                    if loc != -1:
-                        if params['type'] == 'texture':
-                            if self._vboInfo['vbotype'] == GL_T2F_C4F_N3F_V3F:
-                                glActiveTexture(GL_TEXTURE0 + i)
-                                glBindTexture(GL_TEXTURE_2D, params['data'])
-                                glUniform1i(loc, i)
-                            
-                        elif params['type'] == 'float':
-                            glUniform1f(loc, params['data'])
-                            
-                        elif params['type'] == 'int':
-                            glUniform1i(loc, params['data'])
-
-                
-            loc = locMap.get('render_mode', -1)
-            if loc != -1:
-                glUniform1i(loc, int(render_mode))
-            
-            
-                  
-            if hasattr(self, '_indid') and self._indid is not None:
-                self._indid.bind()
-                if render_mode == 0:
-                    # glPolygonMode(GL_FRONT_AND_BACK, GL_FILL)
-                    # glDrawElements(self.renderType, self._vboInfo['len_ind'], GL_UNSIGNED_INT, None)
-                    
-                    # glEnable(GL_POLYGON_OFFSET_LINE)
-                    # # glPolygonOffset(-1.0, -1.0)
-                    glPolygonMode(GL_FRONT_AND_BACK, GL_LINE)
-                    glDrawElements(self.renderType, self._vboInfo['len_ind'], GL_UNSIGNED_INT, None)
-                    # glDisable(GL_POLYGON_OFFSET_LINE)
-                    
-                else:
-                    # glPolygonMode(GL_FRONT_AND_BACK, GL_FILL)
-                    glPolygonMode(GL_FRONT, GL_FILL)
-                    glDrawElements(self.renderType, self._vboInfo['len_ind'], GL_UNSIGNED_INT, None)
-                self._indid.unbind()
-            else:
-                glDrawArrays(self.renderType, 0, self._vboInfo['len'])
-           
     @staticmethod
-    def _decode_HexColor_to_RGB(hexcolor):
-        if len(hexcolor) == 6:
-            return tuple(int(hexcolor[i:i+2], 16) / 255. for i in (0, 2, 4))
-        elif len(hexcolor) == 8:
-            return tuple(int(hexcolor[i:i+2], 16) / 255. for i in (0, 2, 4, 6))
+    def createTexture2d(texture_file:Image.Image):
+        
+        internalformatMap = {
+            GL_RGB: GL_RGB8,
+            GL_RGBA: GL_RGBA8,
+            GL_RED: GL_R8,
+            GL_RG: GL_RG8,
+        }
+        
+        formatMap = {
+            4: GL_RGBA,
+            3: GL_RGB,
+            2: GL_RG,
+            1: GL_RED,
+            0: GL_RED,
+        }
+        
+        typeMap = {
+            np.uint8: GL_UNSIGNED_BYTE,
+            np.uint16: GL_UNSIGNED_SHORT,
+            np.uint32: GL_UNSIGNED_INT,
+            np.int8: GL_BYTE,
+            np.int16: GL_SHORT,
+            np.int32: GL_INT,
+            np.float32: GL_FLOAT,
+            np.float16: GL_HALF_FLOAT,
+        }
+        
+        im = np.array(texture_file)
+        im_h, im_w = im.shape[:2]
+        # im_mode = GL_LUMINANCE if im.ndim == 2 else (GL_RGB, GL_RGBA)[im.shape[-1]-3]
+        
+        if im.ndim == 2:
+            im = im[..., None]
+        if im.ndim == 3 and im.shape[-1] == 1:
+            im = np.concatenate([im, im, im], axis=-1)
+
+        _type = typeMap.get(im.dtype.type, GL_UNSIGNED_BYTE)
+        _dim = 1 if im.ndim < 3 else im.shape[-1]
+        _format = formatMap[_dim]
+        _iformat = internalformatMap[_format]
+
+        tid = glGenTextures(1)
+        glBindTexture(GL_TEXTURE_2D, tid)
+
+        if (im.size/im_h)%4 == 0:
+            glPixelStorei(GL_UNPACK_ALIGNMENT, 4)
         else:
-            return (1., 1., 1., 1.)
+            glPixelStorei(GL_UNPACK_ALIGNMENT, 1)
+        
+        glTexImage2D(GL_TEXTURE_2D, 0, _iformat, im_w, im_h, 0, _format, _type, im)
+        glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR)
+        glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR)
+        glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT)
+        glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT)
+        glGenerateMipmap(GL_TEXTURE_2D)
+        glBindTexture(GL_TEXTURE_2D, 0)
+
+        return tid
+
+    @staticmethod
+    def buildfaceNormal(vertex, indices):
+        primitive = vertex[indices]
+        a = primitive[::3]
+        b = primitive[1::3]
+        c = primitive[2::3]
+        face_norm = np.repeat(np.cross(b-a, c-a), 3, axis=0)
+        
+        ind_rev = np.array(range(vertex.shape[0]))
+        ind_rev = ind_rev[indices]
+        
+        norm = np.zeros_like(vertex)
+        norm[ind_rev] = face_norm
+        
+        return norm
+    
+    @staticmethod
+    def faceNormal2VertexNormal(faceNormal, vertex, indices):
+        '''
+        vertex (v, 3)
+        faceNormal (n, 3)
+        indices (n, )
+        '''
+        
+        ind_rev = np.array(range(vertex.shape[0]))
+        ind_rev = ind_rev[indices]
+        
+        norm = np.zeros_like(vertex)
+        norm[ind_rev] = faceNormal
+        
+        return norm
+
+    @staticmethod
+    def _decodeStr2RGB(hexcolor:str) -> np.ndarray:
+        try:
+            if len(hexcolor) >= 6:
+                hexcolor = hexcolor + 'FF'
+
+            if len(hexcolor) >= 8:
+                return np.array([int(hexcolor[i:i+2], 16) / 255. for i in (0, 2, 4, 6)], dtype=np.float32)
+            else:
+                return DEFAULT_COLOR4
+        except:
+            return DEFAULT_COLOR4
  
+
+
+    @staticmethod
+    def checkData(shape, data:np.ndarray, lastdim:float=4, fill:float=1.0):
+        '''
+        Check and reshape the input data to match the desired shape and dimensions.
+        Args:
+            shape (tuple): The desired shape of the output data.
+            data (np.ndarray): The input data to check and reshape.
+            lastdim (float): The last dimension size of the output data.
+            fill (float): The fill value for any missing elements.
+        Returns:
+            checkedData (np.ndarray): The reshaped output data.
+        '''
+        data = data.astype(np.float32)
+        if data.shape[:-1] == shape[:-1]:
+            if data.shape[-1] == lastdim:
+                return data
+            else:
+                _data = np.ones((*data.shape[:-1], lastdim), dtype=np.float32) * fill
+                _data[..., :min(data.shape[-1], lastdim)] = data[..., :min(data.shape[-1], lastdim)]
+                return _data
+            
+        else:
+            if data.ndim > 1:
+                data = data.ravel()[:lastdim]
+            
+            one = np.ones((*shape[:-1], lastdim), dtype=np.float32)
+            
+            if data.shape[-1] == lastdim:
+                _data = data
+            else:
+                _data = np.ones((lastdim), dtype=np.float32) * fill
+                _data[:min(data.shape[-1], lastdim)] = data[:min(data.shape[-1], lastdim)]
+                
+            return one * _data
+
+
+
+    @staticmethod
+    def checkColor(shape, color:Optional[np.ndarray | list | tuple | str]=None):
+        if color is None:
+            color = DEFAULT_COLOR4
+        
+        elif isinstance(color, str):
+            color = BaseObject._decodeStr2RGB(color)
+            
+        elif isinstance(color, (list, tuple)):
+            color = np.array(color, dtype=np.float32)
+            
+        assert isinstance(color, np.ndarray), 'color must be a numpy array, list, tuple, hex string or None'
+    
+        return BaseObject.checkData(shape, color, lastdim=4, fill=1.0)
+
     @staticmethod
     def _parseMaterial(material:SimpleMaterial|PBRMaterial, texcoord=None):
         
@@ -425,200 +727,52 @@ class BaseObject:
         else:
             raise ValueError('Unknown material type')
 
-    @staticmethod
-    def buildVBO(vertex:np.ndarray, 
-                 color:np.ndarray=None, 
-                 norm:np.ndarray=None, 
-                 indices:np.ndarray=None, 
-                 texture:SimpleMaterial|PBRMaterial=None, 
-                 texcoord:np.ndarray=None
-                 ):
+
+    def load(self):
+        ...
+
+    def render(self, locMap:dict={}, render_mode=0, ):
         
-        # print('buildVBO vertex:', vertex.shape)
         
+        
+        if self.isShow:
             
-        assert hasattr(vertex, 'shape') and len(vertex.shape)==2 and vertex.shape[1]==3, 'vertex format error'
-        
-        if norm is not None:
-            assert hasattr(norm, 'shape') and norm.ravel().shape==vertex.ravel().shape, 'norm format error'
-            normArray = norm
-        else:
-            normArray = np.zeros_like(vertex)
-            # normArray = np.zeros_like(vertex) + np.array([[0.,0.,1.]])
-    
-        
-        
-        
-        
-        if color is None:
-            color = [*DEFAULT_COLOR4]
-        
-        if isinstance(color, str):
-            color = BaseObject._decode_HexColor_to_RGB(color)
-    
-        if hasattr(color, 'shape') and color.shape[0]==vertex.shape[0] and len(color.shape)==len(vertex.shape):
-            if color.shape[1]==4:
-                colorArray = color
-            elif color.shape[1]==3:
-                colorArray = np.concatenate((color, np.ones((color.shape[0], 1), dtype=np.float32)), axis=1)
+            model_matrix_loc = locMap.get('u_ModelMatrix', -1)
+            if model_matrix_loc != -1:
+                glUniformMatrix4fv(model_matrix_loc, 1, GL_FALSE, self.transform.T, None)
+
+            if self.__renderType == GL_POINTS:
+                loc = locMap.get('u_pointSize', -1)
+                if loc != -1:
+                    glUniform1f(loc, self.size)
+            elif self.__renderType == GL_LINES:
+                loc = locMap.get('u_lineWidth', -1)
+                if loc != -1:
+                    glUniform1f(loc, self.size)
+
+            if hasattr(self, 'materialParameter'):
+                for i, (name, param) in enumerate(self.materialParameter.items()):
+                    loc = locMap.get(name, -1)
+                    if loc != -1:
+                        if param['type'] == 'float':
+                            glUniform1f(loc, param['data'])
+                        elif param['type'] == 'int':
+                            glUniform1i(loc, param['data'])
+                        
+                        elif param['type'] == 'texture':
+                            glActiveTexture(GL_TEXTURE0 + i)
+                            glBindTexture(GL_TEXTURE_2D, param['data'])
+                            glUniform1i(loc, i)
+
+            self.vao.bind()
+            
+            ebolen = self.vao.getEBOLen()
+            if not ebolen:
+                glDrawArrays(self.__renderType, 0, self.vao.getVertexLen())
             else:
-                raise ValueError('color shape error')
-                
-        else:
-            if len(color)==4:
-                colorArray = np.array([color]).repeat(vertex.shape[0], 0)
-            elif len(color)==3:
-                colorArray = np.array([[*color, 1.]]).repeat(vertex.shape[0], 0)
-            else:
-                print('color:', color)
-                # raise ValueError('color shape error')
-                colorArray = np.array([*DEFAULT_COLOR4]).repeat(vertex.shape[0], 0)
-        
-        vboArray = [colorArray, normArray, vertex]
-                
-        mainColor, per = colorManager.extract_dominant_colors(colorArray, n_colors=3)
-                
-        nbytes = 4
-        
-        vboInfo = {}
-        
-                
-        indid = None
-        materialParameter = {'u_Metallic': {'data': 0.0, 'type': 'float'},
-                        'u_Roughness': {'data': 0.0, 'type': 'float'},
-                        'u_EnableAlbedoTexture': {'data': 0, 'type': 'int'},
-                        'u_EnableMetallicRoughnessTexture': {'data': 0, 'type': 'int'}}
+                glDrawElements(self.__renderType, ebolen, GL_UNSIGNED_INT, None)
+            self.vao.unbind()
 
-        validTexture = False
-
-        if indices is not None:
-            indices = np.int32(indices.ravel())
-            indid = vbo.VBO(indices, target=GL_ELEMENT_ARRAY_BUFFER)
-            len_ind = len(indices)
-            vboInfo.update({'len_ind':len_ind})
-
-
-        
-        if texcoord is not None:
-            texcoord[:,1] = 1. - texcoord[:,1]
-            
-
-        if texture is not None:
-            materialParameter, miscParamter = BaseObject._parseMaterial(texture, texcoord=texcoord)
-
-            if 'u_AlbedoTexture' in materialParameter.keys():
-                vboArray.insert(0, texcoord)
-                validTexture = True
-                
-                if miscParamter.get('mainColors') is not None:
-                    mainColor = miscParamter['mainColors']['data']
-
-                
-            else:
-                vertexColor = miscParamter['vertexColor']['data']
-                # use vertexColor from material instead of color
-                if isinstance(vertexColor, np.ndarray):
-                    vertexColor = vertexColor[None].repeat(vboArray[0].shape[0], axis=0)
-                    vboArray[0] = vertexColor
-                    mainColor, per = colorManager.extract_dominant_colors(vertexColor, n_colors=3)
-                
-        
-
-        vboArray = np.concatenate(vboArray, axis=1, dtype=np.float32)
-        vboid = vbo.VBO(vboArray)
-        stride = vboArray.shape[1] * nbytes
-        
-        if validTexture:
-            vbotype = GL_T2F_C4F_N3F_V3F
-            vboMap = {
-                'a_Texcoord':{'size':2, 'type':GL_FLOAT, 'normalized':GL_FALSE, 'stride':stride, 'pointer':vboid + 0},   
-                'a_Color'   :{'size':4, 'type':GL_FLOAT, 'normalized':GL_FALSE, 'stride':stride, 'pointer':vboid + 2 * nbytes},
-                'a_Normal'  :{'size':3, 'type':GL_FLOAT, 'normalized':GL_FALSE, 'stride':stride, 'pointer':vboid + (2 + 4) * nbytes},
-                'a_Position':{'size':3, 'type':GL_FLOAT, 'normalized':GL_FALSE, 'stride':stride, 'pointer':vboid + (2 + 4 + 3) * nbytes},
-                  
-            }
-            
-        else:
-            vbotype = GL_C4F_N3F_V3F
-            vboMap = {
-                'a_Color'   :{'size':4, 'type':GL_FLOAT, 'normalized':GL_FALSE, 'stride':stride, 'pointer':vboid + 0},
-                'a_Normal'  :{'size':3, 'type':GL_FLOAT, 'normalized':GL_FALSE, 'stride':stride, 'pointer':vboid + colorArray.shape[1] * nbytes},
-                'a_Position':{'size':3, 'type':GL_FLOAT, 'normalized':GL_FALSE, 'stride':stride, 'pointer':vboid + (colorArray.shape[1] + normArray.shape[1]) * nbytes},
-            }
-            
-     
-        vboInfo.update({
-            'vbotype':vbotype,
-            'len':len(vboArray),
-            'nbytes':nbytes,
-            'stride':stride,
-        })
-
-        
-        return vboid, vboArray, vboInfo, vboMap, indid, materialParameter, mainColor
-
-    @staticmethod
-    def createTexture2d(texture_file:Image.Image):
-
-        # im = np.array(Image.open('earth.jpg'))
-        
-        im = np.array(texture_file)
-        im_h, im_w = im.shape[:2]
-        im_mode = GL_LUMINANCE if im.ndim == 2 else (GL_RGB, GL_RGBA)[im.shape[-1]-3]
-
-        tid = glGenTextures(1)
-        glBindTexture(GL_TEXTURE_2D, tid)
-
-        if (im.size/im_h)%4 == 0:
-            glPixelStorei(GL_UNPACK_ALIGNMENT, 4)
-        else:
-            glPixelStorei(GL_UNPACK_ALIGNMENT, 1)
-        
-        glTexImage2D(GL_TEXTURE_2D, 0, im_mode, im_w, im_h, 0, im_mode, GL_UNSIGNED_BYTE, im)
-        glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR)
-        glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR)
-        glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT)
-        glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT)
-        glGenerateMipmap(GL_TEXTURE_2D)
-        glBindTexture(GL_TEXTURE_2D, 0)
-
-        return tid
-
-    @staticmethod
-    def buildfaceNormal(vertex, indices):
-        primitive = vertex[indices]
-        a = primitive[::3]
-        b = primitive[1::3]
-        c = primitive[2::3]
-        face_norm = np.repeat(np.cross(b-a, c-a), 3, axis=0)
-        
-        ind_rev = np.array(range(vertex.shape[0]))
-        ind_rev = ind_rev[indices]
-        
-        norm = np.zeros_like(vertex)
-        norm[ind_rev] = face_norm
-        
-        return norm
-    
-    @staticmethod
-    def faceNormal2VertexNormal(faceNormal, vertex, indices):
-        '''
-        vertex (v, 3)
-        faceNormal (n, 3)
-        indices (n, )
-        '''
-        
-        ind_rev = np.array(range(vertex.shape[0]))
-        ind_rev = ind_rev[indices]
-        
-        norm = np.zeros_like(vertex)
-        norm[ind_rev] = faceNormal
-        
-        return norm
-
-        
-    def __del__(self):
-        self.reset()
 
 
 class UnionObject(BaseObject):
@@ -627,60 +781,65 @@ class UnionObject(BaseObject):
         
         self.objs = []
         
+    @property
+    def mainColors(self):
+        if len(self.objs):
+            return self.objs[0].mainColors
+        else:
+            return self.__mainColors
+        
     def add(self, obj:BaseObject):
         self.objs.append(obj)
-        
-    def reset(self):
-        for obj in self.objs:
-            obj.reset()
-        
-    def show(self, show:bool=True):
-        for obj in self.objs:
-            obj.show(show)
     
     def load(self):
         for obj in self.objs:
             obj.load()
         
-    def renderinShader(self, **kwargs):
+    def render(self, **kwargs):
         for obj in self.objs:
-            obj.renderinShader(**kwargs)
+            obj.render(**kwargs)
             
-    def updateProps(self, props:dict):
+    def setMultiProp(self, props:dict):
         for obj in self.objs:
-            if hasattr(obj, 'props'):
-                obj.props.update(props)
+            obj.setMultiProp(props)
                 
-    def updateTransform(self, transform:np.ndarray):
+    def setTransform(self, transform:np.ndarray):
         for obj in self.objs:
             obj.setTransform(transform)
 
             
 
 class PointCloud(BaseObject):
-    def __init__(self, vertex:np.ndarray, color=[*DEFAULT_COLOR4], norm=None, size=3, transform=None) -> None:
+    def __init__(self, vertex:np.ndarray, color=DEFAULT_COLOR4, norm=None, size=3, transform=None) -> None:
         super().__init__()
         
-                
-        self.reset()
-        
-        self.setTransform(transform)
-        
-        self._vboid, vboArray, self._vboInfo, self._vboMap, self._indid, self._texid, self.mainColors = BaseObject.buildVBO(vertex, color, norm)
-    
-        # self._vboid = vbo.VBO(vboArray.flatten())
-        
-        self.pointSize = size
+        self.size = size
         self.renderType = GL_POINTS
-        # self.color = color
+        self.transform = transform
+    
+
+        self.vertex = vertex.reshape(-1, 3)
+        
+        self.color = self.checkColor(self.vertex.shape, color)
+
+        self.mainColors, per = colorManager.extract_dominant_colors(self.color, n_colors=3)
+
+    def load(self):
+        self.vao.createVAO()
+        self.vao.bindVertexBuffer(0, self.vertex, 3)
+        self.vao.bindVertexBuffer(1, self.color, 4)
+
 
 class Arrow(BaseObject):
-    def __init__(self, vertex:np.ndarray=None, color=[*DEFAULT_COLOR4], size=3, transform=None) -> None:
+    def __init__(self, vertex:np.ndarray=None, color=DEFAULT_COLOR4, size=3, transform=None) -> None:
         super().__init__()
-        self.load(vertex, color, size, transform)
-        self.color = color
+        self.vertex = vertex
+        self.color = self.checkColor(self.vertex.shape, color)
+        self.mainColors = colorManager.extract_dominant_colors(self.color, n_colors=3)[0]
         self.renderType = GL_TRIANGLES
-        
+        self.size = size
+        self.transform = transform
+
     @staticmethod
     def getTemplate(size=0.001) -> np.ndarray:
 
@@ -716,46 +875,11 @@ class Arrow(BaseObject):
         return vertex
         
         
-    def load(self, vertex:np.ndarray, color=[1., 0., 0.], size=3, transform=None):
-        self.reset()
-        self.setTransform(transform)
-        self._vboid, vboArray, self._vboInfo, self._vboMap, self._indid, self._texid, self.mainColors = BaseObject.buildVBO(vertex, color)
-        self.pointSize = size
+    def load(self, ):
 
-class Grid_old(BaseObject):
-    def __init__(self) -> None:
-        super().__init__()
-        z = 0
-        lineX = np.array(
-            [[0,-100, z, 0, 100, z]]
-        ).repeat(201, 0)
-        xaxis = np.linspace(-100, 100, 201)
-        lineY = np.array(
-            [[-100, 0, z, 100, 0, z]]
-        ).repeat(201, 0)
-        
-        lineX[:,0] = xaxis
-        lineX[:,3] = xaxis
-        lineX = lineX.reshape(-1, 3)
-        
-        lineY[:,1] = xaxis
-        lineY[:,4] = xaxis
-        lineY = lineY.reshape(-1, 3)
-        
-        line = np.concatenate((lineX, lineY), 0)
-        
-        color = [0.2, 0.2, 0.2, .5]
-        
-        self.reset()
-        
-        # t = time.time()
-        
-        self._vboid, vboArray, self._vboInfo, self._vboMap, self._indid, self._texid, self.mainColors = BaseObject.buildVBO(line, color)
-        
-        # print('build vbo time:', time.time()-t)
-
-        self.lineWidth = 2
-        self.renderType = GL_LINES
+        self.vao.createVAO()
+        self.vao.bindVertexBuffer(0, self.vertex, 3)
+        self.vao.bindVertexBuffer(1, self.color, 4)
 
 class Grid(BaseObject):
     def __init__(self, n=51, scale=1.0) -> None:
@@ -796,11 +920,10 @@ class Grid(BaseObject):
         lineX = lineX.reshape(-1, 3)
         lineY = lineY.reshape(-1, 3)
         
-        self.line = np.concatenate((lineX, lineY), 0)
-        self.norm = np.zeros_like(self.line)
-        self.norm[:, 2] = 1.0
-        # color = [0.2, 0.2, 0.2, .7]
-        self.color = [0.35, 0.35, 0.35, .8]
+        self.vertex = np.concatenate((lineX, lineY), 0)
+        self.norm = np.zeros_like(self.vertex)
+        self.norm[:, 2] = 1.0        
+        self.color = np.array([[0.35, 0.35, 0.35, .8]]).repeat(self.vertex.shape[0], 0)
     
         
         self.transformList = [
@@ -825,28 +948,23 @@ class Grid(BaseObject):
             np.eye(4, dtype=np.float32),
         ]
         
-        scaleMatrix = np.eye(4, dtype=np.float32)
-        scaleMatrix[:3, :3] *= scale
-        for i in range(len(self.transformList)):
-            self.transformList[i] = scaleMatrix @ self.transformList[i]
-            
-        self.transform = self.transformList[5]
-        
-        
-        # print('build vbo time:', time.time()-t)
+        self.vertex = self.vertex * scale
 
-        self.props['size'] = 2
+    def load(self, ):
+        
+        self.vao.createVAO()
+        self.vao.bindVertexBuffer(0, self.vertex, 3)
+        self.vao.bindVertexBuffer(1, self.color, 4)
+        self.vao.bindVertexBuffer(2, self.norm, 3)
+
+        self.size = 2
         self.renderType = GL_LINES
+        self.transform = self.transformList[5]
 
 
-    def manualBuild(self, ):
-        self.reset()
-        self._vboid, vboArray, self._vboInfo, self._vboMap, self._indid, self._texid, self.mainColors = BaseObject.buildVBO(self.line, self.color, self.norm)
-        
 class Axis(BaseObject):
-    def __init__(self, R=None, T=None, length = 1, transform=None) -> None:
+    def __init__(self, length=1, transform=None) -> None:
         super().__init__()
-        
         
         self.line = np.array(
             [
@@ -858,23 +976,6 @@ class Axis(BaseObject):
                 [0,0,length],
             ]
         )
-        
-        
-        
-        if isinstance(R, np.ndarray):
-            assert R.shape == (3, 3), 'R shape error'
-            
-            self.line[1, :] = R[:, 0] * length
-            self.line[3, :] = R[:, 1] * length
-            self.line[5, :] = R[:, 2] * length
-            
-        if isinstance(T, np.ndarray):
-            
-            
-            self.line[:, 0] += T[0]
-            self.line[:, 1] += T[1]
-            self.line[:, 2] += T[2]
-            
             
         self.color = np.array(
             [
@@ -887,123 +988,165 @@ class Axis(BaseObject):
             ]
         ) / 255.
         
+        self.transform = transform
         
-        self.setTransform(transform)
-                
+        self.mainColors = colorManager.extract_dominant_colors(self.color, n_colors=3)[0]
+                        
+    def load(self, ):
+        self.vao.createVAO()
+        self.vao.bindVertexBuffer(0, self.line, 3)
+        self.vao.bindVertexBuffer(1, self.color, 4)
+        
+        self.size = 6
         self.renderType = GL_LINES
-        
-        self.props['size'] = 6
-
-    def manualBuild(self, ):
-        self.reset()
-        self._vboid, vboArray, self._vboInfo, self._vboMap, self._indid, self._texid, self.mainColors = BaseObject.buildVBO(self.line, self.color)
 
 
 class BoundingBox(BaseObject):
-    def __init__(self, vertex:np.ndarray, color=[*DEFAULT_COLOR4], norm=None, size=3, transform=None) -> None:
+    def __init__(self, vertex:np.ndarray, color=DEFAULT_COLOR4, norm=None, size=3, transform=None) -> None:
         super().__init__()
 
         lineIndex = [0,1, 1,2, 2,3, 3,0, 4,5, 5,6, 6,7, 7,4, 0,4, 1,5, 2,6, 3,7]
 
-        lineArray = vertex[..., lineIndex, :].reshape(-1, 3)
+        self.vertex = vertex[..., lineIndex, :].reshape(-1, 3)
         
         if hasattr(color, 'shape') and color.shape[:-1] == vertex.shape[:-1]:
             color = color[..., lineIndex, :].reshape(-1, color.shape[-1])
-        
-        self.reset()
-        self.setTransform(transform)
-        
-        self._vboid, vboArray, self._vboInfo, self._vboMap, self._indid, self._texid, self.mainColors = BaseObject.buildVBO(lineArray, color, norm)
-        
+            
+        self.color = self.checkColor(self.vertex.shape, color)
+        self.mainColors = colorManager.extract_dominant_colors(self.color, n_colors=3)[0]
+        self.transform = transform
         self.renderType = GL_LINES
-        self.lineWidth = size
+        self.size = size
+        
+    def load(self, ):
+
+        self.vao.createVAO()
+        self.vao.bindVertexBuffer(0, self.vertex, 3)
+        self.vao.bindVertexBuffer(1, self.color, 4)
+
+
 
 class Lines(BaseObject):
-    def __init__(self, vertex:np.ndarray, color=[*DEFAULT_COLOR4], norm=None, size=3, transform=None) -> None:
+    def __init__(self, vertex:np.ndarray, color=DEFAULT_COLOR4, norm=None, size=3, transform=None) -> None:
         super().__init__()
 
-        self.reset()
-        self.setTransform(transform)
-                
-        if hasattr(color, 'shape') and color.shape[:-1] == vertex.shape[:-1]:
-            color = color.reshape(-1, color.shape[-1])
-            
-        vertex = vertex.reshape(-1, 3)
-                
-        self._vboid, vboArray, self._vboInfo, self._vboMap, self._indid, self._texid, self.mainColors = BaseObject.buildVBO(vertex, color, norm)
+        self.transform = transform
+
         
+        self.vertex = vertex.reshape(-1, 3)
+        self.color = self.checkColor(self.vertex.shape, color)
+                        
         self.renderType = GL_LINES
         self.lineWidth = size
+        
+        self.mainColors = colorManager.extract_dominant_colors(self.color, n_colors=3)[0]
+        
+        
+    def load(self, ):
+        self.vao.createVAO()
+        self.vao.bindVertexBuffer(0, self.vertex, 3)
+        self.vao.bindVertexBuffer(1, self.color, 4)
 
 class Mesh(BaseObject):
 
     def __init__(self, vertex:np.ndarray, 
-                 indices:np.ndarray=None, 
-                 color=[*DEFAULT_COLOR4], 
+                 indices:np.ndarray, 
+                 color=DEFAULT_COLOR4, 
                  norm:np.ndarray=None, 
                  texture:SimpleMaterial|PBRMaterial=None, 
                  texcoord:np.ndarray=None, 
                  faceNorm:np.ndarray=False, 
                  transform:np.ndarray=None) -> None:
         super().__init__()
-
-        self.reset()
         
-        self.setTransform(transform)
-
-        
-        
-        indices = np.int32(indices.ravel())
+        self.vertex = vertex.reshape(-1, 3)
+        self.indices = indices.ravel()        
         
         if norm is None:
-            norm = BaseObject.buildfaceNormal(vertex, indices)
+            norm = BaseObject.buildfaceNormal(self.vertex, self.indices)
             
         else:
             if faceNorm:
-                norm = BaseObject.faceNormal2VertexNormal(norm.repeat(3, axis=0), vertex, indices)
+                norm = BaseObject.faceNormal2VertexNormal(norm.repeat(3, axis=0), self.vertex, self.indices)
+
+
+
+        # self.uv = texcoord.reshape(-1, 2) if isinstance(texcoord, np.ndarray) else None
+        self.color = self.checkColor(vertex.shape, color)
+        self.norm = norm.reshape(-1, 3)
+        self.material = texture
+        self.renderType = GL_TRIANGLES
+        self.transform = transform
+
+        self.materialParameter = {'u_Metallic': {'data': 0.0, 'type': 'float'},
+                'u_Roughness': {'data': 0.0, 'type': 'float'},
+                'u_EnableAlbedoTexture': {'data': 0, 'type': 'int'},
+                'u_EnableMetallicRoughnessTexture': {'data': 0, 'type': 'int'}}
+
+        self.mainColors = colorManager.extract_dominant_colors(self.color, n_colors=3)[0]
+
+
+        if isinstance(texcoord, np.ndarray):
+            texcoord[:,1] = 1. - texcoord[:,1]
+            
+
+        if texture is not None:
+            self.materialParameter, miscParamter = BaseObject._parseMaterial(texture, texcoord=texcoord)
+
+            if 'u_AlbedoTexture' in self.materialParameter.keys():
+                
+                if miscParamter.get('mainColors') is not None:
+                    self.mainColors = miscParamter['mainColors']['data']
+
+                
+            else:
+                vertexColor = miscParamter['vertexColor']['data']
+                # use vertexColor from material instead of color
+                if isinstance(vertexColor, np.ndarray):
+                    self.color = self.checkColor(vertex.shape, vertexColor)
+                    self.mainColors, per = colorManager.extract_dominant_colors(vertexColor, n_colors=3)
+
+        self.texcoord = texcoord
+
 
         
-        self._vboid, vboArray, self._vboInfo, self._vboMap, self._indid, self._texid, self.mainColors = BaseObject.buildVBO(vertex, 
-                                                                                                           color, 
-                                                                                                           norm, 
-                                                                                                           indices,
-                                                                                                           texture,
-                                                                                                           texcoord)
-            
-        
-        self.renderType = GL_TRIANGLES
+    def load(self):
+        self.vao.createVAO()
+        self.vao.bindVertexBuffer(0, self.vertex, 3)
+        self.vao.bindVertexBuffer(1, self.color, 4)
+        self.vao.bindVertexBuffer(2, self.norm, 3)
+        if self.texcoord is not None:
+            self.vao.bindVertexBuffer(3, self.texcoord, 2)
+
+        self.vao.bindElementBuffer(self.indices.ravel())
+
 
 class Sphere(BaseObject):
 
-    def __init__(self, vertex:np.ndarray, indices=None, color=[*DEFAULT_COLOR4], norm=None, texture=None) -> None:
-        super().__init__()
-
-        self.reset()
-        
+    def __init__(self, x=0) -> None:
+        super().__init__()        
         
         rows, cols, r = 90, 180, 1
         gv, gu = np.mgrid[0.5*np.pi:-0.5*np.pi:complex(0,rows), 0:2*np.pi:complex(0,cols)]
         xs = r * np.cos(gv)*np.cos(gu)
         ys = r * np.cos(gv)*np.sin(gu)
         zs = r * np.sin(gv)
-        vs = np.dstack((xs, ys, zs)).reshape(-1, 3)
-        vs = np.float32(vs)
+        vertex = np.dstack((xs, ys, zs)).reshape(-1, 3)
+        self.vertex = np.float32(vertex)
 
-        # 生成三角面的索引
         idx = np.arange(rows*cols).reshape(rows, cols)
         idx_a, idx_b, idx_c, idx_d = idx[:-1,:-1], idx[1:,:-1], idx[:-1, 1:], idx[1:,1:]
-        indices = np.int32(np.dstack((idx_a, idx_b, idx_c, idx_c, idx_b, idx_d)).ravel())
+        self.indices = np.uint32(np.dstack((idx_a, idx_b, idx_c, idx_c, idx_b, idx_d)).ravel())
 
-        # 生成法向量
-        primitive = vs[indices]
+        primitive = self.vertex[self.indices]
         a = primitive[::3]
         b = primitive[1::3]
         c = primitive[2::3]
         normal = np.repeat(np.cross(b-a, c-a), 3, axis=0)
 
-        idx_arg = np.argsort(indices)
-        rise = np.where(np.diff(indices[idx_arg])==1)[0]+1
-        rise = np.hstack((0, rise, len(indices)))
+        idx_arg = np.argsort(self.indices)
+        rise = np.where(np.diff(self.indices[idx_arg])==1)[0]+1
+        rise = np.hstack((0, rise, len(self.indices)))
  
         tmp = np.zeros((rows*cols, 3), dtype=np.float32)
         for i in range(rows*cols):
@@ -1015,19 +1158,31 @@ class Sphere(BaseObject):
         normal[0] = normal[0,0]
         normal[-1] = normal[-1,0]
         
-        normal = normal.reshape(-1, 3)
-        print(normal.shape, vs.shape, indices.shape)
+        self.normal = normal.reshape(-1, 3)
+        print(normal.shape, vertex.shape, self.indices.shape)
     
         # 生成纹理坐标
         u, v = np.linspace(0, 1, cols), np.linspace(0, 1, rows)
-        texcoord = np.float32(np.dstack(np.meshgrid(u, v)).reshape(-1, 2))
+        self.texcoord = np.float32(np.dstack(np.meshgrid(u, v)).reshape(-1, 2))
 
-        
-        self._vboid, vboArray, self._vboInfo, self._vboMap, self._indid, self._texid, self.mainColors = BaseObject.buildVBO(vs, np.array([1., 1., 0.6, 1.]), normal, indices)
-            
-        
+        self.color = self.checkColor(vertex.shape, DEFAULT_COLOR4)
+
+        transform = np.identity(4)
+        transform[0, 3] = x
+
+        self.transform = transform
         self.renderType = GL_TRIANGLES
+        
+        self.mainColors = colorManager.extract_dominant_colors(self.color, n_colors=3)[0]
 
+
+    def load(self):
+        self.vao.createVAO()
+        self.vao.bindVertexBuffer(0, self.vertex, 3)
+        self.vao.bindVertexBuffer(1, self.color, 4)
+        self.vao.bindVertexBuffer(2, self.normal, 3)
+        self.vao.bindVertexBuffer(3, self.texcoord, 2)
+        self.vao.bindElementBuffer(self.indices)
 
 class FullScreenQuad(BaseObject):
     def __init__(self):
@@ -1041,13 +1196,14 @@ class FullScreenQuad(BaseObject):
             [-1.0,  1.0,   0.0],
         ], dtype=np.float32)
 
-        # 索引（两个三角形）
         indices = np.array([
             0, 1, 2,
             0, 2, 3,
         ], dtype=np.uint32)
 
-        self._vboid, vboArray, self._vboInfo, self._vboMap, self._indid, self._texid, self.mainColors = BaseObject.buildVBO(vertex=vertices, indices=indices)
+        self.vao.createVAO()
+        self.vao.bindVertexBuffer(0, vertices, 3)
+        self.vao.bindElementBuffer(indices)
         
         self.renderType = GL_TRIANGLES
 

@@ -401,12 +401,12 @@ class GLWidget(QOpenGLWidget):
         elif sys.platform == 'win32':
             background_color = [0., 0., 0., 0.]
             self.font = QFont([u'Cascadia Mono', u'Microsoft Yahei UI'], 9, )
-            self.shaderVersion = '330'
+            self.shaderVersion = '460'
 
         else:
             background_color = [0.109, 0.117, 0.125, 1.0]
             self.font = QFont([u'Cascadia Mono', u'Microsoft Yahei UI'], 9, )
-            self.shaderVersion = '330'
+            self.shaderVersion = '460'
 
 
 
@@ -522,9 +522,9 @@ class GLWidget(QOpenGLWidget):
 
         self.setMinimumSize(200, 200)
         
-        self.timer = QTimer()
-        self.timer.timeout.connect(self.countFPS)
-        self.timer.start(1000)
+        # self.timer = QTimer()
+        # self.timer.timeout.connect(self.countFPS)
+        # self.timer.start(1000)
         
         self.fps = 0
         
@@ -1196,7 +1196,7 @@ class GLWidget(QOpenGLWidget):
 
         glDepthMask(GL_TRUE)
 
-        self.fps += 1
+        # self.fps += 1
         
         glFlush()
         

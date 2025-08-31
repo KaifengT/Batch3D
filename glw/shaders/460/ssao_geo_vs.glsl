@@ -1,4 +1,4 @@
-#version 330 core
+#version 460 core
 
 layout (location=0) in vec4 a_Position;
 layout (location=2) in vec3 a_Normal;

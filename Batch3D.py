@@ -12,11 +12,12 @@ from typing import List, Tuple, Union, TextIO
 from types import ModuleType
 from PySide6.QtWidgets import ( QApplication, QMainWindow, QTableWidgetItem, QWidget, QFileDialog, QDialog, QTextEdit, QGraphicsDropShadowEffect, QHBoxLayout, QVBoxLayout, QLabel)
 from PySide6.QtCore import  QSize, QThread, Signal, Qt, QPropertyAnimation, QEasingCurve, QPoint, QRect, QObject, QTimer, QEvent
-from PySide6.QtGui import QCloseEvent, QIcon, QFont, QAction, QColor, QSurfaceFormat, QTextCursor, QCursor
+from PySide6.QtGui import QCloseEvent, QIcon, QFont, QAction, QColor, QSurfaceFormat, QTextCursor, QCursor, QDropEvent
 import multiprocessing
 import io
 from ui.ui_main_ui import Ui_MainWindow
 from ui.ui_remote_ui import Ui_RemoteWidget
+from ui.dragDropWidget import DragDropWidget
 import pickle
 from backend import backendEngine, backendSFTP
 import hashlib
@@ -45,7 +46,7 @@ import warnings
 warnings.filterwarnings("ignore", message="Failed to disconnect*", category=RuntimeWarning)
 import gc
 
-from qfluentwidgets import (setTheme, Theme, setThemeColor, qconfig, RoundMenu, widgets, ToggleToolButton, Slider, BodyLabel, PushButton, FluentIconBase, LineEdit, Flyout, InfoBarIcon, MessageBox)
+from qfluentwidgets import (setTheme, Theme, setThemeColor, themeColor, qconfig, RoundMenu, widgets, ToggleToolButton, Slider, BodyLabel, PushButton, FluentIconBase, LineEdit, Flyout, InfoBarIcon, MessageBox)
 from qfluentwidgets import FluentIcon as FIF
 
 ########################################################################
@@ -55,8 +56,8 @@ TOOL_UI_WIDTH = 350
 PROGBAR_HEIGHT = 50
 CONSOLE_HEIGHT = 250
 
-B3D_VERSION = '1.8.1 Beta'
-B3D_BUILD = '2502'
+B3D_VERSION = '1.8.2 Beta'
+B3D_BUILD = '2504'
 
 class MyFluentIcon(FluentIconBase, Enum):
     """ Custom icons """
@@ -536,8 +537,10 @@ class dataParser:
                                     [0, 1,  0, 0],
                                     [0, 0,  0, 1],
                                 ], dtype=np.float32)
-    
-    
+
+
+    SUPPORT_EXT = ('.npz', '.npy', '.obj', '.ply', '.stl', '.pcd', '.glb', '.xyz', '.gltf', '.pkl')
+
     @staticmethod
     def _isHexColorinName(name) -> str:
         if '#' in name:
@@ -886,7 +889,7 @@ class dataParser:
 
         # load file from remote 
         elif isinstance(fullpath, (io.BytesIO, io.BufferedReader, io.BufferedWriter)):
-            if extName in ['npz', 'npy', 'NPY', 'NPZ',]:
+            if extName.lower() in ('npz', 'npy'):
                 obj = dataParser.loadNpFile(fullpath)
             else:
                 obj = pickle.load(fullpath)
@@ -1087,6 +1090,20 @@ class App(QMainWindow):
         self.ui.openGLWidget.infoSignal.connect(self.popMessage)
         
         self.setupScriptEnv()
+        
+        
+        self.dragWidget1 = DragDropWidget(self, acceptedExtensions=dataParser.SUPPORT_EXT)
+        self.dragWidget1.setThemeColor(themeColor())
+        self.dragWidget1.setTheme(self.tgtTheme)
+        self.dragWidget1.hide()
+        self.dragWidget2 = DragDropWidget(self, acceptedExtensions=dataParser.SUPPORT_EXT)
+        self.dragWidget2.setThemeColor(themeColor())
+        self.dragWidget2.setTheme(self.tgtTheme)
+        self.dragWidget2.hide()
+        self.dragWidget3 = DragDropWidget(self, acceptedExtensions=['.py', '.txt'])
+        self.dragWidget3.setThemeColor(themeColor())
+        self.dragWidget3.setTheme(self.tgtTheme)
+        self.dragWidget3.hide()
 
 
     def setupScriptEnv(self, ):
@@ -1148,7 +1165,7 @@ class App(QMainWindow):
             self.tool_b_anim.setEndValue(QPoint(15, self.tool_anim_button.pos().y()))
         else:
             self.tool_anim.setEndValue(QPoint(20, self.ui.tool.pos().y()))
-            self.tool_b_anim.setEndValue(QPoint(350, self.tool_anim_button.pos().y()))
+            self.tool_b_anim.setEndValue(QPoint(380, self.tool_anim_button.pos().y()))
         self.tool_anim.start()
         self.tool_b_anim.start()
         self.update()
@@ -1941,6 +1958,10 @@ class App(QMainWindow):
         current_height = self.console.height()
         self.console.setGeometry(TOOL_UI_WIDTH+30, self.height()-current_height-PROGBAR_HEIGHT+5, self.width()-TOOL_UI_WIDTH-45, min(current_height, self.height()-PROGBAR_HEIGHT))
 
+        self.dragWidget1.setGeometry(15, 15, (self.width()/2)-22, self.height() -30)
+        self.dragWidget2.setGeometry((self.width()/2)+7, 15, (self.width()/2)-22, self.height() -30)
+        self.dragWidget3.setGeometry(15, 15, self.width()-30, self.height() -30)
+
         return super().resizeEvent(event)
 
     def serverConnected(self, ):
@@ -2014,6 +2035,11 @@ class App(QMainWindow):
             self.applyMicaTheme(self.fileDetailUI.winId())
             self.applyMicaTheme(self.winId())
             
+        if hasattr(self, 'dragWidget1'):
+            self.dragWidget1.setTheme(theme)
+            self.dragWidget2.setTheme(theme)
+            self.dragWidget3.setTheme(theme)
+            
             
     def loadSettings(self, ):
         
@@ -2063,12 +2089,77 @@ class App(QMainWindow):
             traceback.print_exc()
 
 
-    def dragEnterEvent(self, event):
+    def dragEnterEvent(self, event:QDropEvent):
         
-        event.accept()
+        file = event.mimeData().urls()[0].toLocalFile()
+        if os.path.isfile(file):
+            folderPath = os.path.dirname(file)
+            baseName = os.path.basename(file)
+            fileName, ext = os.path.splitext(baseName)
+            
+            
+            if ext.lower() in dataParser.SUPPORT_EXT:
+                self.dragWidget3.hide()
+                self.dragWidget1.show()
+                self.dragWidget2.show()
+                event.accept()
+                
+            elif ext.lower() in ('.py', '.txt'):
+                self.dragWidget3.show()
+                self.dragWidget1.hide()
+                self.dragWidget2.hide()
+                event.accept()
+                
+            else:
+                self.dragWidget1.hide()
+                self.dragWidget2.hide()
+                self.dragWidget3.hide()
+
+
+        return super().dragEnterEvent(event)
+
+    def dragLeaveEvent(self, event:QDropEvent):
+        self.dragWidget1.leaveAnimation()
+        self.dragWidget2.leaveAnimation()
+        self.dragWidget3.leaveAnimation()
+        self.dragWidget1.hide()
+        self.dragWidget2.hide()
+        self.dragWidget3.hide()
+        return super().dragLeaveEvent(event)
+
+    def dragMoveEvent(self, event:QDropEvent):
+        pos = event.position().toPoint()
+        if self.dragWidget1.geometry().contains(pos):
+            self.dragWidget1.enterAnimation()
+            self.dragWidget2.leaveAnimation()
+            
+        elif self.dragWidget2.geometry().contains(pos):
+            self.dragWidget2.enterAnimation()
+            self.dragWidget1.leaveAnimation()
+        else:
+            self.dragWidget1.leaveAnimation()
+            self.dragWidget2.leaveAnimation()
+                        
+        if self.dragWidget3.geometry().contains(pos):
+            self.dragWidget3.enterAnimation()
+        else:
+            self.dragWidget3.leaveAnimation()
+
+        return super().dragMoveEvent(event)
+
+    def dropEvent(self, event:QDropEvent):
+
+        self.dragWidget1.hide()
+        self.dragWidget2.hide()
         
-    def dropEvent(self, event):
+        pos = event.position().toPoint()
         
+        if self.dragWidget1.geometry().contains(pos):
+            print('1')
+            
+        elif self.dragWidget2.geometry().contains(pos):
+            print('2')
+
         file = event.mimeData().urls()[0].toLocalFile()
         if os.path.isfile(file):
             folderPath = os.path.dirname(file)
@@ -2091,7 +2182,6 @@ class App(QMainWindow):
             
     def showConsole(self):
         if self.console.isHidden():
-            # self.console.setGeometry(TOOL_UI_WIDTH+30, self.height()-CONSOLE_HEIGHT-PROGBAR_HEIGHT+5, self.width()-TOOL_UI_WIDTH-45, CONSOLE_HEIGHT)
             self.console.setHidden(False)
         else:
             self.console.setHidden(True)
@@ -2102,13 +2192,14 @@ def changeGlobalTheme(x):
     CURRENT_THEME = [Theme.LIGHT, Theme.DARK][x]
     
 
-def enable_discrete_gpu():
+def enableNvidiaGPU():
     import platform
     """Try to force discrete GPU on Windows"""
-    if platform.system() == "Windows":
+    if sys.platform == "win32":
         try:
             ctypes.CDLL("nvcuda.dll")
-            print("[GPU] NVIDIA CUDA DLL loaded (may enable dGPU)")
+            print("Enable NVIDIA GPU")
+
         except:
             pass
         try:
@@ -2117,7 +2208,7 @@ def enable_discrete_gpu():
             pass
         
         
-# enable_discrete_gpu()
+enableNvidiaGPU()
 
 if __name__ == "__main__":
     

@@ -1,4 +1,4 @@
-#version 330 core
+#version 460 core
 
 layout (location=0) in vec4 a_Position;
 layout (location=1) in vec4 a_Color;
@@ -19,35 +19,35 @@ uniform int u_farPlane;
 uniform float u_farPlaneRatio;
 uniform float u_pointSize;
 
-out vec3 v_Position;
-out vec3 v_Normal;
-out vec4 v_Color;
-out vec2 v_Texcoord;
-out vec3 v_WorldSpaceCamPos;
-flat out int v_simpleRender;
+out vec3 _v_Position;
+out vec3 _v_Normal;
+out vec4 _v_Color;
+out vec2 _v_Texcoord;
+out vec3 _v_WorldSpaceCamPos;
+flat out int _v_simpleRender;
 
 void main() {
     gl_Position = u_ProjMatrix * u_ViewMatrix * u_ModelMatrix * a_Position;
     
-    v_Color = a_Color;
-    v_Texcoord = a_Texcoord;
-    v_WorldSpaceCamPos = u_CamPos; 
+    _v_Color = a_Color;
+    _v_Texcoord = a_Texcoord;
+    _v_WorldSpaceCamPos = u_CamPos; 
 
     gl_PointSize = u_pointSize;
 
     if (a_Normal == vec3(0.0, 0.0, 0.0)) {
-        v_simpleRender = 1;
+        _v_simpleRender = 1;
 
     }
     else {
-        v_simpleRender = 0;
+        _v_simpleRender = 0;
 
-        v_Position = vec3(u_ModelMatrix * a_Position);
-        v_Normal = mat3(transpose(inverse(u_ModelMatrix))) * a_Normal;
+        _v_Position = vec3(u_ModelMatrix * a_Position);
+        _v_Normal = mat3(transpose(inverse(u_ModelMatrix))) * a_Normal;
     }
     
     if (u_farPlane == 1) {
-        v_simpleRender = 1;
+        _v_simpleRender = 1;
         vec3 vertex_distance = vec3(u_ModelMatrix * a_Position) - u_CamPos;
         float distance_factor = 1.0 - clamp(length(vertex_distance) * u_farPlaneRatio, 0.0, 1.0);
 
@@ -68,7 +68,7 @@ void main() {
         }
 
         
-        v_Color = a_Color * distance_factor * viewNormalDot;
+        _v_Color = a_Color * distance_factor * viewNormalDot;
     }
 
 }

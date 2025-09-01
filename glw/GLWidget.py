@@ -440,9 +440,10 @@ class GLWidget(QOpenGLWidget):
         GLFormat.setVersion(4, 6)
         GLFormat.setProfile(QSurfaceFormat.CoreProfile)
         GLFormat.setSamples(4)  # 4x MSAA
-        GLFormat.setAlphaBufferSize(8)
+
         # GLFormat.setDepthBufferSize(24)
         # GLFormat.setStencilBufferSize(8)
+        GLFormat.setSwapInterval(1)
         self.setFormat(GLFormat)
         
         
@@ -632,6 +633,7 @@ class GLWidget(QOpenGLWidget):
                 Available properties include:
                 - 'size': Size of the object (float).
                 - 'isShow': Visibility of the object (boolean).
+                - 'transform': Transformation matrix of the object (4x4 numpy array), same as the one used in setObjTransform.
         Returns:
             None
         '''
@@ -642,7 +644,7 @@ class GLWidget(QOpenGLWidget):
 
         self.update()
 
-    def setObjTransform(self, ID=1, transform=None) -> None:
+    def setObjTransform(self, ID, transform=None) -> None:
         '''
         Setting the transformation matrix of an object in the objectList.
         Args:
@@ -834,37 +836,31 @@ class GLWidget(QOpenGLWidget):
         self.update()
 
     def initializeGL(self):
+        
         try:
             glEnable(GL_DEPTH_TEST)
-            
-            # glEnable(GL_POINT_SMOOTH)
-            # glHint(GL_POINT_SMOOTH_HINT, GL_NICEST)
-
             glEnable(GL_BLEND)
             glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
-            
             glEnable(GL_PROGRAM_POINT_SIZE)
 
-            # glPointSize(3)
-            # glEnable(GL_NORMALIZE)
-            # glEnable(GL_LINE_SMOOTH)
-            
-            
-            # glShadeModel(GL_SMOOTH)
-            
             glClearColor(*self.bg_color)
-        # self.resetCamera()
-        # try:
+
         
             self.grid.load()
             self.smallGrid.load()
             self.axis.load()
 
             self.quad = FullScreenQuad()
-            
+            gl_version = glGetString(GL_VERSION).decode()
+            glsl_version = glGetString(GL_SHADING_LANGUAGE_VERSION).decode()
+            renderer = glGetString(GL_RENDERER).decode('utf-8')
+            vendor = glGetString(GL_VENDOR).decode('utf-8')
+            print(f'OpenGL version: {gl_version}')
+            print(f'GLSL version: {glsl_version}')
+            print(f'OpenGL profile: {self.context().format().profile().name}')
+            print(f'OpenGL renderer: {renderer}')
+            print(f'OpenGL vendor: {vendor}')
 
-            print(f'OpenGL version: {self.context().format().version()[0]}{self.context().format().version()[1]}0', )
-            print(f'OpenGL profile: {self.context().format().profile()}')
 
             print('Compiling OpenGL shaders...')
 
@@ -971,22 +967,10 @@ class GLWidget(QOpenGLWidget):
 
 
             glUseProgram(0)
-
+            
         except Exception as e:
             traceback.print_exc()
 
-    def _tempRenderFullScreenQuad(self):
-        '''
-        Renders a full-screen quad.
-        '''
-        glBegin(GL_QUADS)
-    
-        glVertex3f(-1.0, -1.0, 0.0)
-        glVertex3f(1.0, -1.0, 0.0)
-        glVertex3f(1.0, 1.0, 0.0)
-        glVertex3f(-1.0, 1.0, 0.0)
-      
-        glEnd()
 
     def _renderObjs(self, locMap:dict):
         '''
@@ -1050,8 +1034,12 @@ class GLWidget(QOpenGLWidget):
         projMatrix = self.camera.updateProjTransform(isEmit=False)
         camtrans = self.camera.updateTransform(isEmit=False)
         
-        campos = np.linalg.inv(camtrans)[:3,3]        
-
+        campos = np.linalg.inv(camtrans)[:3,3]
+        
+        if self.glRenderMode != 0:
+            glPolygonMode(GL_FRONT_AND_BACK, GL_FILL)
+        else:
+            glPolygonMode(GL_FRONT_AND_BACK, GL_LINE)  
 
         ''' stage 1: SSAO Geometry Pass'''
 
@@ -1069,7 +1057,7 @@ class GLWidget(QOpenGLWidget):
         # render objs
         self._renderObjs(locMap=self.SSAOGeoProgLocMap)
 
-        # ''' stage 2: SSAO Core Pass '''
+        ''' stage 2: SSAO Core Pass '''
         if self.enableSSAO:
             
             self.SSAOCoreFBO.getFBO(self.raw_window_w, self.raw_window_h, depth=False, colors=[GL_R32F])
@@ -1128,6 +1116,8 @@ class GLWidget(QOpenGLWidget):
         glBindFramebuffer(GL_FRAMEBUFFER, self.defaultFramebufferObject())
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
         
+      
+        
         glUseProgram(self.SSAOLightProg)
         
         if self.enableSSAO:
@@ -1146,10 +1136,8 @@ class GLWidget(QOpenGLWidget):
 
         
         glUseProgram(self.SSAOLightLineProg)
-        if self.enableSSAO:
-            glUniform1i(self.SSAOLightLineProgLocMap['u_AOMap'], 21)
 
-        glUniform1i(self.SSAOLightLineProgLocMap['u_enableAO'], self.enableSSAO)
+        glUniform1i(self.SSAOLightLineProgLocMap['u_enableAO'], 0)
         glUniform3f(self.SSAOLightLineProgLocMap['u_CamPos'], *campos)
 
         glUniformMatrix4fv(self.SSAOLightLineProgLocMap['u_ModelMatrix'], 1, GL_FALSE, self.canonicalModelMatrix, None)
@@ -1158,6 +1146,8 @@ class GLWidget(QOpenGLWidget):
 
         glUniform1i(self.SSAOLightLineProgLocMap['u_renderMode'], self.glRenderMode)
         glUniform2f(self.SSAOLightLineProgLocMap['u_screenSize'], float(self.raw_window_w), float(self.raw_window_h))
+
+
 
 
         for obj in self.objectList.values():
@@ -1204,10 +1194,9 @@ class GLWidget(QOpenGLWidget):
 
 
     def reset(self, ):
-        
         for k, v in self.objectList.items():
-            if hasattr(v, 'reset'):
-                v.reset()
+            if hasattr(v, 'cleanup'):
+                v.cleanup()
         self.objectList = {}
         
         self.update()
@@ -1458,3 +1447,10 @@ class GLWidget(QOpenGLWidget):
         except Exception as e:
             print(f'Error saving RGBA image: {e}')
             self.infoSignal.emit('Save RGBA Image', f'Error saving RGBA image: {e}', 'error')
+            
+            
+    def __del__(self, ):
+        try:
+            self.reset()
+        except:
+            ...

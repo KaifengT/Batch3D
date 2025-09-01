@@ -9,11 +9,12 @@ import os
 class DragDropWidget(QWidget):
 
     filesDropped = Signal(list)
-    
-    def __init__(self, parent=None, acceptedExtensions=None):
+
+    def __init__(self, parent=None, message='', acceptedExtensions=None):
         super().__init__(parent)
         
         self.acceptedExtensions = acceptedExtensions or []
+        self.message = message
         
         self.is_drag_over = False
         
@@ -66,7 +67,7 @@ class DragDropWidget(QWidget):
         layout.setContentsMargins(20, 20, 20, 20)
         layout.setSpacing(10)
 
-        self.hint_label = BodyLabel("Drag files here")
+        self.hint_label = BodyLabel(self.message)
         self.hint_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
         
@@ -101,7 +102,7 @@ class DragDropWidget(QWidget):
     def leaveAnimation(self):
         if self.is_drag_over:
             self.is_drag_over = False
-            self.hint_label.setText("Drag files here")
+            self.hint_label.setText(self.message)
 
             self.fade_animation.stop()
             self.fade_animation.setStartValue(self.geometry())

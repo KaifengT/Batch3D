@@ -1090,17 +1090,17 @@ class App(QMainWindow):
         self.ui.openGLWidget.infoSignal.connect(self.popMessage)
         
         self.setupScriptEnv()
-        
-        
-        self.dragWidget1 = DragDropWidget(self, acceptedExtensions=dataParser.SUPPORT_EXT)
+
+
+        self.dragWidget1 = DragDropWidget(self, acceptedExtensions=dataParser.SUPPORT_EXT, message='Drag a file here to RESET and load')
         self.dragWidget1.setThemeColor(themeColor())
         self.dragWidget1.setTheme(self.tgtTheme)
         self.dragWidget1.hide()
-        self.dragWidget2 = DragDropWidget(self, acceptedExtensions=dataParser.SUPPORT_EXT)
+        self.dragWidget2 = DragDropWidget(self, acceptedExtensions=dataParser.SUPPORT_EXT, message='Drag a file here to load')
         self.dragWidget2.setThemeColor(themeColor())
         self.dragWidget2.setTheme(self.tgtTheme)
         self.dragWidget2.hide()
-        self.dragWidget3 = DragDropWidget(self, acceptedExtensions=['.py', '.txt'])
+        self.dragWidget3 = DragDropWidget(self, acceptedExtensions=['.py', '.txt'], message='Drag a script here to run')
         self.dragWidget3.setThemeColor(themeColor())
         self.dragWidget3.setTheme(self.tgtTheme)
         self.dragWidget3.hide()
@@ -1667,7 +1667,7 @@ class App(QMainWindow):
                 
                 for k, v in obj.items():
                     k = str(k)
-                    if k not in keys:
+                    if keys is not None and k not in keys:
                         continue
                     
                     # store deleted keys
@@ -2151,14 +2151,10 @@ class App(QMainWindow):
 
         self.dragWidget1.hide()
         self.dragWidget2.hide()
+        self.dragWidget3.hide()
         
         pos = event.position().toPoint()
         
-        if self.dragWidget1.geometry().contains(pos):
-            print('1')
-            
-        elif self.dragWidget2.geometry().contains(pos):
-            print('2')
 
         file = event.mimeData().urls()[0].toLocalFile()
         if os.path.isfile(file):
@@ -2173,9 +2169,21 @@ class App(QMainWindow):
                 for i in range(self.ui.tableWidget.rowCount()):
                     item = self.ui.tableWidget.item(i, 0)
                     if os.path.basename(item.fullpath) == baseName:
+                        self.ui.tableWidget.blockSignals(True)
                         self.ui.tableWidget.setCurrentItem(item)
+                        self.ui.tableWidget.blockSignals(False)
                         break
-                self.loadObj(file)
+                    
+                if self.dragWidget1.geometry().contains(pos):
+                    self.loadObj(file)
+                elif self.dragWidget2.geometry().contains(pos):                    
+                    newobj = dataParser.loadFromAny(file, '')
+                    rnnewobj = {}
+                    for k, v in newobj.items():
+                        rnnewobj[f'{fileName}.{k}'] = v
+                    obj = self.getWorkspaceObj()
+                    obj.update(rnnewobj)
+                    self.loadObj_update(obj, keys=list(rnnewobj.keys()))
         else:
             self.openFolder(file)
             
@@ -2209,6 +2217,8 @@ def enableNvidiaGPU():
         
         
 enableNvidiaGPU()
+
+
 
 if __name__ == "__main__":
     

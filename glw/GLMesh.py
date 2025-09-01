@@ -11,6 +11,7 @@ from ctypes import *
 from .utils.transformations import invHRT, rotation_matrix, rotationMatrixY, rpy2hRT
 from PIL import Image
 from trimesh.visual.material import SimpleMaterial, PBRMaterial
+from PySide6.QtGui import QOpenGLContext
 
 DEFAULT_COLOR3 = np.array([0.8, 0.8, 0.8], dtype=np.float32)
 DEFAULT_COLOR4 = np.array([0.8, 0.8, 0.8, 1.0], dtype=np.float32)
@@ -154,6 +155,8 @@ class VAOManager:
         self._eboid = 0
         self._eboLen = 0
         self._len = 0
+        
+        self._context = None
 
     def createVAO(self) -> int:
         '''
@@ -184,8 +187,6 @@ class VAOManager:
         '''
         Cleanup the VAOManager by deleting the VAO, VBOs, and EBO.
         '''
-
-
         for vbo in self._vboids.values():
             if vbo != 0:
                 glDeleteBuffers(1, [vbo])
@@ -315,7 +316,10 @@ class VAOManager:
         return self._vaoid
 
     def __del__(self, ):
-        self.cleanup()
+        try:
+            self.cleanup()
+        except:
+            ...
 
 class BaseObject:
     def __init__(self):
@@ -423,8 +427,22 @@ class BaseObject:
         '''
         return self.__props.get(key, default)
 
+    def getContext(self) -> QOpenGLContext:
+        return self._context
+
+    def setContext(self, context:QOpenGLContext):
+        self._context = context
+
+    def setContextfromCurrent(self):
+        self._context = QOpenGLContext.currentContext()
 
     def cleanup(self):
+
+        if self._context is not None and isinstance(self._context, QOpenGLContext) and self._context != QOpenGLContext.currentContext():
+            if self._context.isValid():
+                self._context.makeCurrent(self._context.surface())
+            else:
+                print('Invalid context')
 
         if hasattr(self, 'materialParameter') and isinstance(self.materialParameter, Mapping):
 
@@ -442,7 +460,10 @@ class BaseObject:
         self.vao.cleanup()
         
     def __del__(self, ):
-        self.cleanup()
+        try:
+            self.cleanup()
+        except:
+            ...
 
     @staticmethod
     def createTexture2d(texture_file:Image.Image):
@@ -731,7 +752,7 @@ class BaseObject:
     def load(self):
         ...
 
-    def render(self, locMap:dict={}, render_mode=0, ):
+    def render(self, locMap:dict={},):
         
         
         
@@ -829,6 +850,8 @@ class PointCloud(BaseObject):
         self.vao.bindVertexBuffer(0, self.vertex, 3)
         self.vao.bindVertexBuffer(1, self.color, 4)
 
+        self.setContextfromCurrent()
+
 
 class Arrow(BaseObject):
     def __init__(self, vertex:np.ndarray=None, color=DEFAULT_COLOR4, size=3, transform=None) -> None:
@@ -880,6 +903,8 @@ class Arrow(BaseObject):
         self.vao.createVAO()
         self.vao.bindVertexBuffer(0, self.vertex, 3)
         self.vao.bindVertexBuffer(1, self.color, 4)
+        
+        self.setContextfromCurrent()
 
 class Grid(BaseObject):
     def __init__(self, n=51, scale=1.0) -> None:
@@ -916,16 +941,23 @@ class Grid(BaseObject):
         lineY[:, :, 1] = yv
         lineY[:, :, 4] = yv     
 
+        colorX = np.ones((*lineX.shape[:2], 8), dtype=np.float32) * np.array([[[0.35, 0.35, 0.35, .8]*2]])
+        colorY = np.ones((*lineY.shape[:2], 8), dtype=np.float32) * np.array([[[0.35, 0.35, 0.35, .8]*2]])
+
+        colorY[51, :, :] = np.array([[0.69, 0.18, 0.32, 0.9]*2])
+        colorX[51, :, :] = np.array([[0.53, 0.76, 0.45, 0.9]*2])
 
         lineX = lineX.reshape(-1, 3)
         lineY = lineY.reshape(-1, 3)
         
+        
+        
         self.vertex = np.concatenate((lineX, lineY), 0)
         self.norm = np.zeros_like(self.vertex)
         self.norm[:, 2] = 1.0        
-        self.color = np.array([[0.35, 0.35, 0.35, .8]]).repeat(self.vertex.shape[0], 0)
-    
-        
+        # self.color = np.array([[0.35, 0.35, 0.35, .8]]).repeat(self.vertex.shape[0], 0)
+        self.color = np.concatenate((colorX.reshape(-1, 4), colorY.reshape(-1, 4)), 0)
+
         self.transformList = [
             np.array([[0, 0, 1, 0],
                     [0, 1, 0, 0],
@@ -956,6 +988,8 @@ class Grid(BaseObject):
         self.vao.bindVertexBuffer(0, self.vertex, 3)
         self.vao.bindVertexBuffer(1, self.color, 4)
         self.vao.bindVertexBuffer(2, self.norm, 3)
+        
+        self.setContextfromCurrent()        
 
         self.size = 2
         self.renderType = GL_LINES
@@ -997,6 +1031,8 @@ class Axis(BaseObject):
         self.vao.bindVertexBuffer(0, self.line, 3)
         self.vao.bindVertexBuffer(1, self.color, 4)
         
+        self.setContextfromCurrent()
+        
         self.size = 6
         self.renderType = GL_LINES
 
@@ -1024,6 +1060,7 @@ class BoundingBox(BaseObject):
         self.vao.bindVertexBuffer(0, self.vertex, 3)
         self.vao.bindVertexBuffer(1, self.color, 4)
 
+        self.setContextfromCurrent()
 
 
 class Lines(BaseObject):
@@ -1046,6 +1083,8 @@ class Lines(BaseObject):
         self.vao.createVAO()
         self.vao.bindVertexBuffer(0, self.vertex, 3)
         self.vao.bindVertexBuffer(1, self.color, 4)
+        
+        self.setContextfromCurrent()
 
 class Mesh(BaseObject):
 
@@ -1060,7 +1099,10 @@ class Mesh(BaseObject):
         super().__init__()
         
         self.vertex = vertex.reshape(-1, 3)
-        self.indices = indices.ravel()        
+        self.indices = indices.ravel()
+        
+        self.indicesforLine = indices.reshape(-1, 3)[:, [0, 1, 1, 2, 2, 0]]
+        self.indicesforLine = self.indicesforLine.ravel()
         
         if norm is None:
             norm = BaseObject.buildfaceNormal(self.vertex, self.indices)
@@ -1119,14 +1161,16 @@ class Mesh(BaseObject):
             self.vao.bindVertexBuffer(3, self.texcoord, 2)
 
         self.vao.bindElementBuffer(self.indices.ravel())
+        
+        self.setContextfromCurrent()
 
 
 class Sphere(BaseObject):
 
-    def __init__(self, x=0) -> None:
+    def __init__(self, xyz=np.array([0, 0, 0]), size:float=1.0) -> None:
         super().__init__()        
         
-        rows, cols, r = 90, 180, 1
+        rows, cols, r = 90, 180, size
         gv, gu = np.mgrid[0.5*np.pi:-0.5*np.pi:complex(0,rows), 0:2*np.pi:complex(0,cols)]
         xs = r * np.cos(gv)*np.cos(gu)
         ys = r * np.cos(gv)*np.sin(gu)
@@ -1168,7 +1212,7 @@ class Sphere(BaseObject):
         self.color = self.checkColor(vertex.shape, DEFAULT_COLOR4)
 
         transform = np.identity(4)
-        transform[0, 3] = x
+        transform[:3, 3] = xyz
 
         self.transform = transform
         self.renderType = GL_TRIANGLES
@@ -1183,6 +1227,8 @@ class Sphere(BaseObject):
         self.vao.bindVertexBuffer(2, self.normal, 3)
         self.vao.bindVertexBuffer(3, self.texcoord, 2)
         self.vao.bindElementBuffer(self.indices)
+        
+        self.setContextfromCurrent()
 
 class FullScreenQuad(BaseObject):
     def __init__(self):
@@ -1206,4 +1252,6 @@ class FullScreenQuad(BaseObject):
         self.vao.bindElementBuffer(indices)
         
         self.renderType = GL_TRIANGLES
+        
+        self.setContextfromCurrent()
 

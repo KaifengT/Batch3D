@@ -969,6 +969,20 @@ class App(QMainWindow):
         
         self.colormanager = colorManager()
         
+        self.dragWidget1 = DragDropWidget(self, acceptedExtensions=dataParser.SUPPORT_EXT, message='Drag a file here to RESET and load')
+        self.dragWidget1.setThemeColor(themeColor())
+        self.dragWidget1.setTheme(self.tgtTheme)
+        self.dragWidget1.hide()
+        self.dragWidget2 = DragDropWidget(self, acceptedExtensions=dataParser.SUPPORT_EXT, message='Drag files here to load')
+        self.dragWidget2.setThemeColor(themeColor())
+        self.dragWidget2.setTheme(self.tgtTheme)
+        self.dragWidget2.hide()
+        self.dragWidget3 = DragDropWidget(self, acceptedExtensions=['.py', '.txt'], message='Drag a script here to run')
+        self.dragWidget3.setThemeColor(themeColor())
+        self.dragWidget3.setTheme(self.tgtTheme)
+        self.dragWidget3.hide()
+        
+        
         self.resize(1600,900)
         
         self.currentPath = './'
@@ -1092,18 +1106,7 @@ class App(QMainWindow):
         self.setupScriptEnv()
 
 
-        self.dragWidget1 = DragDropWidget(self, acceptedExtensions=dataParser.SUPPORT_EXT, message='Drag a file here to RESET and load')
-        self.dragWidget1.setThemeColor(themeColor())
-        self.dragWidget1.setTheme(self.tgtTheme)
-        self.dragWidget1.hide()
-        self.dragWidget2 = DragDropWidget(self, acceptedExtensions=dataParser.SUPPORT_EXT, message='Drag a file here to load')
-        self.dragWidget2.setThemeColor(themeColor())
-        self.dragWidget2.setTheme(self.tgtTheme)
-        self.dragWidget2.hide()
-        self.dragWidget3 = DragDropWidget(self, acceptedExtensions=['.py', '.txt'], message='Drag a script here to run')
-        self.dragWidget3.setThemeColor(themeColor())
-        self.dragWidget3.setTheme(self.tgtTheme)
-        self.dragWidget3.hide()
+
 
 
     def setupScriptEnv(self, ):
@@ -2035,10 +2038,10 @@ class App(QMainWindow):
             self.applyMicaTheme(self.fileDetailUI.winId())
             self.applyMicaTheme(self.winId())
             
-        if hasattr(self, 'dragWidget1'):
-            self.dragWidget1.setTheme(theme)
-            self.dragWidget2.setTheme(theme)
-            self.dragWidget3.setTheme(theme)
+
+        self.dragWidget1.setTheme(theme)
+        self.dragWidget2.setTheme(theme)
+        self.dragWidget3.setTheme(theme)
             
             
     def loadSettings(self, ):
@@ -2114,7 +2117,9 @@ class App(QMainWindow):
                 self.dragWidget1.hide()
                 self.dragWidget2.hide()
                 self.dragWidget3.hide()
-
+        
+        elif os.path.isdir(file):
+            event.accept()
 
         return super().dragEnterEvent(event)
 
@@ -2156,13 +2161,16 @@ class App(QMainWindow):
         pos = event.position().toPoint()
         
 
-        file = event.mimeData().urls()[0].toLocalFile()
-        if os.path.isfile(file):
-            folderPath = os.path.dirname(file)
-            baseName = os.path.basename(file)
+        files = event.mimeData().urls()
+        localFiles = [file.toLocalFile() for file in files]
+
+
+        if os.path.isfile(localFiles[0]):
+            folderPath = os.path.dirname(localFiles[0])
+            baseName = os.path.basename(localFiles[0])
             fileName, ext = os.path.splitext(baseName)
             if ext.lower() in ('.py', '.txt'):
-                self.openScript(file)
+                self.openScript(localFiles[0])
                 self.runScript()
             else:
                 self.openFolder(folderPath)
@@ -2175,17 +2183,20 @@ class App(QMainWindow):
                         break
                     
                 if self.dragWidget1.geometry().contains(pos):
-                    self.loadObj(file)
-                elif self.dragWidget2.geometry().contains(pos):                    
-                    newobj = dataParser.loadFromAny(file, '')
+                    self.loadObj(localFiles[0])
+                elif self.dragWidget2.geometry().contains(pos):
                     rnnewobj = {}
-                    for k, v in newobj.items():
-                        rnnewobj[f'{fileName}.{k}'] = v
+                    for localfile in localFiles:
+                        newobj = dataParser.loadFromAny(localfile, '')
+                        baseName = os.path.basename(localfile)
+                        fileName, ext = os.path.splitext(baseName)
+                        for k, v in newobj.items():
+                            rnnewobj[f'{fileName}.{k}'] = v
                     obj = self.getWorkspaceObj()
                     obj.update(rnnewobj)
                     self.loadObj_update(obj, keys=list(rnnewobj.keys()))
         else:
-            self.openFolder(file)
+            self.openFolder(localFiles[0])
             
             
     def showConsole(self):

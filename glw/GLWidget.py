@@ -892,7 +892,7 @@ class GLWidget(QOpenGLWidget):
             )                
 
             self.geoProgAttribList = ['a_Position', 'a_Normal']
-            self.geoProgUniformList = ['u_ProjMatrix', 'u_ViewMatrix', 'u_ModelMatrix']
+            self.geoProgUniformList = ['u_ProjMatrix', 'u_ViewMatrix', 'u_ModelMatrix', 'u_pointSize',]
 
             self.coreBlurProgAttribList = ['a_Position']
             
@@ -1389,6 +1389,7 @@ class GLWidget(QOpenGLWidget):
     def getDepthPoint(self, x, y):
         
         self.SSAOGeoFBO.bindForWriting()
+        
         depth_data = glReadPixels(x, y, 1, 1,
                                 GL_DEPTH_COMPONENT, GL_FLOAT)
         

@@ -413,7 +413,7 @@ class GLWidget(QOpenGLWidget):
         self.bg_color = background_color
 
 
-        self.objectList = {}        
+        self.objectList: dict[str, BaseObject] = {}
 
         self.statusbar = StatusBar(self)
         self.statusbar.setHidden(True)
@@ -591,9 +591,9 @@ class GLWidget(QOpenGLWidget):
         self.gl_camera_view_combobox.setCurrentItem('6')
         
         if hasattr(self, 'grid'):
-            self.grid.setTransform(self.grid.transformList[5])
+            self.grid.setMode(5)
         if hasattr(self, 'smallGrid'):
-            self.smallGrid.setTransform(self.smallGrid.transformList[5])
+            self.smallGrid.setMode(5)
 
     def setCameraViewPreset(self, preset=0):
         """
@@ -617,8 +617,8 @@ class GLWidget(QOpenGLWidget):
             self.camera.updateIntr(self.raw_window_h, self.raw_window_w)
         else:
             self.camera.setViewPreset(preset)
-            self.grid.setTransform(self.grid.transformList[preset])
-            self.smallGrid.setTransform(self.smallGrid.transformList[preset])
+            self.grid.setMode(preset)
+            self.smallGrid.setMode(preset)
             self.camera.setProjectionMode(GLCamera.projectionMode.orthographic)
             self.gl_camera_perp_combobox.setCurrentItem('1')
             self.camera.setLockRotate(True)
@@ -842,6 +842,9 @@ class GLWidget(QOpenGLWidget):
             glEnable(GL_BLEND)
             glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
             glEnable(GL_PROGRAM_POINT_SIZE)
+            
+            glEnable(GL_CULL_FACE)
+            glCullFace(GL_BACK)
 
             glClearColor(*self.bg_color)
 
@@ -892,14 +895,14 @@ class GLWidget(QOpenGLWidget):
             )                
 
             self.geoProgAttribList = ['a_Position', 'a_Normal']
-            self.geoProgUniformList = ['u_ProjMatrix', 'u_ViewMatrix', 'u_ModelMatrix', 'u_pointSize',]
+            self.geoProgUniformList = ['u_pointSize', 'u_mvpMatrix', 'u_mvMatrix', 'u_normalMatrix']
 
             self.coreBlurProgAttribList = ['a_Position']
             
             self.coreProgUniformList = ['u_projMode', 'u_screenSize', 'u_kernelNoise', 'u_normalMap', 'u_positionMap', 'u_ProjMatrix', 'u_kernelSize', 'u_radiusPixels', 'u_kernel']
             self.blurProgUniformList = ['u_AOMap', 'u_TexelSize', 'u_NormalMap', 'u_PositionMap', 'u_Radius', 'u_NormalSigma', 'u_DepthSigma', 'u_SpatialSigma']
             self.lightProgAttribList = ['a_Position', 'a_Color', 'a_Normal', 'a_Texcoord']
-            self.lightProgUniformList = ['u_ProjMatrix', 'u_ViewMatrix', 'u_ModelMatrix', 'u_CamPos', 'u_AOMap', 'u_enableAO', \
+            self.lightProgUniformList = ['u_mvpMatrix', 'u_normalMatrix', 'u_worldNormalMatrix', 'u_ModelMatrix', 'u_CamPos', 'u_AOMap', 'u_enableAO', \
                                     'u_LightDir', 'u_LightColor', 'u_AmbientColor', 'u_NumLights', \
                                     'u_Lights[0].position', 'u_Lights[0].color', \
                                     'u_Lights[1].position', 'u_Lights[1].color', \
@@ -972,16 +975,47 @@ class GLWidget(QOpenGLWidget):
             traceback.print_exc()
 
 
-    def _renderObjs(self, locMap:dict):
+    def _renderObjs(self, locMap:dict, viewMatrix:np.ndarray, projMatrix:np.ndarray):
         '''
         A helper function to render all objects in the scene.
         Args:
             locMap (dict): The location map for shader variables.
         '''
         for obj in self.objectList.values():
+            self._setGeoProgMVPMatrix(locMap, obj.transform, viewMatrix, projMatrix)
             obj.render(locMap=locMap)
 
+    def _setGeoProgMVPMatrix(self, locMap:dict, modelMatrix:np.ndarray, viewMatrix:np.ndarray, projMatrix:np.ndarray):
+        '''
+        Set the Model-View-Projection matrix for the SSAO geometry shader.
+        Args:
+            locMap (dict): The location map for shader variables.
+            modelMatrix (np.ndarray): The model matrix.
+            viewMatrix (np.ndarray): The view matrix.
+            projMatrix (np.ndarray): The projection matrix.
+        '''
+        mvMatrix = viewMatrix @ modelMatrix
+        mvpMatrix = projMatrix @ mvMatrix
+        glUniformMatrix4fv(locMap['u_mvpMatrix'], 1, GL_FALSE, mvpMatrix.T, None)
+        glUniformMatrix4fv(locMap['u_mvMatrix'], 1, GL_FALSE, mvMatrix.T, None)
+        glUniformMatrix3fv(locMap['u_normalMatrix'], 1, GL_FALSE, np.linalg.inv(mvMatrix)[:3, :3], None)
 
+    def _setLightProgMVPMatrix(self, locMap:dict, modelMatrix:np.ndarray, viewMatrix:np.ndarray, projMatrix:np.ndarray):
+        '''
+        Set the Model-View-Projection matrix for the SSAO lighting shader.
+        Args:
+            locMap (dict): The location map for shader variables.
+            modelMatrix (np.ndarray): The model matrix.
+            viewMatrix (np.ndarray): The view matrix.
+            projMatrix (np.ndarray): The projection matrix.
+        '''
+        
+        mvpMatrix = projMatrix @ viewMatrix @ modelMatrix
+        glUniformMatrix4fv(locMap['u_ModelMatrix'], 1, GL_FALSE, modelMatrix.T, None)
+        glUniformMatrix4fv(locMap['u_mvpMatrix'], 1, GL_FALSE, mvpMatrix.T, None)
+        glUniformMatrix3fv(locMap['u_worldNormalMatrix'], 1, GL_FALSE, np.linalg.inv(modelMatrix)[:3, :3], None)
+        
+        
 
     def _copyBuffer2Screen(self, buffer:FBOManager):
         '''
@@ -1050,12 +1084,12 @@ class GLWidget(QOpenGLWidget):
         glUseProgram(self.SSAOGeoProg)
         
         # Set all matrixs
-        glUniformMatrix4fv(self.SSAOGeoProgLocMap['u_ModelMatrix'], 1, GL_FALSE, self.canonicalModelMatrix, None)
-        glUniformMatrix4fv(self.SSAOGeoProgLocMap['u_ProjMatrix'],  1, GL_FALSE, projMatrix, None)
-        glUniformMatrix4fv(self.SSAOGeoProgLocMap['u_ViewMatrix'],  1, GL_FALSE, camtrans.T, None)
+        # glUniformMatrix4fv(self.SSAOGeoProgLocMap['u_ModelMatrix'], 1, GL_FALSE, self.canonicalModelMatrix, None)
+        # glUniformMatrix4fv(self.SSAOGeoProgLocMap['u_ProjMatrix'],  1, GL_FALSE, projMatrix, None)
+        # glUniformMatrix4fv(self.SSAOGeoProgLocMap['u_ViewMatrix'],  1, GL_FALSE, camtrans.T, None)
 
         # render objs
-        self._renderObjs(locMap=self.SSAOGeoProgLocMap)
+        self._renderObjs(locMap=self.SSAOGeoProgLocMap, viewMatrix=camtrans, projMatrix=projMatrix.T)
 
         ''' stage 2: SSAO Core Pass '''
         if self.enableSSAO:
@@ -1127,10 +1161,6 @@ class GLWidget(QOpenGLWidget):
         glUniform1i(self.SSAOLightProgLocMap['u_enableAO'], self.enableSSAO)
         glUniform3f(self.SSAOLightProgLocMap['u_CamPos'], *campos)
 
-        glUniformMatrix4fv(self.SSAOLightProgLocMap['u_ModelMatrix'], 1, GL_FALSE, self.canonicalModelMatrix, None)
-        glUniformMatrix4fv(self.SSAOLightProgLocMap['u_ProjMatrix'],  1, GL_FALSE, projMatrix, None)
-        glUniformMatrix4fv(self.SSAOLightProgLocMap['u_ViewMatrix'],  1, GL_FALSE, camtrans.T, None)
-
         glUniform1i(self.SSAOLightProgLocMap['u_renderMode'], self.glRenderMode)
         glUniform2f(self.SSAOLightProgLocMap['u_screenSize'], float(self.raw_window_w), float(self.raw_window_h))
 
@@ -1139,10 +1169,6 @@ class GLWidget(QOpenGLWidget):
 
         glUniform1i(self.SSAOLightLineProgLocMap['u_enableAO'], 0)
         glUniform3f(self.SSAOLightLineProgLocMap['u_CamPos'], *campos)
-
-        glUniformMatrix4fv(self.SSAOLightLineProgLocMap['u_ModelMatrix'], 1, GL_FALSE, self.canonicalModelMatrix, None)
-        glUniformMatrix4fv(self.SSAOLightLineProgLocMap['u_ProjMatrix'],  1, GL_FALSE, projMatrix, None)
-        glUniformMatrix4fv(self.SSAOLightLineProgLocMap['u_ViewMatrix'],  1, GL_FALSE, camtrans.T, None)
 
         glUniform1i(self.SSAOLightLineProgLocMap['u_renderMode'], self.glRenderMode)
         glUniform2f(self.SSAOLightLineProgLocMap['u_screenSize'], float(self.raw_window_w), float(self.raw_window_h))
@@ -1153,9 +1179,11 @@ class GLWidget(QOpenGLWidget):
         for obj in self.objectList.values():
             if obj.renderType == GL_LINES:
                 glUseProgram(self.SSAOLightLineProg)
+                self._setLightProgMVPMatrix(self.SSAOLightLineProgLocMap, obj.transform, camtrans, projMatrix.T)
                 obj.render(locMap=self.SSAOLightLineProgLocMap)
             else:
                 glUseProgram(self.SSAOLightProg)
+                self._setLightProgMVPMatrix(self.SSAOLightProgLocMap, obj.transform, camtrans, projMatrix.T)
                 obj.render(locMap=self.SSAOLightProgLocMap)
 
         # self._renderObjs(locMap=self.SSAOLightProgLocMap)
@@ -1173,14 +1201,13 @@ class GLWidget(QOpenGLWidget):
         if self.isGridVisable:
             glUniform1i(self.SSAOLightLineProgLocMap['u_farPlane'], 1)
             glUniform1f(self.SSAOLightLineProgLocMap['u_farPlaneRatio'], 0.02)
-
-            
-
+            self._setLightProgMVPMatrix(self.SSAOLightLineProgLocMap, self.grid.transform, camtrans, projMatrix.T)
             self.grid.render(locMap=self.SSAOLightLineProgLocMap)
             glUniform1f(self.SSAOLightLineProgLocMap['u_farPlaneRatio'], 0.15)
             self.smallGrid.render(locMap=self.SSAOLightLineProgLocMap)
             glUniform1i(self.SSAOLightLineProgLocMap['u_farPlane'], 0)
         if self.isAxisVisable:
+            self._setLightProgMVPMatrix(self.SSAOLightLineProgLocMap, self.axis.transform, camtrans, projMatrix.T)
             self.axis.render(locMap=self.SSAOLightLineProgLocMap)
 
 

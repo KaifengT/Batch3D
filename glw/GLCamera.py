@@ -477,7 +477,6 @@ class GLCamera(QObject):
         normalized_coords = np.linalg.inv(self.intr) @ np.array([ViewPortX, ViewPortY, 1.0])
         
         if self.projection_mode == self.projectionMode.perspective:
-            # 透视投影：射线从相机位置发出
             camera_point = np.array([
                 normalized_coords[0] * dis,
                 normalized_coords[1] * dis,
@@ -485,11 +484,10 @@ class GLCamera(QObject):
                 1.0
             ])
         elif self.projection_mode == self.projectionMode.orthographic:
-            # 正交投影：射线是平行的，直接使用标准化坐标
             camera_point = np.array([
                 normalized_coords[0],
                 normalized_coords[1],
-                -dis,  # Z坐标表示距离
+                -dis,
                 1.0
             ])
         else:
@@ -637,5 +635,5 @@ class GLCamera(QObject):
         if preset in presets:
             azimuth, elevation, distance = presets[preset]
             self.setCamera(azimuth=azimuth, elevation=elevation, 
-                         distance=distance, lookatPoint=self.lookatPoint)
+                         distance=distance, lookatPoint=np.array([0., 0., 0.,]))
 

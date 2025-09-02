@@ -236,6 +236,10 @@ class VAOManager:
             type (ctypes.c_uint, optional): The data type of each component. Defaults to GL_FLOAT.
             nbytes (int, optional): The size of each component in bytes. Defaults to 4.
         '''
+        if self._vboids.get(index, 0) != 0:
+            glDeleteBuffers(1, [self._vboids[index]])
+            self._vboids.pop(index)
+
         if self._vaoid != 0:
             
             vertexlen = len(data.flatten()) // size
@@ -266,6 +270,12 @@ class VAOManager:
         Args:
             data (np.ndarray): The index data for the EBO. Type should be uint32.
         '''
+        if self._eboid != 0:
+            glDeleteBuffers(1, [self._eboid])
+            self._eboid = 0
+            self._eboLen = 0
+        
+        
         if self._vaoid != 0:
             if self._eboid == 0:
 
@@ -435,6 +445,16 @@ class BaseObject:
 
     def setContextfromCurrent(self):
         self._context = QOpenGLContext.currentContext()
+
+    def makeCurrent(self):
+        try:
+            if self._context is not None and self._context.isValid():
+                self._context.makeCurrent(self._context.surface())
+                return True
+            else:
+                return False
+        except:
+            return False
 
     def cleanup(self):
 
@@ -758,9 +778,9 @@ class BaseObject:
         
         if self.isShow:
             
-            model_matrix_loc = locMap.get('u_ModelMatrix', -1)
-            if model_matrix_loc != -1:
-                glUniformMatrix4fv(model_matrix_loc, 1, GL_FALSE, self.transform.T, None)
+            # model_matrix_loc = locMap.get('u_ModelMatrix', -1)
+            # if model_matrix_loc != -1:
+            #     glUniformMatrix4fv(model_matrix_loc, 1, GL_FALSE, self.transform.T, None)
 
             if self.__renderType == GL_POINTS:
                 loc = locMap.get('u_pointSize', -1)
@@ -942,10 +962,12 @@ class Grid(BaseObject):
         lineY[:, :, 4] = yv     
 
         colorX = np.ones((*lineX.shape[:2], 8), dtype=np.float32) * np.array([[[0.35, 0.35, 0.35, .8]*2]])
+        colorX1 = np.ones((*lineX.shape[:2], 8), dtype=np.float32) * np.array([[[0.35, 0.35, 0.35, .8]*2]])
         colorY = np.ones((*lineY.shape[:2], 8), dtype=np.float32) * np.array([[[0.35, 0.35, 0.35, .8]*2]])
 
         colorY[51, :, :] = np.array([[0.69, 0.18, 0.32, 0.9]*2])
         colorX[51, :, :] = np.array([[0.53, 0.76, 0.45, 0.9]*2])
+        colorX1[51, :, :] = np.array([[0.01, 0.30, 0.67, 0.9]*2])
 
         lineX = lineX.reshape(-1, 3)
         lineY = lineY.reshape(-1, 3)
@@ -957,6 +979,8 @@ class Grid(BaseObject):
         self.norm[:, 2] = 1.0        
         # self.color = np.array([[0.35, 0.35, 0.35, .8]]).repeat(self.vertex.shape[0], 0)
         self.color = np.concatenate((colorX.reshape(-1, 4), colorY.reshape(-1, 4)), 0)
+        self.color1 = np.concatenate((colorX1.reshape(-1, 4), colorY.reshape(-1, 4)), 0)
+        self.color2 = np.concatenate((colorX.reshape(-1, 4), colorX1.reshape(-1, 4)), 0)
 
         self.transformList = [
             np.array([[0, 0, 1, 0],
@@ -978,22 +1002,44 @@ class Grid(BaseObject):
 
             np.eye(4, dtype=np.float32),
             np.eye(4, dtype=np.float32),
+            np.eye(4, dtype=np.float32),
         ]
         
+        self.colorList = [
+            self.color2,
+            self.color2,
+            self.color1,
+            self.color1,
+            self.color,
+            self.color,
+            self.color,
+        ]
+        
+        self.mode = 6
+        
         self.vertex = self.vertex * scale
+
+    def setMode(self, mode:int):
+        assert mode in range(7), 'mode should be in [0, 6]'
+        if mode != self.mode:
+            self.mode = mode
+            self.transform = self.transformList[mode]
+            if self.vao.getVAO() != 0:
+                if self.makeCurrent():
+                    self.vao.bindVertexBuffer(1, self.colorList[mode], 4)
 
     def load(self, ):
         
         self.vao.createVAO()
         self.vao.bindVertexBuffer(0, self.vertex, 3)
-        self.vao.bindVertexBuffer(1, self.color, 4)
+        self.vao.bindVertexBuffer(1, self.colorList[self.mode], 4)
         self.vao.bindVertexBuffer(2, self.norm, 3)
         
         self.setContextfromCurrent()        
 
         self.size = 2
         self.renderType = GL_LINES
-        self.transform = self.transformList[5]
+        self.transform = self.transformList[self.mode]
 
 
 class Axis(BaseObject):

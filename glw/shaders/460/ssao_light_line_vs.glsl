@@ -10,9 +10,10 @@ struct PointLight {
     vec3 color;
 };
 
-uniform mat4 u_ProjMatrix;
-uniform mat4 u_ViewMatrix;
+
 uniform mat4 u_ModelMatrix;
+uniform mat4 u_mvpMatrix;
+uniform mat3 u_worldNormalMatrix;
 
 uniform vec3 u_CamPos;
 uniform int u_farPlane;
@@ -27,8 +28,10 @@ out vec3 _v_WorldSpaceCamPos;
 flat out int _v_simpleRender;
 
 void main() {
-    gl_Position = u_ProjMatrix * u_ViewMatrix * u_ModelMatrix * a_Position;
-    
+    gl_Position = u_mvpMatrix * a_Position;
+
+    vec3 worldPos = vec3(u_ModelMatrix * a_Position);
+
     _v_Color = a_Color;
     _v_Texcoord = a_Texcoord;
     _v_WorldSpaceCamPos = u_CamPos; 
@@ -42,16 +45,15 @@ void main() {
     else {
         _v_simpleRender = 0;
 
-        _v_Position = vec3(u_ModelMatrix * a_Position);
-        _v_Normal = mat3(transpose(inverse(u_ModelMatrix))) * a_Normal;
+        _v_Position = worldPos;
+        _v_Normal = u_worldNormalMatrix * a_Normal;
     }
     
     if (u_farPlane == 1) {
         _v_simpleRender = 1;
-        vec3 vertex_distance = vec3(u_ModelMatrix * a_Position) - u_CamPos;
+        vec3 vertex_distance = worldPos - u_CamPos;
         float distance_factor = 1.0 - clamp(length(vertex_distance) * u_farPlaneRatio, 0.0, 1.0);
 
-        vec3 worldPos = vec3(u_ModelMatrix * a_Position);
         vec3 viewDir = normalize(u_CamPos - vec3(0.0, 0.0, 0.0));
 
         float viewNormalDot = 0.0;
@@ -62,9 +64,9 @@ void main() {
             viewNormalDot = clamp(abs(dot(normal, viewDir)) * 4, 0.0, 1.0);
         }
         else {
-            vec4 word_normal_4 = vec4(u_ModelMatrix * vec4(a_Normal, 1.0));
-            vec3 word_normal = normalize(word_normal_4.xyz);
-            viewNormalDot = clamp(abs(dot(word_normal, viewDir)) * 4, 0.0, 1.0);
+            vec4 world_normal_4 = vec4(u_ModelMatrix * vec4(a_Normal, 1.0));
+            vec3 world_normal = normalize(world_normal_4.xyz);
+            viewNormalDot = clamp(abs(dot(world_normal, viewDir)) * 4, 0.0, 1.0);
         }
 
         

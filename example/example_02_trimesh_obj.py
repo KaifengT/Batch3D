@@ -1,7 +1,7 @@
 import trimesh
 import time
 import numpy as np
-
+from b3d import b3d
 
 mesh = trimesh.load_mesh('Common fangtooth.glb')
 

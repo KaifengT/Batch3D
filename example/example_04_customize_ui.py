@@ -4,6 +4,7 @@ from qfluentwidgets import PushButton, Slider, ComboBox, SpinBox, LineEdit, Mess
 from PySide6.QtCore import Qt
 import trimesh
 
+from b3d import b3d
 
 pointslist = np.random.rand(100, 10, 1, 7)
 lineslist = np.random.rand(100, 10, 2, 7)

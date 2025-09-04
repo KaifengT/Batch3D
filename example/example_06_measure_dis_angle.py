@@ -1,7 +1,7 @@
 from PySide6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel
 from qfluentwidgets import PushButton, BodyLabel, PrimaryPushButton
 import numpy as np
-
+from b3d import b3d
 class DistanceMeasureWidget(QWidget):
     def __init__(self):
         super().__init__()

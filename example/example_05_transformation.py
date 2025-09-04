@@ -101,7 +101,7 @@ class TransformProcessor:
                 print(f'Incremental transform: R({r}, {p}, {y}), T({tx}, {ty}, {tz})')
                 target = self.target_widget.currentText()
                 if target == "all":
-                    for name in b3d.GL.objectList.keys():
+                    for name in b3d.GL.getObjectList().keys():
                         self.transform_point(r, p, y, tx, ty, tz, name)
                 elif target and 'b3d' in globals():
                     self.transform_point(r, p, y, tx, ty, tz, target)
@@ -135,7 +135,7 @@ class UIController:
     def get_workspace(self):
         objlist = []
         if 'b3d' in globals() and hasattr(b3d, 'GL'):
-            objlist = list(b3d.GL.objectList.keys())
+            objlist = list(b3d.GL.getObjectList().keys())
             if objlist:
                 objlist.append("all")
         self.target_widget.clear()
@@ -146,7 +146,7 @@ class UIController:
     def reset_current_transform(self):
         target = self.target_widget.currentText()
         if target == "all":
-            for name in b3d.GL.objectList.keys():
+            for name in b3d.GL.getObjectList().keys():
                 self.transform_manager.reset_transform(name)
                 if 'b3d' in globals():
                     b3d.setObjTransform(name, np.eye(4))

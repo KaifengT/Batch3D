@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 from copy import deepcopy
 from collections.abc import Iterable, Mapping
+from typing import List
 from typing import Optional, Union
 import PIL.Image as im
 import numpy as np
@@ -698,10 +699,7 @@ class BaseObject:
         miscParamter = {
             'vertexColor': {'data': _safeGetArray(np.array([*DEFAULT_COLOR4])), 'type': 'list'},
         }
-        materialParamter = {'u_Metallic': {'data': 0.0, 'type': 'float'},
-                            'u_Roughness': {'data': 0.0, 'type': 'float'},
-                            'u_EnableAlbedoTexture': {'data': 0, 'type': 'int'},
-                            'u_EnableMetallicRoughnessTexture': {'data': 0, 'type': 'int'}}
+        materialParameter = BaseObject.getDefaultMaterialParameter()
 
         if texcoord is None:
             # find simple color
@@ -712,11 +710,11 @@ class BaseObject:
                 miscParamter.update({'vertexColor': {'data': _safeGetArray(material.baseColorFactor), 'type': 'list'}})
                 
                 if isinstance(material.metallicFactor, float):
-                    materialParamter.update({'u_Metallic': {'data': material.metallicFactor, 'type': 'float'}})
+                    materialParameter.update({'u_Metallic': {'data': material.metallicFactor, 'type': 'float'}})
                 if isinstance(material.roughnessFactor, float):
-                    materialParamter.update({'u_Roughness': {'data': material.roughnessFactor, 'type': 'float'}})
+                    materialParameter.update({'u_Roughness': {'data': material.roughnessFactor, 'type': 'float'}})
 
-            return materialParamter, miscParamter
+            return materialParameter, miscParamter
 
         if isinstance(material, SimpleMaterial):
 
@@ -726,14 +724,14 @@ class BaseObject:
                 texcolor = colorManager.get_color_from_tex(material.image, texcoord)
                 main_colors, per = colorManager.extract_dominant_colors(texcolor, n_colors=3)
 
-                materialParamter.update({'u_AlbedoTexture': {'data':tid, 'type':'texture'},
+                materialParameter.update({'u_AlbedoTexture': {'data':tid, 'type':'texture'},
                                          'u_EnableAlbedoTexture': {'data': 1, 'type': 'int'}})
                 miscParamter.update({'mainColors':{'data':main_colors, 'type':'list'}})
 
             else:
                 miscParamter.update({'vertexColor': {'data': _safeGetArray(material.diffuse), 'type': 'list'}})
 
-            return materialParamter, miscParamter
+            return materialParameter, miscParamter
 
         elif isinstance(material, PBRMaterial):
             
@@ -744,7 +742,7 @@ class BaseObject:
                 texcolor = colorManager.get_color_from_tex(material.baseColorTexture, texcoord)
                 main_colors, per = colorManager.extract_dominant_colors(texcolor, n_colors=3)
 
-                materialParamter.update({'u_AlbedoTexture': {'data': tid, 'type': 'texture'},\
+                materialParameter.update({'u_AlbedoTexture': {'data': tid, 'type': 'texture'},\
                                         'u_EnableAlbedoTexture': {'data': 1, 'type': 'int'}})
                 miscParamter.update({'mainColors': {'data': main_colors, 'type': 'list'}})
 
@@ -755,18 +753,25 @@ class BaseObject:
                 
             if isinstance(material.metallicRoughnessTexture, im.Image):
                 tid = BaseObject.createTexture2d(material.metallicRoughnessTexture)
-                materialParamter.update({'u_MetallicRoughnessTexture': {'data': tid, 'type': 'texture'},
+                materialParameter.update({'u_MetallicRoughnessTexture': {'data': tid, 'type': 'texture'},
                                          'u_EnableMetallicRoughnessTexture': {'data': 1, 'type': 'int'}})
             else:
                 
                 if isinstance(material.metallicFactor, float):
-                    materialParamter.update({'u_Metallic': {'data': material.metallicFactor, 'type': 'float'}})
+                    materialParameter.update({'u_Metallic': {'data': material.metallicFactor, 'type': 'float'}})
                 if isinstance(material.roughnessFactor, float):
-                    materialParamter.update({'u_Roughness': {'data': material.roughnessFactor, 'type': 'float'}})
+                    materialParameter.update({'u_Roughness': {'data': material.roughnessFactor, 'type': 'float'}})
 
-            return materialParamter, miscParamter
+            return materialParameter, miscParamter
         else:
             raise ValueError('Unknown material type')
+
+    @staticmethod
+    def getDefaultMaterialParameter() -> dict:
+        return {'u_Metallic': {'data': 0.0, 'type': 'float'},
+                'u_Roughness': {'data': 0.0, 'type': 'float'},
+                'u_EnableAlbedoTexture': {'data': 0, 'type': 'int'},
+                'u_EnableMetallicRoughnessTexture': {'data': 0, 'type': 'int'}}
 
 
     def load(self):
@@ -820,7 +825,7 @@ class UnionObject(BaseObject):
     def __init__(self) -> None:
         super().__init__()
         
-        self.objs = []
+        self.objs:List[BaseObject] = []
         
     @property
     def mainColors(self):
@@ -847,6 +852,10 @@ class UnionObject(BaseObject):
     def setTransform(self, transform:np.ndarray):
         for obj in self.objs:
             obj.setTransform(transform)
+            
+    def cleanup(self):
+        for obj in self.objs:
+            obj.cleanup()
 
             
 
@@ -874,7 +883,7 @@ class PointCloud(BaseObject):
 
 
 class Arrow(BaseObject):
-    def __init__(self, vertex:np.ndarray=None, color=DEFAULT_COLOR4, size=3, transform=None) -> None:
+    def __init__(self, vertex:np.ndarray, indices:np.ndarray, normal:Optional[np.ndarray]=None, color=DEFAULT_COLOR4, size=3, transform=None) -> None:
         super().__init__()
         self.vertex = vertex
         self.color = self.checkColor(self.vertex.shape, color)
@@ -882,29 +891,94 @@ class Arrow(BaseObject):
         self.renderType = GL_TRIANGLES
         self.size = size
         self.transform = transform
+        self.normal = normal
+        self.indices = indices
+        self.materialParameter = BaseObject.getDefaultMaterialParameter()
+        
 
     @staticmethod
     def getTemplate(size=0.001) -> np.ndarray:
 
-        vertex = np.array([
-            [0, 0, 1],
-            [0.5, 0.5, 0],
-            [0.5, -0.5, 0],
+        # vertex = np.array([
+        #     [0, 0, 1],
+        #     [0.5, 0.5, 0],
+        #     [0.5, -0.5, 0],
             
-            [0, 0, 1],
-            [-0.5, 0.5, 0],
-            [0.5, 0.5, 0],
+        #     [0, 0, 1],
+        #     [-0.5, 0.5, 0],
+        #     [0.5, 0.5, 0],
             
-            [0, 0, 1],
-            [-0.5, 0.5, 0],
-            [-0.5, -0.5, 0],
+        #     [0, 0, 1],
+        #     [-0.5, 0.5, 0],
+        #     [-0.5, -0.5, 0],
 
-            [0, 0, 1],
-            [-0.5, -0.5, 0],
-            [0.5, -0.5, 0],
-        ])*size
+        #     [0, 0, 1],
+        #     [-0.5, -0.5, 0],
+        #     [0.5, -0.5, 0],
+        # ])*size
+        vertices = np.array([
+            [ 0.0000,  0.0000,  1.0000],  # Top (0)
+            [ 0.5000,  0.0000,  0.0000],  # Bottom Point 0 (1)
+            [ 0.4330,  0.2500,  0.0000],  # (2)
+            [ 0.2500,  0.4330,  0.0000],  # (3)
+            [ 0.0000,  0.5000,  0.0000],  # (4)
+            [-0.2500,  0.4330,  0.0000],  # (5)
+            [-0.4330,  0.2500,  0.0000],  # (6)
+            [-0.5000,  0.0000,  0.0000],  # (7)
+            [-0.4330, -0.2500,  0.0000],  # (8)
+            [-0.2500, -0.4330,  0.0000],  # (9)
+            [ 0.0000, -0.5000,  0.0000],  # (10)
+            [ 0.2500, -0.4330,  0.0000],  # (11)
+            [ 0.4330, -0.2500,  0.0000],  # (12)
+            [ 0.0000,  0.0000,  0.0000],  # Bottom center (13)
+        ], dtype=np.float32)*size
         
-        return vertex
+        normals = np.array([
+            [ 0.0000,  0.0000,  1.0000],  # 0:
+            [ 1.0000,  0.0000,  0.0000],
+            [ 0.8660,  0.5000,  0.0000],
+            [ 0.5000,  0.8660,  0.0000],
+            [ 0.0000,  1.0000,  0.0000],
+            [-0.5000,  0.8660,  0.0000],
+            [-0.8660,  0.5000,  0.0000],
+            [-1.0000,  0.0000,  0.0000],
+            [-0.8660, -0.5000,  0.0000],
+            [-0.5000, -0.8660,  0.0000],
+            [ 0.0000, -1.0000,  0.0000],
+            [ 0.5000, -0.8660,  0.0000],
+            [ 0.8660, -0.5000,  0.0000],
+            [ 0.0000,  0.0000, -1.0000],
+        ], dtype=np.float32)
+        
+        indices = np.array([
+            [0,  1,  2 ],
+            [0,  2,  3 ],
+            [0,  3,  4 ],
+            [0,  4,  5 ],
+            [0,  5,  6 ],
+            [0,  6,  7 ],
+            [0,  7,  8 ],
+            [0,  8,  9 ],
+            [0,  9,  10],
+            [0, 10, 11],
+            [0, 11, 12],
+            [0, 12, 1 ],
+            
+            [13,  2,  1 ],
+            [13,  3,  2 ],
+            [13,  4,  3 ],
+            [13,  5,  4 ],
+            [13,  6,  5 ],
+            [13,  7,  6 ],
+            [13,  8,  7 ],
+            [13,  9,  8 ],
+            [13, 10,  9 ],
+            [13, 11, 10 ],
+            [13, 12, 11 ],
+            [13,  1, 12 ],
+        ], dtype=np.uint32)
+
+        return vertices, normals, indices
         
     @staticmethod
     def transformTemplate(vertex:np.ndarray, R:np.ndarray, T:np.ndarray) -> np.ndarray:
@@ -923,6 +997,9 @@ class Arrow(BaseObject):
         self.vao.createVAO()
         self.vao.bindVertexBuffer(0, self.vertex, 3)
         self.vao.bindVertexBuffer(1, self.color, 4)
+        if self.normal is not None:
+            self.vao.bindVertexBuffer(2, self.normal, 3)
+        self.vao.bindElementBuffer(self.indices)
         
         self.setContextfromCurrent()
 
@@ -1147,9 +1224,6 @@ class Mesh(BaseObject):
         self.vertex = vertex.reshape(-1, 3)
         self.indices = indices.ravel()
         
-        self.indicesforLine = indices.reshape(-1, 3)[:, [0, 1, 1, 2, 2, 0]]
-        self.indicesforLine = self.indicesforLine.ravel()
-        
         if norm is None:
             norm = BaseObject.buildfaceNormal(self.vertex, self.indices)
             
@@ -1166,10 +1240,7 @@ class Mesh(BaseObject):
         self.renderType = GL_TRIANGLES
         self.transform = transform
 
-        self.materialParameter = {'u_Metallic': {'data': 0.0, 'type': 'float'},
-                'u_Roughness': {'data': 0.0, 'type': 'float'},
-                'u_EnableAlbedoTexture': {'data': 0, 'type': 'int'},
-                'u_EnableMetallicRoughnessTexture': {'data': 0, 'type': 'int'}}
+        self.materialParameter = BaseObject.getDefaultMaterialParameter()
 
         self.mainColors = colorManager.extract_dominant_colors(self.color, n_colors=3)[0]
 
@@ -1177,9 +1248,13 @@ class Mesh(BaseObject):
         if isinstance(texcoord, np.ndarray):
             texcoord[:,1] = 1. - texcoord[:,1]
             
+        self.texcoord = texcoord
 
-        if texture is not None:
-            self.materialParameter, miscParamter = BaseObject._parseMaterial(texture, texcoord=texcoord)
+        
+    def load(self):
+        
+        if self.material is not None:
+            self.materialParameter, miscParamter = BaseObject._parseMaterial(self.material, texcoord=self.texcoord)
 
             if 'u_AlbedoTexture' in self.materialParameter.keys():
                 
@@ -1191,14 +1266,9 @@ class Mesh(BaseObject):
                 vertexColor = miscParamter['vertexColor']['data']
                 # use vertexColor from material instead of color
                 if isinstance(vertexColor, np.ndarray):
-                    self.color = self.checkColor(vertex.shape, vertexColor)
+                    self.color = self.checkColor(self.vertex.shape, vertexColor)
                     self.mainColors, per = colorManager.extract_dominant_colors(vertexColor, n_colors=3)
-
-        self.texcoord = texcoord
-
-
         
-    def load(self):
         self.vao.createVAO()
         self.vao.bindVertexBuffer(0, self.vertex, 3)
         self.vao.bindVertexBuffer(1, self.color, 4)

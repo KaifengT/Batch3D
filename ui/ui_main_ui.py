@@ -27,7 +27,7 @@ class Ui_MainWindow(object):
     def setupUi(self, MainWindow):
         if not MainWindow.objectName():
             MainWindow.setObjectName(u"MainWindow")
-        MainWindow.resize(795, 463)
+        MainWindow.resize(986, 659)
         MainWindow.setMinimumSize(QSize(200, 200))
         MainWindow.setStyleSheet(u"")
         self.centralwidget = QWidget(MainWindow)
@@ -79,9 +79,25 @@ class Ui_MainWindow(object):
 
         self.verticalLayout.addWidget(self.pushButton_openremotefolder)
 
+        self.tableWidget = TableWidget(self.tool)
+        if (self.tableWidget.columnCount() < 1):
+            self.tableWidget.setColumnCount(1)
+        __qtablewidgetitem = QTableWidgetItem()
+        self.tableWidget.setHorizontalHeaderItem(0, __qtablewidgetitem)
+        self.tableWidget.setObjectName(u"tableWidget")
+        self.tableWidget.setMaximumSize(QSize(16777215, 16777215))
+        self.tableWidget.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.tableWidget.horizontalHeader().setVisible(True)
+        self.tableWidget.horizontalHeader().setCascadingSectionResizes(True)
+        self.tableWidget.horizontalHeader().setDefaultSectionSize(80)
+        self.tableWidget.horizontalHeader().setStretchLastSection(True)
+        self.tableWidget.verticalHeader().setVisible(False)
+
+        self.verticalLayout.addWidget(self.tableWidget)
+
         self.horizontalLayout_9 = QHBoxLayout()
         self.horizontalLayout_9.setObjectName(u"horizontalLayout_9")
-        self.horizontalLayout_9.setContentsMargins(-1, 0, -1, -1)
+        self.horizontalLayout_9.setContentsMargins(-1, 12, -1, -1)
         self.label_5 = StrongBodyLabel(self.tool)
         self.label_5.setObjectName(u"label_5")
         sizePolicy2 = QSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Preferred)
@@ -133,48 +149,6 @@ class Ui_MainWindow(object):
 
 
         self.verticalLayout.addLayout(self.horizontalLayout_10)
-
-        self.horizontalLayout_3 = QHBoxLayout()
-        self.horizontalLayout_3.setObjectName(u"horizontalLayout_3")
-        self.pushButton_openscript = PushButton(self.tool)
-        self.pushButton_openscript.setObjectName(u"pushButton_openscript")
-        sizePolicy1.setHeightForWidth(self.pushButton_openscript.sizePolicy().hasHeightForWidth())
-        self.pushButton_openscript.setSizePolicy(sizePolicy1)
-        self.pushButton_openscript.setMinimumSize(QSize(100, 0))
-
-        self.horizontalLayout_3.addWidget(self.pushButton_openscript)
-
-
-        self.verticalLayout.addLayout(self.horizontalLayout_3)
-
-        self.horizontalLayout_4 = QHBoxLayout()
-        self.horizontalLayout_4.setObjectName(u"horizontalLayout_4")
-        self.pushButton_runscript = PushButton(self.tool)
-        self.pushButton_runscript.setObjectName(u"pushButton_runscript")
-        sizePolicy1.setHeightForWidth(self.pushButton_runscript.sizePolicy().hasHeightForWidth())
-        self.pushButton_runscript.setSizePolicy(sizePolicy1)
-        self.pushButton_runscript.setMinimumSize(QSize(100, 0))
-
-        self.horizontalLayout_4.addWidget(self.pushButton_runscript)
-
-
-        self.verticalLayout.addLayout(self.horizontalLayout_4)
-
-        self.tableWidget = TableWidget(self.tool)
-        if (self.tableWidget.columnCount() < 1):
-            self.tableWidget.setColumnCount(1)
-        __qtablewidgetitem = QTableWidgetItem()
-        self.tableWidget.setHorizontalHeaderItem(0, __qtablewidgetitem)
-        self.tableWidget.setObjectName(u"tableWidget")
-        self.tableWidget.setMaximumSize(QSize(16777215, 16777215))
-        self.tableWidget.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
-        self.tableWidget.horizontalHeader().setVisible(True)
-        self.tableWidget.horizontalHeader().setCascadingSectionResizes(True)
-        self.tableWidget.horizontalHeader().setDefaultSectionSize(80)
-        self.tableWidget.horizontalHeader().setStretchLastSection(True)
-        self.tableWidget.verticalHeader().setVisible(False)
-
-        self.verticalLayout.addWidget(self.tableWidget)
 
         self.tableWidget_obj = TableWidget(self.tool)
         if (self.tableWidget_obj.columnCount() < 3):
@@ -281,6 +255,32 @@ class Ui_MainWindow(object):
 
         self.verticalLayout.addWidget(self.label_info)
 
+        self.horizontalLayout_3 = QHBoxLayout()
+        self.horizontalLayout_3.setObjectName(u"horizontalLayout_3")
+        self.pushButton_openscript = PushButton(self.tool)
+        self.pushButton_openscript.setObjectName(u"pushButton_openscript")
+        sizePolicy1.setHeightForWidth(self.pushButton_openscript.sizePolicy().hasHeightForWidth())
+        self.pushButton_openscript.setSizePolicy(sizePolicy1)
+        self.pushButton_openscript.setMinimumSize(QSize(100, 0))
+
+        self.horizontalLayout_3.addWidget(self.pushButton_openscript)
+
+
+        self.verticalLayout.addLayout(self.horizontalLayout_3)
+
+        self.horizontalLayout_4 = QHBoxLayout()
+        self.horizontalLayout_4.setObjectName(u"horizontalLayout_4")
+        self.pushButton_runscript = PushButton(self.tool)
+        self.pushButton_runscript.setObjectName(u"pushButton_runscript")
+        sizePolicy1.setHeightForWidth(self.pushButton_runscript.sizePolicy().hasHeightForWidth())
+        self.pushButton_runscript.setSizePolicy(sizePolicy1)
+        self.pushButton_runscript.setMinimumSize(QSize(100, 0))
+
+        self.horizontalLayout_4.addWidget(self.pushButton_runscript)
+
+
+        self.verticalLayout.addLayout(self.horizontalLayout_4)
+
         self.horizontalLayout_7 = QHBoxLayout()
         self.horizontalLayout_7.setObjectName(u"horizontalLayout_7")
         self.pushButton_openconsole = PushButton(self.tool)
@@ -335,19 +335,19 @@ class Ui_MainWindow(object):
         MainWindow.setWindowTitle(QCoreApplication.translate("MainWindow", u"MainWindow", None))
         self.pushButton_openfolder.setText(QCoreApplication.translate("MainWindow", u"Local Folder", None))
         self.pushButton_openremotefolder.setText(QCoreApplication.translate("MainWindow", u"Remote Folder", None))
+        ___qtablewidgetitem = self.tableWidget.horizontalHeaderItem(0)
+        ___qtablewidgetitem.setText(QCoreApplication.translate("MainWindow", u"File", None));
         self.label_5.setText(QCoreApplication.translate("MainWindow", u"Arrow", None))
         self.checkBox_arrow.setText(QCoreApplication.translate("MainWindow", u"CheckBox", None))
         self.label_3.setText(QCoreApplication.translate("MainWindow", u"Slice", None))
-        self.pushButton_openscript.setText(QCoreApplication.translate("MainWindow", u"Open Script", None))
-        self.pushButton_runscript.setText(QCoreApplication.translate("MainWindow", u"Exec Script ", None))
-        ___qtablewidgetitem = self.tableWidget.horizontalHeaderItem(0)
-        ___qtablewidgetitem.setText(QCoreApplication.translate("MainWindow", u"File", None));
         ___qtablewidgetitem1 = self.tableWidget_obj.horizontalHeaderItem(0)
         ___qtablewidgetitem1.setText(QCoreApplication.translate("MainWindow", u"Vis", None));
         ___qtablewidgetitem2 = self.tableWidget_obj.horizontalHeaderItem(1)
         ___qtablewidgetitem2.setText(QCoreApplication.translate("MainWindow", u"ID", None));
         ___qtablewidgetitem3 = self.tableWidget_obj.horizontalHeaderItem(2)
         ___qtablewidgetitem3.setText(QCoreApplication.translate("MainWindow", u"Size", None));
+        self.pushButton_openscript.setText(QCoreApplication.translate("MainWindow", u"Open Script", None))
+        self.pushButton_runscript.setText(QCoreApplication.translate("MainWindow", u"Exec Script ", None))
         self.pushButton_openconsole.setText(QCoreApplication.translate("MainWindow", u"console", None))
         self.pushButton_opendetail.setText(QCoreApplication.translate("MainWindow", u"Info", None))
         self.toolButton_theme.setText("")

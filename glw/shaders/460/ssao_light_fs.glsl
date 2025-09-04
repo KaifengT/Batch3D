@@ -181,7 +181,7 @@ void main()
         }
         // render mode ao
         else if (u_renderMode == 4 && u_enableAO == 1){
-            FragColor = vec4(ao);
+            FragColor = vec4(ao, ao, ao, 1.0);
         }
 
         else if (u_renderMode == 0){

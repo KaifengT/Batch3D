@@ -1,7 +1,7 @@
 '''
 copyright: (c) 2025 by KaifengTang
 '''
-import sys, os
+import sys, os, time
 wdir = os.path.abspath(os.path.dirname(__file__))
 sys.path.append(wdir)
 import numpy as np
@@ -11,13 +11,14 @@ import copy
 from typing import List, Tuple, Union, TextIO
 from types import ModuleType
 from PySide6.QtWidgets import ( QApplication, QMainWindow, QTableWidgetItem, QWidget, QFileDialog, QDialog, QTextEdit, QGraphicsDropShadowEffect, QHBoxLayout, QVBoxLayout, QLabel)
-from PySide6.QtCore import  QSize, QThread, Signal, Qt, QPropertyAnimation, QEasingCurve, QPoint, QRect, QObject, QTimer, QEvent
+from PySide6.QtCore import  QSize, QThread, Signal, Qt, QPropertyAnimation, QEasingCurve, QPoint, QRect, QObject, QTimer, QEvent, QEventLoop
 from PySide6.QtGui import QCloseEvent, QIcon, QFont, QAction, QColor, QSurfaceFormat, QTextCursor, QCursor, QDropEvent
 import multiprocessing
 import io
 from ui.ui_main_ui import Ui_MainWindow
 from ui.ui_remote_ui import Ui_RemoteWidget
 from ui.dragDropWidget import DragDropWidget
+from ui.statusBar import StatusBar
 import pickle
 from backend import backendEngine, backendSFTP
 import hashlib
@@ -31,22 +32,22 @@ from trimesh.visual.material import SimpleMaterial, PBRMaterial
 from trimesh.visual.texture import TextureVisuals
 from trimesh.visual.color import ColorVisuals
 from trimesh.scene.transforms import SceneGraph
+from concurrent.futures import ThreadPoolExecutor
 import importlib
 # This is to avoid the error: "ImportError: numpy.core.multiarray failed to import"
 import numpy.core.multiarray
 
 if sys.platform == 'win32':
-    try:
-        from win32mica import ApplyMica, MicaTheme, MicaStyle
-    except:
-        ...
+
+    from ui.mica import ApplyMica, MicaTheme, DWM_SYSTEMBACKDROP_TYPE
 
 
 import warnings
 warnings.filterwarnings("ignore", message="Failed to disconnect*", category=RuntimeWarning)
 import gc
 
-from qfluentwidgets import (setTheme, Theme, setThemeColor, themeColor, qconfig, RoundMenu, widgets, ToggleToolButton, Slider, BodyLabel, PushButton, FluentIconBase, LineEdit, Flyout, InfoBarIcon, MessageBox)
+from qfluentwidgets import (setTheme, Theme, setThemeColor, themeColor, qconfig, RoundMenu, widgets, ToggleToolButton, CheckableMenu, MenuIndicatorType,
+                            Slider, BodyLabel, PushButton, FluentIconBase, LineEdit, Flyout, InfoBarIcon, InfoBar, Action, IndeterminateProgressRing, InfoBarPosition)
 from qfluentwidgets import FluentIcon as FIF
 
 ########################################################################
@@ -56,8 +57,8 @@ TOOL_UI_WIDTH = 350
 PROGBAR_HEIGHT = 50
 CONSOLE_HEIGHT = 250
 
-B3D_VERSION = '1.8.2 Beta'
-B3D_BUILD = '2504'
+B3D_VERSION = '1.8.3 Beta'
+B3D_BUILD = '2505'
 
 class MyFluentIcon(FluentIconBase, Enum):
     """ Custom icons """
@@ -77,7 +78,9 @@ class cellWidget(QTableWidgetItem):
         self.fullpath = fullpath
         self.isRemote = isRemote
         self.isdir = isdir
-        return super().__init__(text,)
+        super().__init__(text,)
+        
+        self.setToolTip('Double click to Reload')
 
 class cellWidget_toggle(QTableWidgetItem):
     def __init__(self, icon=None) -> None:
@@ -197,6 +200,7 @@ class RemoteUI(QDialog):
         
     def openFolder(self, ):
         self.executeSignal.emit('sftpListDir', {'dir':self.ui.lineEdit_dir.text(), 'recursive':(False, True)[self.ui.comboBox.currentIndex()]})
+        self.saveSettings()
         self.close()
         
     def openFolder_background(self, ):
@@ -269,7 +273,6 @@ class RemoteUI(QDialog):
 
     def closeEvent(self, event: QCloseEvent) -> None:
         self.closedSignal.emit()
-        
         return super().closeEvent(event)
     
     def showEvent(self, event: QCloseEvent) -> None:
@@ -615,21 +618,31 @@ class dataParser:
         
         B = len(verctor_line)
         BR = dataParser._get_R_between_two_vec(np.array([[0, 0, 1]]).repeat(len(verctor_line), axis=0), verctor_line) # (B, 3, 3)
-        temp = Arrow.getTemplate(size=0.05) # (12, 3)
+        temp, normal, indices = Arrow.getTemplate(size=0.05) # (12, 3)
+        numV = temp.shape[0]
+        numI = indices.shape[0]
         temp = temp[None, ...].repeat(len(verctor_line), axis=0) # (B, 12, 3)
-        
+        normal = normal[None, ...].repeat(len(verctor_line), axis=0) # (B, 12, 3)
         temp *= nline[:, None]
         
-        BR = BR[:, None, ...].repeat(12, axis=1)
+        BR = BR[:, None, ...].repeat(numV, axis=1)
         BR = BR.reshape(-1, 3, 3) # (B*12, 3, 3)
         temp = temp.reshape(-1, 1, 3)
         temp = BR @ temp.transpose(0, 2, 1)
         T = v[:, 1, :][:,None,:]
-        T = T.repeat(12, axis=1).reshape(-1, 3)
+        T = T.repeat(numV, axis=1).reshape(-1, 3)
         vertex = temp.transpose(0, 2, 1).reshape(-1, 3)
         vertex = vertex + T
-        
-        return Arrow(vertex=vertex, color=color)
+
+        normal = normal.reshape(-1, 1, 3)
+        normal = (BR @ normal.transpose(0, 2, 1)).transpose(0, 2, 1).reshape(-1, 3)
+
+        indices = indices[None, ...].repeat(len(verctor_line), axis=0).reshape(-1, 3)
+
+        offsets = np.arange(0, len(verctor_line), 1, dtype=np.uint32).repeat(numI, axis=0)
+        offsets *= numV
+
+        return Arrow(vertex=vertex, indices=indices+offsets[:, None], normal=normal, color=color)
 
     @staticmethod
     def _rmnan(v):
@@ -934,7 +947,7 @@ class App(QMainWindow):
         self.ui = Ui_MainWindow()
         self.ui.setupUi(self)
         self.tgtTheme = Theme.LIGHT
-
+        self.tgtMicaStyle = 3
         # self.toolframe = QFrame(self.ui.openGLWidget)
         # self.ui.tool.setFixedSize(200, 200)
         
@@ -968,7 +981,9 @@ class App(QMainWindow):
         self.windowBlocker = windowBlocker(self) 
         
         self.colormanager = colorManager()
-        
+
+        self.statusbar = StatusBar(self)
+
         self.dragWidget1 = DragDropWidget(self, acceptedExtensions=dataParser.SUPPORT_EXT, message='Drag a file here to RESET and load')
         self.dragWidget1.setThemeColor(themeColor())
         self.dragWidget1.setTheme(self.tgtTheme)
@@ -1009,6 +1024,17 @@ class App(QMainWindow):
         self.ui.pushButton_openremotefolder.setIcon(FIF.CLOUD_DOWNLOAD)
         self.ui.tableWidget.currentCellChanged.connect(self.cellClickedCallback)
         self.ui.tableWidget.cellDoubleClicked.connect(self.cellClickedCallback)
+        self.ui.tableWidget.setSortingEnabled(True)
+
+        self.tableWidgetMenu = RoundMenu(parent=self)
+        self.tableWidgetRefreshAction = Action(FIF.SYNC, 'Refresh', self)
+        self.tableWidgetRefreshAction.triggered.connect(self.refreshFileList)
+        self.tableWidgetOpeninFileBrowserAction = Action(FIF.LINK, 'Open in File Browser', self)
+        self.tableWidgetOpeninFileBrowserAction.triggered.connect(self._openInFileBrowser)
+        self.tableWidgetMenu.addActions([self.tableWidgetRefreshAction, self.tableWidgetOpeninFileBrowserAction])
+
+        self.ui.tableWidget.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.ui.tableWidget.customContextMenuRequested.connect(self._popFileTableMenu)
 
         self.ui.pushButton_openscript.clicked.connect(self.openScript)
         self.ui.pushButton_openscript.setIcon(FIF.CODE)
@@ -1046,16 +1072,6 @@ class App(QMainWindow):
         self.ui.pushButton_opendetail.clicked.connect(self.openDetailUI)
         self.ui.pushButton_opendetail.setIcon(FIF.INFO)
 
-        # self.backendEngine.executeGLSignal.connect(self.backendExeGLCallback)
-        # self.backendEngine.executeUISignal.connect(self.backendExeUICallback)
-        # self.backendEngine.infoSignal.connect(self.PopMessageWidgetObj.add_message_stack)
-        # self.sendCodeSignal.connect(self.backendEngine.run)
-        
-        # self.backendEngine.started.connect(self.runScriptStateChangeRunning)
-        # self.backendEngine.finished.connect(self.runScriptStateChangeFinish)
-        # self.quitBackendSignal.connect(self.backendEngine.quitLoop)
-
-        # self.backend.start()
         self.backendSFTPThread.start()
 
         self.ui.pushButton_openconsole.clicked.connect(self.showConsole)
@@ -1078,31 +1094,55 @@ class App(QMainWindow):
         self.ui.pushButton_runscript.setIcon(FIF.SEND)
         self.ui.pushButton_runscript.setEnabled(False)
         
-        self.themeToolButtonMenu = RoundMenu(parent=self)
-        self.themeLIGHTAction = QAction(FIF.BRIGHTNESS.icon(), 'Light')
-        self.themeDARKAction = QAction(FIF.QUIET_HOURS.icon(), 'Dark')
-        # self.themeAUTOAction = QAction(FIF.CONSTRACT.icon(), 'Auto')
-        self.themeToolButtonMenu.addAction(self.themeLIGHTAction)
-        self.themeToolButtonMenu.addAction(self.themeDARKAction)
-        # self.themeToolButtonMenu.addAction(self.themeAUTOAction)
+        # self.themeToolButtonMenu = RoundMenu(parent=self)
+        self.themeToolButtonMenu = CheckableMenu(parent=self, indicatorType=MenuIndicatorType.RADIO)
+        self.themeLIGHTAction = Action(FIF.BRIGHTNESS, 'Light   ', self, checkable=True)
+        self.themeDARKAction = Action(FIF.QUIET_HOURS, 'Dark   ', self, checkable=True)
+        self.themeAUTOAction = Action(FIF.CONSTRACT, 'Auto   ', self, checkable=True)
+        self.themeToolButtonMenu.addActions([self.themeLIGHTAction, self.themeDARKAction, self.themeAUTOAction])
+
+        
+        self.themeMicaStyleMenu = CheckableMenu('Mica', parent=self, indicatorType=MenuIndicatorType.RADIO)
+        self.themeMicaStyleMenu.setIcon(FIF.TRANSPARENT)
+        self.themeMicaStyleNONEAction = Action(text='None', parent=self, checkable=True)
+        self.themeMicaStyleMAINWINDOWAction = Action(text='Main Window', parent=self, checkable=True)
+        self.themeMicaStyleTRANSIENTWINDOWAction = Action(text='Transient Window', parent=self, checkable=True)
+        self.themeMicaStyleTABBEDWINDOWAction = Action(text='Tabbed Window', parent=self, checkable=True)
+        self.themeMicaStyleMenu.addActions([self.themeMicaStyleNONEAction, self.themeMicaStyleMAINWINDOWAction, self.themeMicaStyleTRANSIENTWINDOWAction, self.themeMicaStyleTABBEDWINDOWAction])
+        self.themeToolButtonMenu.addMenu(self.themeMicaStyleMenu)
+        
         self.ui.toolButton_theme.setMenu(self.themeToolButtonMenu)
-        self.ui.toolButton_theme.setIcon(FIF.PALETTE)
-        
-        
+        self.ui.toolButton_theme.setIcon(FIF.PALETTE)        
+
         self.themeLIGHTAction.triggered.connect(lambda:self.changeTheme(Theme.LIGHT))
         self.themeDARKAction.triggered.connect(lambda:self.changeTheme(Theme.DARK))
-        # self.themeAUTOAction.triggered.connect(lambda:self.changeTheme(Theme.AUTO))
+        self.themeAUTOAction.triggered.connect(lambda:self.changeTheme(Theme.AUTO))
         
+        if sys.platform == 'win32':
+            self.themeMicaStyleNONEAction.triggered.connect(lambda:self.changeMicaStyle(DWM_SYSTEMBACKDROP_TYPE.DWMSBT_NONE))
+            self.themeMicaStyleMAINWINDOWAction.triggered.connect(lambda:self.changeMicaStyle(DWM_SYSTEMBACKDROP_TYPE.DWMSBT_MAINWINDOW))
+            self.themeMicaStyleTRANSIENTWINDOWAction.triggered.connect(lambda:self.changeMicaStyle(DWM_SYSTEMBACKDROP_TYPE.DWMSBT_TRANSIENTWINDOW))
+            self.themeMicaStyleTABBEDWINDOWAction.triggered.connect(lambda:self.changeMicaStyle(DWM_SYSTEMBACKDROP_TYPE.DWMSBT_TABBEDWINDOW))
+
         self.ui.spinBox.valueChanged.connect(self.slicefromBatch)
         
 
         self.configPath = os.path.join(DEFAULT_WORKSPACE, 'user.config')
         self.loadSettings()
+        
+
         self.changeTheme(self.tgtTheme)
+        self.changeMicaStyle(self.tgtMicaStyle)
         # self.changeTextTheme(self.tgtTheme)
 
         self.ui.openGLWidget.infoSignal.connect(self.popMessage)
         
+        # self.progressRing = IndeterminateProgressRing(self, )
+        # self.progressRing.setStrokeWidth(8)
+        # self.progressRing.setFixedSize(60, 60)
+        # self.progressRing.stop()
+        
+                
         self.setupScriptEnv()
 
 
@@ -1174,7 +1214,7 @@ class App(QMainWindow):
         self.update()
         
     def openFolder(self, path=None):
-        
+                
         if path is not None and isinstance(path, str):
             self.currentPath = path
         else:
@@ -1192,9 +1232,14 @@ class App(QMainWindow):
             for f in filelist:
                 
                 self.addFiletoTable(f)
-                
+
+        if self.ui.tableWidget.rowCount() > 0:
+            self.ui.tableWidget.blockSignals(True)
+            self.ui.tableWidget.setCurrentCell(-1, -1)
+            self.ui.tableWidget.blockSignals(False)
+
     def openRemoteFolder(self, filelist:dict, dirname:str):
-        
+
         filelist = natsort.natsorted(
             filelist.items(), 
             key=lambda x: x[0],
@@ -1209,9 +1254,51 @@ class App(QMainWindow):
             self.addFiletoTable(k, isRemote=True)
 
         self.currentPath = DEFAULT_WORKSPACE
-        # filelist = filelist[::-1]
-        # for f in filelist:
-        #     self.addFiletoTable(f, isRemote=True)
+        
+        if self.ui.tableWidget.rowCount() > 0:
+            self.ui.tableWidget.blockSignals(True)
+            self.ui.tableWidget.setCurrentCell(-1, -1)
+            self.ui.tableWidget.blockSignals(False)
+            
+    def refreshFileList(self):
+
+        if self.ui.tableWidget.rowCount() and isinstance(self.ui.tableWidget.item(0, 0), cellWidget):
+            isRemote = self.ui.tableWidget.item(0, 0).isRemote
+            if not isRemote:
+                self.openFolder(self.currentPath)
+                self.popMessage('Info', 'File list refreshed', 'complete')
+            else:
+                self.remoteUI.openFolder()
+
+                self.popMessage('Info', 'Refreshing file list ...', 'msg')
+        else:
+            self.popMessage('Info', 'No files to refresh', 'complete')
+
+    def _popFileTableMenu(self, pos):
+        
+        if self.ui.tableWidget.rowCount() > 0:
+            self.tableWidgetRefreshAction.setEnabled(True)
+            if isinstance(self.ui.tableWidget.item(0, 0), cellWidget):
+                if not self.ui.tableWidget.item(0, 0).isRemote:
+                    self.tableWidgetOpeninFileBrowserAction.setEnabled(True)
+                else:
+                    self.tableWidgetOpeninFileBrowserAction.setEnabled(False)
+        else:
+            self.tableWidgetRefreshAction.setEnabled(False)
+            self.tableWidgetOpeninFileBrowserAction.setEnabled(False)
+
+        self.tableWidgetMenu.popup(self.ui.tableWidget.mapToGlobal(pos))
+
+    def _openInFileBrowser(self, ):
+        if os.path.exists(self.currentPath) and os.path.isdir(self.currentPath):
+            if sys.platform == 'win32':
+                os.startfile(self.currentPath)
+            elif sys.platform == 'darwin':
+                subprocess.Popen(['open', self.currentPath])
+            else:
+                subprocess.Popen(['xdg-open', self.currentPath])
+        else:
+            self.popMessage('Error', 'Current path does not exist or is not a directory', 'error')
 
     def addFiletoTable(self, filepath:str, isRemote=False):
         extName = os.path.splitext(filepath)[-1][1:]
@@ -1265,7 +1352,7 @@ class App(QMainWindow):
     def setObjectProps(self, key, props:dict):
         try:
             if key in self._workspace_obj.keys() and \
-                key in self.ui.openGLWidget.objectList.keys():
+                key in self.ui.openGLWidget._objectList.keys():
                     # valid object
                 
             
@@ -1638,7 +1725,7 @@ class App(QMainWindow):
                         
                     if _v:
                         self.ui.openGLWidget.updateObject(ID=_k, obj=_v)
-                        self.add2ObjPropsTable(_v, _k, _c, _isadj)
+                        self.add2ObjPropsTable(_v, _k, _v.mainColors, _isadj)
                     
             else:
                 raise ValueError(f'Unsupported object type: {type(obj)}')
@@ -1651,6 +1738,77 @@ class App(QMainWindow):
         self.clearObjPropsTable()
         self.changeObjectProps()
         
+
+                
+    def loadObj_Thread(self, fullpath:str|dict, extName='', setWorkspace=True):
+
+        
+        def _inThread(fn, executor:ThreadPoolExecutor):
+            future = executor.submit(fn)
+            self.progressRing.start()
+            while not future.done():
+                QApplication.processEvents()
+
+            self.progressRing.stop()
+            return future.result()
+        
+        def _workFunc(fullpath, extName):
+            results = []
+            obj = dataParser.loadFromAny(fullpath, extName)
+            if isinstance(obj, dict):
+                
+                for k, v in obj.items():
+                    k = str(k)
+                            
+                    if isinstance(v, dict):
+                        _v, _k, _c, _isadj = dataParser.parseDict(k, v)
+
+                    elif isinstance(v, (trimesh.parent.Geometry3D)):
+                        _v, _k, _c, _isadj = dataParser.parseTrimesh(k, v, cm=self.colormanager)
+
+                    elif hasattr(v, 'shape'):
+                        _v, _k, _c, _isadj = dataParser.parseArray(k, v, cm=self.colormanager, arrow=self.ui.checkBox_arrow.isChecked())
+
+                    if _v:
+                        results.append((_k, _v, _v.mainColors, _isadj))
+
+                        
+            return obj, results
+        
+        try:
+            t = time.time()
+            with ThreadPoolExecutor() as executor:
+            # load file from multi source
+                print('construct time', time.time() - t)
+                obj, results = _inThread(lambda: _workFunc(fullpath, extName), executor)
+
+            obj, results = _workFunc(fullpath, extName)
+
+            print('load time', time.time() - t)
+
+            self.resetObjPropsTable()
+            self.colormanager.reset()
+            self.ui.openGLWidget.reset()
+
+            # store raw obj to workspace_obj
+            if setWorkspace:
+                self.resetSliceFunc()
+                self.setWorkspaceObj(obj)
+
+            info = self.formatContentInfo(obj)
+            self.ui.label_info.setMarkdown(info)
+            
+            for _k, _v, _c, _isadj in results:
+                self.ui.openGLWidget.updateObject(ID=_k, obj=_v)
+                self.add2ObjPropsTable(_v, _k, _v.mainColors, _isadj)
+
+        except:
+            traceback.print_exc()
+            exc_type, exc_value, exc_traceback = sys.exc_info()
+            self.popMessage('file load error', str(exc_value), 'error')
+
+        self.clearObjPropsTable()
+        self.changeObjectProps()
         
     def loadObj_update(self, fullpath:str|dict, keys:list, extName='', setWorkspace=True):
         
@@ -1688,10 +1846,9 @@ class App(QMainWindow):
                     elif hasattr(v, 'shape'):
                         _v, _k, _c, _isadj = dataParser.parseArray(k, v, cm=self.colormanager, arrow=self.ui.checkBox_arrow.isChecked())
 
-                        
                     if _v:
                         self.ui.openGLWidget.updateObject(ID=_k, obj=_v)
-                        self.add2ObjPropsTable(_v, _k, _c, _isadj)
+                        self.add2ObjPropsTable(_v, _k, _v.mainColors, _isadj)
                     
             else:
                 raise ValueError(f'Unsupported object type: {type(obj)}')
@@ -1826,7 +1983,7 @@ class App(QMainWindow):
                         if isinstance(item_instance, QWidget) and item_instance.isWindow():
                             hwnd = item_instance.winId()
                             if hwnd != 0:
-                                self.applyMicaTheme(hwnd)
+                                self.applyMicaTheme(hwnd, self.tgtMicaStyle)
                             
                             item_instance.setStyleSheet("background-color: #00000000;")
                 
@@ -1893,14 +2050,26 @@ class App(QMainWindow):
             'success': InfoBarIcon.SUCCESS
         }
 
-        Flyout.create(
+        # Flyout.create(
+        #     icon=map.get(mtype, InfoBarIcon.ERROR),
+        #     title=title,
+        #     content=message,
+        #     target=QCursor.pos() if followMouse else self.statusbar,
+        #     parent=self,
+        #     isClosable=True
+        # )
+        w = InfoBar(
             icon=map.get(mtype, InfoBarIcon.ERROR),
             title=title,
             content=message,
-            target=QCursor.pos() if followMouse else self.ui.openGLWidget.statusbar,
-            parent=self,
-            isClosable=True
+            orient=Qt.Vertical,    # vertical layout
+            isClosable=True,
+            position=InfoBarPosition.BOTTOM,
+            duration=2000,
+            parent=self
         )
+        w.setCustomBackgroundColor('#F0F0F0', '#202020')
+        w.show()
 
     def closeEvent(self, event: QCloseEvent) -> None:
         
@@ -1921,35 +2090,21 @@ class App(QMainWindow):
         self.console.restore()
         
         return super().closeEvent(event)
-    
-
-    def applyMicaTheme(self, winId):
-        if sys.platform == 'win32':
-            try:
-                m = {
-                    Theme.LIGHT:MicaTheme.LIGHT,
-                    Theme.DARK:MicaTheme.DARK,
-                }
-
-                ApplyMica(winId, m[self.tgtTheme], MicaStyle.DEFAULT)
-            except:
-                print(f'ApplyMica id {winId} failed')
-
 
     def openRemoteUI(self, ):
-        self.applyMicaTheme(self.remoteUI.winId())
+        self.applyMicaTheme(self.remoteUI.winId(), mica=self.tgtMicaStyle)
         self.remoteUI.show()
         
     def openDetailUI(self, ):
         self.fileDetailUI.close()
-        self.applyMicaTheme(self.fileDetailUI.winId())
+        self.applyMicaTheme(self.fileDetailUI.winId(), mica=self.tgtMicaStyle)
         self.fileDetailUI.show()
         
     def setDownloadProgress(self, dbytes:int, totalbytes:int, isBytes=True):
-        self.ui.openGLWidget.statusbar.setProgress(dbytes, totalbytes, isBytes)
+        self.statusbar.setProgress(dbytes, totalbytes, isBytes)
         
     def setDownloadProgressHidden(self, hidden:bool):
-        self.ui.openGLWidget.statusbar.setHidden(hidden)
+        self.statusbar.setHidden(hidden)
         
     def resizeEvent(self, event: QCloseEvent) -> None:
         self.windowBlocker.resize(self.size())   
@@ -1964,32 +2119,38 @@ class App(QMainWindow):
         self.dragWidget1.setGeometry(15, 15, (self.width()/2)-22, self.height() -30)
         self.dragWidget2.setGeometry((self.width()/2)+7, 15, (self.width()/2)-22, self.height() -30)
         self.dragWidget3.setGeometry(15, 15, self.width()-30, self.height() -30)
+        
+        self.statusbar.setGeometry(0, self.height()-self.statusbar.height(), self.width(), self.statusbar.height())
+
+        # self.progressRing.move(self.width()-self.progressRing.width()-PROGBAR_HEIGHT, self.height()-self.progressRing.height()-PROGBAR_HEIGHT)
 
         return super().resizeEvent(event)
 
     def serverConnected(self, ):
         self.remoteUI.serverConnected()
         
-    # def setUpWatchForThemeChange(self, ):
-    #     self.watchForThemeTimer = QTimer()
-    #     self.watchForThemeTimer.timeout.connect(self.watchForThemeChange)
-    #     self.watchForThemeTimer.start(500)
-    #     self.watchForThemeTimer.setSingleShot(False)
-        # self.currentTheme = qconfig.theme
-    
-    def watchForThemeChange(self, ):
-        global CURRENT_THEME
-        if CURRENT_THEME != qconfig.theme and self.tgtTheme == Theme.AUTO:
-            
-            setTheme(CURRENT_THEME)
-            
+
+    def applyMicaTheme(self, winId, mica):
+
+        if sys.platform == 'win32':
+            try:
+                m = {
+                    Theme.LIGHT:MicaTheme.LIGHT,
+                    Theme.DARK:MicaTheme.DARK,
+                    Theme.AUTO:MicaTheme.AUTO,
+                }
+
+                ApplyMica(winId, m[qconfig.theme], mica)
+            except:
+                print(f'ApplyMica id {winId} failed')
+
     def changeTXTTheme(self, theme):
-        global CURRENT_THEME
+        
         if theme == Theme.LIGHT:
             label_info_color = '#202020'
             tool_color = '#FEFEFE'
             shadow_color = '#808080'
-        elif theme == Theme.DARK:
+        else:
             label_info_color = '#FEFEFE'
             tool_color = '#201e1c'
             shadow_color = '#101010'
@@ -2024,8 +2185,26 @@ class App(QMainWindow):
         self.update()
             
     def changeTheme(self, theme):
-        global CURRENT_THEME
+
+        if theme == Theme.LIGHT:
+            self.themeLIGHTAction.setChecked(True)
+            self.themeDARKAction.setChecked(False)
+            self.themeAUTOAction.setChecked(False)
+        elif theme == Theme.DARK:
+            self.themeLIGHTAction.setChecked(False)
+            self.themeDARKAction.setChecked(True)
+            self.themeAUTOAction.setChecked(False)
+        else:
+            self.themeLIGHTAction.setChecked(False)
+            self.themeDARKAction.setChecked(False)
+            self.themeAUTOAction.setChecked(True)
+
         self.tgtTheme = theme
+        qconfig.theme = theme
+        
+        if theme == Theme.AUTO:
+            theme = qconfig.theme
+        
 
         self.changeTXTTheme(theme)
 
@@ -2034,16 +2213,34 @@ class App(QMainWindow):
         self.saveSettings()
         
         if sys.platform == 'win32':
-            self.applyMicaTheme(self.remoteUI.winId())
-            self.applyMicaTheme(self.fileDetailUI.winId())
-            self.applyMicaTheme(self.winId())
-            
+            self.applyMicaTheme(self.remoteUI.winId(), self.tgtMicaStyle)
+            self.applyMicaTheme(self.fileDetailUI.winId(), self.tgtMicaStyle)
+            self.applyMicaTheme(self.winId(), self.tgtMicaStyle)
 
         self.dragWidget1.setTheme(theme)
         self.dragWidget2.setTheme(theme)
         self.dragWidget3.setTheme(theme)
             
-            
+    def changeMicaStyle(self, micaStyle):
+        
+        for action in self.themeMicaStyleMenu.actions():
+            action.setChecked(False)
+        
+        if micaStyle == DWM_SYSTEMBACKDROP_TYPE.DWMSBT_NONE:
+            self.themeMicaStyleNONEAction.setChecked(True)
+        elif micaStyle == DWM_SYSTEMBACKDROP_TYPE.DWMSBT_TABBEDWINDOW:
+            self.themeMicaStyleTABBEDWINDOWAction.setChecked(True)
+        elif micaStyle == DWM_SYSTEMBACKDROP_TYPE.DWMSBT_TRANSIENTWINDOW:
+            self.themeMicaStyleTRANSIENTWINDOWAction.setChecked(True)
+        elif micaStyle == DWM_SYSTEMBACKDROP_TYPE.DWMSBT_MAINWINDOW:
+            self.themeMicaStyleMAINWINDOWAction.setChecked(True)
+
+        self.tgtMicaStyle = micaStyle
+        if sys.platform == 'win32':
+            self.applyMicaTheme(self.remoteUI.winId(), self.tgtMicaStyle)
+            self.applyMicaTheme(self.fileDetailUI.winId(), self.tgtMicaStyle)
+            self.applyMicaTheme(self.winId(), self.tgtMicaStyle)
+
     def loadSettings(self, ):
         
         try:
@@ -2060,9 +2257,9 @@ class App(QMainWindow):
                     settings = {}
                 
                 self.tgtTheme = m[settings.get('theme', 'Light')]
-                
-
-                self.ui.openGLWidget.gl_settings.setSettings(settings.get('gl_settings', {}))
+                self.tgtMicaStyle = settings.get('mica', DWM_SYSTEMBACKDROP_TYPE.DWMSBT_TRANSIENTWINDOW)
+                self.ui.checkBox_arrow.setChecked(settings.get('arrow', False))
+                self.ui.openGLWidget.glSettings.setSettings(settings.get('gl_settings', {}))
 
                 self.currentScriptPath = settings.get('lastScript', '')
                 if len(self.currentScriptPath) and os.path.isfile(self.currentScriptPath):
@@ -2079,10 +2276,11 @@ class App(QMainWindow):
         try:
             settings = {
                 'theme':self.tgtTheme.value,
-                'camera':self.ui.openGLWidget.gl_camera_control_combobox.currentRouteKey(),
+                'mica': self.tgtMicaStyle,
                 'lastScript':self.currentScriptPath,
                 'localPath': self.currentPath,
-                'gl_settings': self.ui.openGLWidget.gl_settings.getSettings()
+                'arrow': self.ui.checkBox_arrow.isChecked(),
+                'gl_settings': self.ui.openGLWidget.glSettings.getSettings()
             }
             
             with open(self.configPath, 'w') as f:

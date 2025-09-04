@@ -836,6 +836,10 @@ class UnionObject(BaseObject):
         
     def add(self, obj:BaseObject):
         self.objs.append(obj)
+        if not isinstance(obj, Mesh):
+            self.size = obj.size
+            
+        self.transform = obj.transform
     
     def load(self):
         for obj in self.objs:
@@ -860,9 +864,13 @@ class UnionObject(BaseObject):
             
 
 class PointCloud(BaseObject):
-    def __init__(self, vertex:np.ndarray, color=DEFAULT_COLOR4, norm=None, size=3, transform=None) -> None:
-        super().__init__()
+    def __init__(self, vertex:np.ndarray, 
+                 color:Optional[np.ndarray|list|tuple]=DEFAULT_COLOR4, 
+                 norm:Optional[np.ndarray]=None, 
+                 size:int=3, 
+                 transform:Optional[np.ndarray]=None) -> None:
         
+        super().__init__()        
         self.size = size
         self.renderType = GL_POINTS
         self.transform = transform
@@ -883,7 +891,7 @@ class PointCloud(BaseObject):
 
 
 class Arrow(BaseObject):
-    def __init__(self, vertex:np.ndarray, indices:np.ndarray, normal:Optional[np.ndarray]=None, color=DEFAULT_COLOR4, size=3, transform=None) -> None:
+    def __init__(self, vertex:np.ndarray, indices:np.ndarray, normal:Optional[np.ndarray]=None, color:Optional[np.ndarray|list|tuple]=DEFAULT_COLOR4, size:int=3, transform:Optional[np.ndarray]=None) -> None:
         super().__init__()
         self.vertex = vertex
         self.color = self.checkColor(self.vertex.shape, color)
@@ -1004,7 +1012,7 @@ class Arrow(BaseObject):
         self.setContextfromCurrent()
 
 class Grid(BaseObject):
-    def __init__(self, n=51, scale=1.0) -> None:
+    def __init__(self, n:int=51, scale:float=1.0) -> None:
         super().__init__()
         z = 0
         N = n
@@ -1120,7 +1128,7 @@ class Grid(BaseObject):
 
 
 class Axis(BaseObject):
-    def __init__(self, length=1, transform=None) -> None:
+    def __init__(self, length:float=1, transform:Optional[np.ndarray]=None) -> None:
         super().__init__()
         
         self.line = np.array(
@@ -1161,7 +1169,7 @@ class Axis(BaseObject):
 
 
 class BoundingBox(BaseObject):
-    def __init__(self, vertex:np.ndarray, color=DEFAULT_COLOR4, norm=None, size=3, transform=None) -> None:
+    def __init__(self, vertex:np.ndarray, color:Optional[np.ndarray|list|tuple]=DEFAULT_COLOR4, norm:Optional[np.ndarray]=None, size:int=3, transform:Optional[np.ndarray]=None) -> None:
         super().__init__()
 
         lineIndex = [0,1, 1,2, 2,3, 3,0, 4,5, 5,6, 6,7, 7,4, 0,4, 1,5, 2,6, 3,7]
@@ -1187,7 +1195,7 @@ class BoundingBox(BaseObject):
 
 
 class Lines(BaseObject):
-    def __init__(self, vertex:np.ndarray, color=DEFAULT_COLOR4, norm=None, size=3, transform=None) -> None:
+    def __init__(self, vertex:np.ndarray, color:Optional[np.ndarray|list|tuple]=DEFAULT_COLOR4, norm:Optional[np.ndarray]=None, size:int=3, transform:Optional[np.ndarray]=None) -> None:
         super().__init__()
 
         self.transform = transform
@@ -1197,7 +1205,7 @@ class Lines(BaseObject):
         self.color = self.checkColor(self.vertex.shape, color)
                         
         self.renderType = GL_LINES
-        self.lineWidth = size
+        self.size = size
         
         self.mainColors = colorManager.extract_dominant_colors(self.color, n_colors=3)[0]
         
@@ -1213,12 +1221,12 @@ class Mesh(BaseObject):
 
     def __init__(self, vertex:np.ndarray, 
                  indices:np.ndarray, 
-                 color=DEFAULT_COLOR4, 
-                 norm:np.ndarray=None, 
-                 texture:SimpleMaterial|PBRMaterial=None, 
-                 texcoord:np.ndarray=None, 
-                 faceNorm:np.ndarray=False, 
-                 transform:np.ndarray=None) -> None:
+                 color:Optional[np.ndarray|list|tuple]=DEFAULT_COLOR4, 
+                 norm:Optional[np.ndarray]=None, 
+                 texture:Optional[SimpleMaterial|PBRMaterial]=None, 
+                 texcoord:Optional[np.ndarray]=None, 
+                 faceNorm:Optional[np.ndarray]=False, 
+                 transform:Optional[np.ndarray]=None) -> None:
         super().__init__()
         
         self.vertex = vertex.reshape(-1, 3)
@@ -1282,8 +1290,7 @@ class Mesh(BaseObject):
 
 
 class Sphere(BaseObject):
-
-    def __init__(self, xyz=np.array([0, 0, 0]), size:float=1.0) -> None:
+    def __init__(self, size:float=1.0, transform:Optional[np.ndarray]=None) -> None:
         super().__init__()        
         
         rows, cols, r = 90, 180, size
@@ -1326,9 +1333,6 @@ class Sphere(BaseObject):
         self.texcoord = np.float32(np.dstack(np.meshgrid(u, v)).reshape(-1, 2))
 
         self.color = self.checkColor(vertex.shape, DEFAULT_COLOR4)
-
-        transform = np.identity(4)
-        transform[:3, 3] = xyz
 
         self.transform = transform
         self.renderType = GL_TRIANGLES

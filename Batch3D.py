@@ -557,18 +557,18 @@ class dataParser:
             return None
         
     @staticmethod
-    def _isSizeinName(name) -> float:
+    def _isSizeinName(name:str) -> float:
         if '&' in name:
             size = name.split('&', 2)[1]
             try:
                 size = float(size)
                 return size
             except:
-                return 2
+                return DEFAULT_SIZE
         else:
-            return 2
-           
-    @staticmethod 
+            return DEFAULT_SIZE
+
+    @staticmethod
     def _decode_HexColor_to_RGB(hexcolor):
         if hexcolor is None:
             return None
@@ -675,7 +675,7 @@ class dataParser:
         
             
             v = v.reshape(-1, 2, 3)
-            lines = Lines(vertex=v, color=user_color)
+            lines = Lines(vertex=v, color=user_color, size=dataParser._isSizeinName(k))
             
             #-----# Arrow
             if arrow:
@@ -696,7 +696,7 @@ class dataParser:
                 v = v[..., :3]
             
             v = v.reshape(-1, 8, 3)
-            obj = BoundingBox(vertex=v, color=user_color)
+            obj = BoundingBox(vertex=v, color=user_color, size=dataParser._isSizeinName(k))
             
         
         # -------- pointcloud
@@ -746,7 +746,7 @@ class dataParser:
 
             color = np.tile(color, (B, 1)).reshape(-1, 4)
             line_trans = line_trans.reshape(-1, 3)
-            obj = Lines(vertex=line_trans, color=color)
+            obj = Lines(vertex=line_trans, color=color, size=dataParser._isSizeinName(k))
 
         else:
             return None, k, ((0.9, 0.9, 0.9),), False
@@ -1376,7 +1376,7 @@ class App(QMainWindow):
         except Exception as e:
             self.popMessage(f'Error setting object properties for {key}', str(e), 'error')
 
-    def add2ObjPropsTable(self, obj, name:str, colors=None, adjustable=False):
+    def add2ObjPropsTable(self, obj:BaseObject, name:str, colors=None, adjustable=False):
         
         def add_slider(row_num):
             sl = Slider(Qt.Orientation.Horizontal, None)
@@ -1384,7 +1384,11 @@ class App(QMainWindow):
             sl.setMaximum(20)
             sl.setSingleStep(2)
             sl.setMinimum(1)
-            sl.setValue(DEFAULT_SIZE)
+            if adjustable:
+                sl.setValue(int(obj.size) if hasattr(obj, 'size') else DEFAULT_SIZE)
+            else:
+                sl.setValue(DEFAULT_SIZE)
+            sl.setFocusPolicy(Qt.ClickFocus)
             sl.valueChanged.connect(self.changeObjectProps)
             self.ui.tableWidget_obj.setCellWidget(row_num, 2, sl)
             
@@ -1637,7 +1641,28 @@ class App(QMainWindow):
         self.ui.spinBox.valueChanged.connect(self.slicefromBatch)
         
         
-    def addObj(self, data:dict):
+    def addObj(self, data:dict[str, Optional[trimesh.parent.Geometry3D|np.ndarray|dict]]):
+        '''
+        Add object to current scene
+        
+        Args:
+            data (dict): dictionary of objects to add
+                - key (str): object name
+                - value (trimesh.parent.Geometry3D, np.ndarray, dict, None): object data
+                if value is None, the object named <key> will be removed from the scene
+        Example:
+        ```
+            data = {
+                'pointcloud_#FF0000DD_&10': np.random.rand(100, 1000, 3),
+                'lines_#00FF00': np.random.rand(100, 3),
+                'box_#0000FF': np.random.rand(100, 8, 3),
+                'axis': np.eye(4),
+                'mesh': trimesh.load('path/to/mesh.obj'),
+                'mesh_2': {'vertex': np.random.rand(100, 3), 'face': np.random.randint(0, 100, (200, 3))},
+            }
+            b3d.addObj(data)
+        ```
+        '''
         if not isinstance(data, dict):
             raise RuntimeError('addObj(data): data must be a dict')
         
@@ -1646,17 +1671,30 @@ class App(QMainWindow):
         self.loadObj_update(obj, keys=list(data.keys()))
         
     def add(self, data:dict):
+        '''
+        This is an alias of addObj()
+        Add object to current scene
+        '''
         self.addObj(data)
         
       
     def updateObj(self, data:dict):
+        '''
+        Reset objects in current scene
+        Args:
+            data (dict): dictionary of objects to set, same as addObj()
+        '''
         if not isinstance(data, dict):
-            raise RuntimeError('addObj(data): data must be a dict')
+            raise RuntimeError('updateObj(data): data must be a dict')
         self.loadObj(data)
 
         
     def rmObj(self, key:str|list[str]):
-        """Remove object from OpenGLWidget"""
+        '''
+        Remove object named <key> from current scene
+        Args:
+            key (str or list of str): object name(s) to remove
+        '''
         if isinstance(key, str):
             key = [key, ]
             
@@ -1668,11 +1706,17 @@ class App(QMainWindow):
         self.loadObj_update(obj, keys=key)
 
     def rm(self, key:str|list[str]):
-        """Remove object from OpenGLWidget"""
+        '''
+        This is an alias of rmObj()
+        '''
         self.rmObj(key=key)
         
     def getWorkspaceObj(self) -> dict:
-        """Get the current workspace object"""
+        '''
+        Get a copy of the current workspace object dictionary
+        Returns:
+            workspace_obj (dict): A copy of the current workspace object dictionary
+        '''
         return copy.copy(self._workspace_obj)
         
         

@@ -1,9 +1,128 @@
-from PySide6.QtCore import Signal, QObject, QThread, QPoint, QEasingCurve, QPropertyAnimation
+from PySide6.QtCore import Signal, QObject
 from PySide6.QtWidgets import QMainWindow
 from PySide6.QtOpenGLWidgets import QOpenGLWidget
 from typing import Tuple, Optional, Union
+from trimesh.visual.material import SimpleMaterial, PBRMaterial
 from enum import Enum
 import numpy as np
+
+
+class BaseObject:
+
+    @property
+    def renderType(self): ...
+    
+    @property
+    def isShow(self): ...
+    
+    @property
+    def transform(self): ...
+
+    @property
+    def size(self): ...
+    
+    @property
+    def mainColors(self): ...
+
+    @mainColors.setter
+    def mainColors(self, value): ...
+
+    @transform.setter
+    def transform(self, value: np.ndarray): ...
+        
+    @renderType.setter
+    def renderType(self, value): ...
+    
+    @isShow.setter
+    def isShow(self, value: bool): ...
+        
+    @size.setter
+    def size(self, value): ...
+
+    def setRenderType(self, renderType):
+        '''
+        Set the rendering type for the object.
+        Args:
+            renderType (ctypes.c_uint): The rendering type to set. Available types are GL_POINTS, GL_LINES, GL_TRIANGLES, etc.
+        '''
+        ...
+
+    def setTransform(self, transform:np.ndarray):
+        '''
+        Set the transformation matrix for the object.
+        This is a shorthand for setting the 'transform' property.
+        Args:
+            transform (np.ndarray): The transformation matrix to set. Must be of shape (4, 4).
+        '''
+        ...
+
+    def setProp(self, key:str, value):
+        '''
+        Set a property for the object.
+        Args:
+            key (str): The property key to set.
+            value: The value to set for the property.
+        '''
+        ...
+
+    def setMultiProp(self, props:dict):
+        '''
+        Set multiple properties for the object.
+        Args:
+            props (dict): A dictionary of properties to set.
+        '''
+        ...
+    def getProp(self, key:str, default=None):
+        '''
+        Get a property for the object.
+        Args:
+            key (str): The property key to get.
+            default: The default value to return if the property is not found.
+        Returns:
+            The value of the property, or the default value if not found.
+        '''
+        ...
+
+    def getContext(self): ...
+    def setContext(self, context): ...
+    def setContextfromCurrent(self): ...
+    def makeCurrent(self): ...
+    def cleanup(self): ...
+
+class UnionObject(BaseObject):
+    def __init__(self) -> None: ...
+    def add(self, obj:BaseObject): ...
+class PointCloud(BaseObject):
+    def __init__(self, vertex:np.ndarray, color:Optional[np.ndarray|list|tuple], norm:Optional[np.ndarray]=None, size=3, transform:Optional[np.ndarray]=None) -> None: ...
+    
+class Arrow(BaseObject):
+    def __init__(self, vertex:np.ndarray, indices:np.ndarray, normal:Optional[np.ndarray]=None, color:Optional[np.ndarray|list|tuple]=(0.8, 0.8, 0.8, 1.0), size:int=3, transform:Optional[np.ndarray]=None) -> None: ...
+    
+class Grid(BaseObject):
+    def __init__(self, n:int=51, scale:float=1.0) -> None: ...
+    def setMode(self, mode:int): ...
+
+class Axis(BaseObject):
+    def __init__(self, length:float=1, transform:Optional[np.ndarray]=None) -> None: ...
+
+class BoundingBox(BaseObject):
+    def __init__(self, vertex:np.ndarray, color:Optional[np.ndarray|list|tuple]=(0.8, 0.8, 0.8, 1.0), norm:Optional[np.ndarray]=None, size:int=3, transform:Optional[np.ndarray]=None) -> None: ...
+
+class Lines(BaseObject):
+    def __init__(self, vertex:np.ndarray, color:Optional[np.ndarray|list|tuple]=(0.8, 0.8, 0.8, 1.0), norm:Optional[np.ndarray]=None, size:int=3, transform:Optional[np.ndarray]=None) -> None: ...
+
+class Mesh(BaseObject):
+    def __init__(self, vertex:np.ndarray, 
+                 indices:np.ndarray, 
+                 color:Optional[np.ndarray|list|tuple]=(0.8, 0.8, 0.8, 1.0), 
+                 norm:Optional[np.ndarray]=None, 
+                 texture:Optional[SimpleMaterial|PBRMaterial]=None, 
+                 texcoord:Optional[np.ndarray]=None, 
+                 faceNorm:Optional[np.ndarray]=False, 
+                 transform:Optional[np.ndarray]=None) -> None: ...
+
+class Sphere(BaseObject):
+    def __init__(self, size:float=1.0, transform:Optional[np.ndarray]=None) -> None: ...
 
 class GLCamera(QObject):
     """
@@ -240,7 +359,26 @@ class GLCamera(QObject):
         """
         pass
 
+class DepthReader:
+        
+    @staticmethod
+    def convertNDC2Liner(ndc_depth:np.ndarray, camera:GLCamera):
+        """
+        convert NDC depth to linear depth
+        - Note: This method is a little bit slow, so use it carefully.
+        Args:
+            ndc_depth(np.ndarray): NDC depth (0.0 to 1.0)
+            camera(GLCamera): GLCamera object containing camera parameters
+            
+        Returns:
+            linear_depth: linear depth in world coordinates
+        """
+        ...
+    
 
+class PointLight:
+    def __init__(self, position:np.ndarray, color:np.ndarray, intensity:float=1.0) -> None:
+        ...
 
 class GLWidget(QOpenGLWidget):
     # NOTE: these signals should not be used for internal communication
@@ -249,134 +387,76 @@ class GLWidget(QOpenGLWidget):
     middleMouseClickSignal = Signal(np.ndarray, np.ndarray)
     mouseReleaseSignal = Signal(np.ndarray, np.ndarray)
     mouseMoveSignal = Signal(np.ndarray, np.ndarray)
-
-
-
-    scaled_window_w = 0
-    scaled_window_h = 0
-    raw_window_w = 0
-    raw_window_h = 0
-
-
-
-
-    objectList = {}
-
-
-    
-    mouseClickPointinWorldCoordinate = np.array([0,0,0,1])
-    mouseClickPointinUV = np.array([0, 0])
     
     camera = GLCamera()
 
-    
-    isAxisVisable = True
-    isGridVisable = True
+    def enableCountFps(self, enable:bool=True):
+        ...
 
-    glRenderMode = 3
-    pointLineSize = 3
-    enableSSAO = 1
-    SSAOkernelSize = 64
-    SSAOStrength = 60.0
-    
-    
-    depthMap = None
-
-
-    def setBackgroundColor(color: Tuple[float, float, float, float]) -> None:
-        """
+    def setBackgroundColor(self, color: Tuple[float, float, float, float]):
+        '''
         This method sets the background color of the OpenGL widget.
-        No need to use this func for Windows platform
-        
+        no need to use this func for Windows platform
         Args:
-            color (Tuple[float, float, float, float]): A tuple of 4 floats representing the RGBA 
-                color values, each in the range 0-1.
-                
+            color (tuple): A tuple of 4 floats representing the RGBA color values, each in the range 0-1.
         Returns:
             None
-            
-        Raises:
-            ValueError: If color values are not in the range 0-1
-            AssertionError: If color is not a tuple of 4 floats
-        """
-        pass
+        '''
+        ...
 
-    def setCameraControl(index: int) -> None:
-        """
-        Set the camera control type.
-        
+    def setCameraControl(self, index:int):
+        '''
+        Set camera control type
         Args:
-            index (int): The index of the camera control type
-            
-        Returns:
-            None
-        """
-        pass
+            index (int): The index of the camera control type.
+             - 0: Arcball
+             - 1: Orbit
+        '''
+        ...
         
-    def setCameraPerspMode(index: int) -> None:
-        """
-        Set the camera perspective mode (perspective or orthographic).
-        
+    def setCameraPerspMode(self, index:int):
+        '''
+        Set camera perspective mode
         Args:
-            index (int): The index of the projection mode
-            
-        Returns:
-            None
-        """
-        pass
+            index (int): The index of the camera perspective mode.
+             - 0: Perspective
+             - 1: Orthographic
+        '''
+        ...
         
-    def setAxisVisibility(isVisible: bool = True) -> None:
-        """
-        Set the visibility of the coordinate axis.
-        
+    def setAxisVisibility(self, isVisible:bool=True):
+        '''
+        Set axis visibility
         Args:
-            isVisible (bool): True to show axis, False to hide. Defaults to True
-            
-        Returns:
-            None
-        """
-        pass
+            isVisible (bool): Whether the axis should be visible or not.
+        '''
+        ...
         
-    def setAxisScale(scale: float = 1.0) -> None:
-        """
-        Set the scale of the coordinate axis.
-        
+    def setAxisScale(self, scale:float=1.0):
+        '''
+        Set axis size
         Args:
-            scale (float): The scale factor for the axis. Defaults to 1.0
-            
-        Returns:
-            None
-        """
-        pass
+            scale (float): The scale factor for the axis.
+        '''
+        ...
     
-    def setGridVisibility(isVisible: bool = True) -> None:
-        """
-        Set the visibility of the grid.
-        
+    def setGridVisibility(self, isVisible:bool=True):
+        '''
+        Set grid visibility
         Args:
-            isVisible (bool): True to show grid, False to hide. Defaults to True
-            
-        Returns:
-            None
-        """
-        pass
+            isVisible (bool): Whether the grid should be visible or not.
+        '''
+        ...
     
-    def resetCamera(self) -> None:
-        """
-        Reset the camera to its default position and orientation.
-        Sets azimuth=135, elevation=-55, distance=10, and lookAt point to origin.
-        
-        Returns:
-            None
-        """
-        pass
+    def resetCamera(self, ):
+        ...
 
-    def setCameraViewPreset(preset: int = 0) -> None:
+    def setCameraViewPreset(self, preset:int=0):
         """
         Setting the camera view preset.
         
         Args:
-            preset (int): index from 0-6. Defaults to 0
+            preset (int): index from 0-6
                 0: Front View
                 1: Back View
                 2: Left View
@@ -384,171 +464,205 @@ class GLWidget(QOpenGLWidget):
                 4: Top View
                 5: Bottom View
                 6: Free View
-                
-        Returns:
-            None
         """
-        pass
+        ...
             
-    def setObjectProps(ID: Union[int, str], props: dict) -> None:
-        """
+    def setObjectProps(self, ID:Union[int, str], props:dict):
+        '''
         Setting the properties of an object in the objectList.
-        
         Args:
-            ID (Union[int, str]): The ID of the object in the objectList
+            ID (Union[int, str]): The ID of the object in the objectList.
             props (dict): A dictionary containing the properties to be updated.
                 Available properties include:
-                - 'size': Size of the object (float)
-                - 'isShow': Visibility of the object (boolean)
-                
+                - 'size': Size of the object (float).
+                - 'isShow': Visibility of the object (boolean).
+                - 'transform': Transformation matrix of the object (4x4 numpy array), same as the one used in setObjTransform.
         Returns:
             None
-        """
-        pass
+        '''
+        ...
 
-    def setObjTransform(ID: Union[int, str] = 1, transform: Optional[np.ndarray] = None) -> None:
-        """
+    def setObjTransform(self, ID:Union[int, str], transform:Optional[np.ndarray]=None) -> None:
+        '''
         Setting the transformation matrix of an object in the objectList.
-        
         Args:
-            ID (Union[int, str]): The ID of the object in the objectList. Defaults to 1
-            transform (Optional[np.ndarray]): The homogeneous transformation matrix (4x4) to be set.
-                If None, the transformation matrix will be set to the identity matrix. Defaults to None
-                
+            ID (Union[int, str]): The ID of the object in the objectList.
+            transform (np.ndarray(4, 4)): The homogeneous transformation matrix to be set.
+                If None, the transformation matrix will be set to the identity matrix.
         Returns:
             None
-        """
-        pass
+        '''
+        ...
 
-    def updateObject(ID: Union[int, str] = 1, obj: Optional[object] = None) -> None:
-        """
+    def getObjectList(self, ) -> dict[str, BaseObject]:
+        '''
+        Get the objects in the objectList.
+        Returns:
+            dict[str, BaseObject]: A dictionary containing the objects in the objectList.
+        '''
+        ...
+
+    def updateObject(self, ID:Union[int, str], obj:Optional[BaseObject]=None) -> None:
+        '''
         Update the object in the objectList with a new object or remove it if obj is None.
-        
         Args:
-            ID (Union[int, str]): The ID of the object in the objectList. Defaults to 1
-            obj (Optional[object]): The new object to be set. 
-                If None, the object which name matches the ID will be removed from the list. Defaults to None
-                
+            ID (Union[int, str]): The ID of the object in the objectList.
+            obj (BaseObject): The new object to be set. 
+                If None, the object which name matches the ID will be removed from the list.
         Returns:
             None
-        """
-        pass
+        '''
+        ...
 
-    def setRenderMode(mode: int) -> None:
-        """
-        Set the rendering mode for the OpenGL widget.
-        
+    def setRenderMode(self, mode:int):
+        '''
+        Set the rendering mode.
         Args:
-            mode (int): The rendering mode identifier
-            
-        Returns:
-            None
-        """
-        pass
+            mode (int): The rendering mode to be set.
+               - 0: Line rendering
+               - 1: Simple rendering
+               - 2: Normal rendering
+               - 3: Texture rendering
+               - 4: Ambient Occlusion rendering
+        '''
+        ...
 
-    def setEnableSSAO(enable: bool = True) -> None:
+    def buildShader(self, vshader_path:str, fshader_path:str, gshader_path:Optional[str]=None) -> int:
+        '''
+        Compile and link the vertex and fragment shaders.
+        Args:
+            vshader_src (str): The source code PATH of the vertex shader.
+            fshader_src (str): The source code PATH of the fragment shader.
+            gshader_src (Optional[str]): The source code PATH of the geometry shader.
+        Returns:
+            program (int): The OpenGL program ID.
+        '''
+        ...
+
+    @staticmethod
+    def generateSSAOKernel(kernel_size:int=64) -> np.ndarray:
+        """
+        Generate SSAO kernel samples.
+        Args:
+            kernel_size (int): Number of kernel samples, default is 64.
+        Returns:
+            kernel (np.ndarray (kernel_size, 3)): Array of sample vectors with shape (kernel_size, 3).
+        """
+        ...
+
+    def setEnableSSAO(self, enable=True):
         """
         Enable or disable SSAO (Screen Space Ambient Occlusion).
-        
         Args:
-            enable (bool): True to enable SSAO, False to disable. Defaults to True
-            
+            enable (bool): True to enable SSAO, False to disable.
         Returns:
             None
         """
-        pass
+        ...
 
-    def setSSAOKernelSize(size: int) -> None:
+    def setSSAOKernelSize(self, size:int):
         """
         Set the SSAO kernel size.
-        
         Args:
-            size (int): The new kernel size
-            
+            size (int): The new kernel size.
         Returns:
             None
         """
-        pass
+        ...
 
-    def setSSAOStrength(strength: float) -> None:
+    def setSSAOStrength(self, strength:float):
         """
         Set the SSAO strength.
-        
         Args:
-            strength (float): The new SSAO strength
-            
+            strength (float): The new SSAO strength.
         Returns:
             None
         """
-        pass
+        ...
 
-    def reset(self) -> None:
+    def setLights(self, lights:Optional[list[PointLight]]=None):
         """
-        Reset the OpenGL widget by clearing all objects and updating the display.
-        
+        Set the point lights for the scene.
+        Args:
+            lights (list[PointLight]): The list of point lights to set.
         Returns:
             None
         """
-        pass
+        ...
 
-    def resizeGL(w: int, h: int) -> None:
+    def setAmbientColor(self, color:Optional[tuple]=None):
         """
-        Handle resizing of the OpenGL widget.
-        
+        Set the ambient color for the scene.
         Args:
-            w (int): New width of the widget
-            h (int): New height of the widget
-            
+            color (tuple): The new ambient color (R, G, B).
         Returns:
             None
         """
-        pass
-    
-    def getDepthMap(self) -> np.ndarray:
-        """
-        Get the depth map from the current framebuffer.
-        
-        Returns:
-            np.ndarray: 2D array containing linear depth values
-        """
-        pass
-    
-    def getDepthPoint(x: int, y: int) -> np.ndarray:
-        """
-        Get the depth value at a specific screen coordinate.
-        
+        ...
+
+    def reset(self, ):
+        '''
+        Clean all Object in the scene.
+        '''
+        ...
+
+    def worldCoordinatetoUV(self, p:np.ndarray) -> tuple[int, int]:
+        '''
+        Convert world coordinates to UV coordinates.
         Args:
-            x (int): X coordinate on screen
-            y (int): Y coordinate on screen
-            
+            p (np.ndarray): The 4D point in world coordinates.
+
         Returns:
-            np.ndarray: Linear depth value at the specified point
-        """
-        pass
-    
-    def saveDepthMap(path: Optional[str] = None) -> None:
-        """
-        Save the current depth map to a file.
-        
+            uv (tuple): The UV coordinates.
+        '''
+        ...
+
+    def UVtoWorldCoordinate(self, u:int, v:int, dis:float=10) -> np.ndarray:
+        '''
+        Convert UV coordinates to 3D world coordinates.
         Args:
-            path (Optional[str]): File path to save the depth map. If None, opens a file dialog. Defaults to None
-            
+            u (int): The u-coordinate in UV space.
+            v (int): The v-coordinate in UV space.
+            dis (float): The distance from the camera.
         Returns:
-            None
-        """
-        pass
-            
-    def saveRGBAMap(path: Optional[str] = None) -> None:
-        """
-        Save the current RGBA image to a file.
-        
+            p (np.ndarray): The 3D world coordinates.
+        '''
+        ...
+   
+    def getDepthMap(self, ) -> np.ndarray:
+        '''
+        Get the depth map from the framebuffer. Depth map is converted from NDC to linear space.
+        Returns:
+            linerDepth (np.ndarray): The linear depth map.
+        '''
+        ...
+
+    def getDepthPoint(self, x:int, y:int) -> np.ndarray:
+        '''
+        Get the depth value at a specific pixel location.
         Args:
-            path (Optional[str]): File path to save the image. If None, opens a file dialog. Defaults to None
-            
+            x (int): The x-coordinate of the pixel.
+            y (int): The y-coordinate of the pixel.
         Returns:
-            None
-        """
-        pass
+            linerDepth (np.ndarray): The linear depth value.
+        '''
+        ...
+
+    def saveDepthMap(self, path:Optional[str]=None):
+        '''
+        Save the depth map to a file to the specified path.
+        Args:
+            path (Optional[str]): The file path to save the depth map.
+        '''
+        ...
+
+    def saveRGBAMap(self, path:Optional[str]=None):
+        '''
+        Save the RGBA image to a file to the specified path.
+        Args:
+            path (Optional[str]): The file path to save the RGBA image.
+        '''
+        ...
 
 
 
@@ -584,24 +698,64 @@ class b3d(QMainWindow):
         pass
         
     def addObj(data:dict):
+        '''
+        Add object to current scene
+        
+        Args:
+            data (dict): dictionary of objects to add
+                - key (str): object name
+                - value (trimesh.parent.Geometry3D, np.ndarray, dict, None): object data
+                if value is None, the object named <key> will be removed from the scene
+        Example:
+        ```
+            data = {
+                'pointcloud_#FF0000DD_&10': np.random.rand(100, 1000, 3),
+                'lines_#00FF00': np.random.rand(100, 3),
+                'box_#0000FF': np.random.rand(100, 8, 3),
+                'axis': np.eye(4),
+                'mesh': trimesh.load('path/to/mesh.obj'),
+                'mesh_2': {'vertex': np.random.rand(100, 3), 'face': np.random.randint(0, 100, (200, 3))},
+            }
+            b3d.addObj(data)
+        ```
+        '''
         pass
         
     def add(data:dict):
+        '''
+        This is an alias of addObj()
+        Add object to current scene
+        '''
         pass
       
     def updateObj(data:dict):
+        '''
+        Reset objects in current scene
+        Args:
+            data (dict): dictionary of objects to set, same as addObj()
+        '''
         pass
         
     def rmObj(key:str|list[str]):
-        """Remove object from OpenGLWidget"""
+        '''
+        Remove object named <key> from current scene
+        Args:
+            key (str or list of str): object name(s) to remove
+        '''
         pass
 
     def rm(key:str|list[str]):
-        """Remove object from OpenGLWidget"""
+        '''
+        This is an alias of rmObj()
+        '''
         pass
         
     def getWorkspaceObj() -> dict:
-        """Get the current workspace object"""
+        '''
+        Get a copy of the current workspace object dictionary
+        Returns:
+            workspace_obj (dict): A copy of the current workspace object dictionary
+        '''
         pass
         
     def clear():

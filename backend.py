@@ -10,7 +10,7 @@ import tempfile
 import io
 import trimesh
 import shutil
-
+from tools.checkRelease import checkReleaseonGithub
 
 def remove_left(s:str, sub:str):
     if s.startswith(sub):
@@ -32,66 +32,17 @@ def delete_all_files_in_folder(folder_path):
                 print('Failed to delete %s. Reason: %s' % (file_path, e))
 
 
-class backendEngine(QObject):
-    executeGLSignal = Signal(str, dict)
-    executeUISignal = Signal(str, dict)
-    infoSignal = Signal(tuple)
-    started = Signal()
-    finished = Signal()
+class backendCheckVersion(QObject):
+
+    infoSignal = Signal(dict)
+
 
     def __init__(self, parent = None) -> None:
         super().__init__(parent)
 
-        self.quitFlag = False
-        self.namespace = {}
-
-    def quitLoop(self):
-        self.quitFlag = True
-        
-    def inCodeWapper_print(self, *args, **kwargs):
-        if len(args) == 2 and args[0] == 'viewer':
-            assert isinstance(args[1], dict), 'print Vertex need a dict'
-            
-            self.executeGLSignal.emit('updateObject_API', args[1])
-        else:
-            print(*args, **kwargs)
-
-    def run(self, code:str, fname:str):
-        self.started.emit()
-        self.namespace = {}
-        self.quitFlag = False
-        st = time.time()
-        ccode = compile(code, fname, 'exec')
-        st2 = time.time()
-        print('success complied code, cost ', st2-st)
-
-        self.namespace = {'print':self.inCodeWapper_print}
-        
-        try:
-            exec(ccode, self.namespace)
-        except:
-            traceback.print_exc()
-            # exc_type, exc_value, exc_traceback = sys.exc_info()
-            self.infoSignal.emit((('Script Error', traceback.format_exc()), 'error'))
-
-        
-        print('success executed code, cost ', time.time()-st2)
-        
-        if 'loop' in self.namespace.keys():
-            while not self.quitFlag:
-                QApplication.processEvents()
-                try:
-                    self.namespace['loop']()
-                except:
-                    traceback.print_exc()
-                    self.infoSignal.emit((('Loop Error', traceback.format_exc()), 'error'))
-                    self.quitFlag = True
-                self.thread().usleep(1)
-
-        del self.namespace
-        self.finished.emit()
-
-        
+    def run(self, version):
+        rt = checkReleaseonGithub("KaifengT", "Batch3D", version)
+        self.infoSignal.emit(rt)
 
 class backendSFTP(QObject):
     executeSignal = Signal(str, dict)

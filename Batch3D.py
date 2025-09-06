@@ -10,6 +10,7 @@ from enum import Enum
 import copy
 from typing import List, Tuple, Union, TextIO
 from types import ModuleType
+import webbrowser
 from PySide6.QtWidgets import ( QApplication, QMainWindow, QTableWidgetItem, QWidget, QFileDialog, QDialog, QTextEdit, QGraphicsDropShadowEffect, QHBoxLayout, QVBoxLayout, QLabel)
 from PySide6.QtCore import  QSize, QThread, Signal, Qt, QPropertyAnimation, QEasingCurve, QPoint, QRect, QObject, QTimer, QEvent, QEventLoop
 from PySide6.QtGui import QCloseEvent, QIcon, QFont, QAction, QColor, QSurfaceFormat, QTextCursor, QCursor, QDropEvent
@@ -20,7 +21,7 @@ from ui.ui_remote_ui import Ui_RemoteWidget
 from ui.dragDropWidget import DragDropWidget
 from ui.statusBar import StatusBar
 import pickle
-from backend import backendEngine, backendSFTP
+from backend import backendCheckVersion, backendSFTP
 import hashlib
 import traceback
 from ui.windowBlocker import windowBlocker
@@ -57,8 +58,9 @@ TOOL_UI_WIDTH = 350
 PROGBAR_HEIGHT = 50
 CONSOLE_HEIGHT = 250
 
-B3D_VERSION = '1.8.3 Beta'
-B3D_BUILD = '2505'
+B3D_VERSION = '1.8.3'
+B3D_VERSION_SUFFIX = ' Beta'
+B3D_BUILD = '2507'
 
 class MyFluentIcon(FluentIconBase, Enum):
     """ Custom icons """
@@ -927,6 +929,7 @@ class App(QMainWindow):
     sftpSignal = Signal(str, dict)
     quitBackendSignal = Signal()
     sftpDownloadCancelSignal = Signal()
+    checkSignal = Signal(str)
     
     # NOTE: this signal should not be used for internal
     workspaceUpdatedSignal = Signal(dict)
@@ -934,22 +937,13 @@ class App(QMainWindow):
     def __init__(self,):
         """"""
         super().__init__()
-        
-        
-        # fmt = QSurfaceFormat()
-        # fmt.setVersion(3, 3)
-        # fmt.setProfile(QSurfaceFormat.OpenGLContextProfile.CoreProfile)
-        # fmt.setSamples(4) # Anti-aliasing
-        # QSurfaceFormat.setDefaultFormat(fmt)
-
-        
+                
         
         self.ui = Ui_MainWindow()
         self.ui.setupUi(self)
         self.tgtTheme = Theme.LIGHT
         self.tgtMicaStyle = 3
-        # self.toolframe = QFrame(self.ui.openGLWidget)
-        # self.ui.tool.setFixedSize(200, 200)
+        self.checkUpdateOnStartup = True
         
         self.ui.tool.setFixedWidth(TOOL_UI_WIDTH)
         self.ui.tool.setMinimumHeight(TOOL_UI_WIDTH)
@@ -1041,29 +1035,18 @@ class App(QMainWindow):
         self.ui.pushButton_runscript.clicked.connect(self.runScript)
         
 
-        # self.backendEngine = backendEngine()
-        # self.backend = QThread(self, )
-        # self.backendEngine.moveToThread(self.backend)
-
 
         self.backendSFTP = backendSFTP()
         self.backendSFTPThread = QThread(self, )
         self.backendSFTP.moveToThread(self.backendSFTPThread)
         self.backendSFTP.executeSignal.connect(self.backendExeUICallback)
         
-        # NOTE BUGS infoSignal
         
-        
-        
-        
-        
-        # self.backendSFTP.infoSignal.connect(lambda msg: print(msg))
         self.sftpDownloadCancelSignal.connect(self.backendSFTP.cancelDownload)
 
         self.remoteUI = RemoteUI()
         self.remoteUI.executeSignal.connect(self.backendSFTP.run)
         self.sftpSignal.connect(self.backendSFTP.run)
-        # self.backendSFTP.infoSignal.connect(self.remoteUI.showInfo)
         self.backendSFTP.infoSignal.connect(self.popMessage)
         
         self.fileDetailUI = fileDetailInfoUI()
@@ -1133,7 +1116,6 @@ class App(QMainWindow):
 
         self.changeTheme(self.tgtTheme)
         self.changeMicaStyle(self.tgtMicaStyle)
-        # self.changeTextTheme(self.tgtTheme)
 
         self.ui.openGLWidget.infoSignal.connect(self.popMessage)
         
@@ -1141,8 +1123,16 @@ class App(QMainWindow):
         # self.progressRing.setStrokeWidth(8)
         # self.progressRing.setFixedSize(60, 60)
         # self.progressRing.stop()
-        
-                
+        if self.checkUpdateOnStartup:
+            self.backendCheckVersion = backendCheckVersion()
+            self.backendCheckVersionThread = QThread(self, )
+            self.backendCheckVersion.moveToThread(self.backendCheckVersionThread)
+            self.backendCheckVersion.infoSignal.connect(self.versionCheckedCallback)
+            self.checkSignal.connect(self.backendCheckVersion.run)
+            self.backendCheckVersionThread.start()
+            self.checkSignal.emit(B3D_VERSION)
+
+
         self.setupScriptEnv()
 
 
@@ -2084,7 +2074,7 @@ class App(QMainWindow):
         return self.ui.tableWidget.rowCount()
 
 
-    def popMessage(self, title:str='', message:str='', mtype='msg', followMouse=False):
+    def popMessage(self, title:str='', message:str='', mtype='msg', followMouse=False, duration=5000):
 
         map = {
             'error': InfoBarIcon.ERROR,
@@ -2109,7 +2099,7 @@ class App(QMainWindow):
             orient=Qt.Vertical,    # vertical layout
             isClosable=True,
             position=InfoBarPosition.BOTTOM,
-            duration=2000,
+            duration=duration,
             parent=self
         )
         w.setCustomBackgroundColor('#F0F0F0', '#202020')
@@ -2311,6 +2301,8 @@ class App(QMainWindow):
                     self.ui.pushButton_runscript.setText('Run [ ' + os.path.basename(self.currentScriptPath) + ' ]')
 
                 self.openFolder(settings.get('localPath', DEFAULT_WORKSPACE))
+                
+                self.checkUpdateOnStartup = settings.get('checkUpdateOnStartup', True)
 
         except:
             traceback.print_exc()
@@ -2324,6 +2316,7 @@ class App(QMainWindow):
                 'lastScript':self.currentScriptPath,
                 'localPath': self.currentPath,
                 'arrow': self.ui.checkBox_arrow.isChecked(),
+                'checkUpdateOnStartup': self.checkUpdateOnStartup,
                 'gl_settings': self.ui.openGLWidget.glSettings.getSettings()
             }
             
@@ -2446,6 +2439,42 @@ class App(QMainWindow):
             self.console.setHidden(False)
         else:
             self.console.setHidden(True)
+            
+    def versionCheckedCallback(self, data:dict):
+        
+        self.backendCheckVersionThread.quit()
+        self.backendCheckVersionThread.wait(200)
+        self.backendCheckVersionThread.terminate()
+                                
+        if "error" in data:
+            print(f"Check Github failed: {data['error']}")
+        elif data["has_update"]:
+            
+            def openUrl():
+                webbrowser.open(data['download_url'])
+                w.close()
+            
+            print(f"Find new version: {data['latest_version']}")
+            print(f"Download URL: {data['download_url']}")
+            latestVersion = data['latest_version']
+            latestUrl = data['download_url']
+            w = InfoBar(
+                icon=InfoBarIcon.INFORMATION,
+                title='New version released on Github:',
+                content=f'{latestVersion}    ',
+                orient=Qt.Horizontal,    # horizontal layout
+                isClosable=True,
+                position=InfoBarPosition.BOTTOM,
+                duration=-1,
+                parent=self
+            )
+            w.setCustomBackgroundColor('#F0F0F0', '#202020')
+            btn = PushButton('Open URL', w, FIF.SHARE)
+            btn.clicked.connect(openUrl)
+            w.addWidget(btn, 50)
+            w.show()
+        else:
+            print(f"Current version is up to date, latest version: {data['latest_version']}")
 
 
 def changeGlobalTheme(x):
@@ -2494,7 +2523,7 @@ if __name__ == "__main__":
 
     App = App()
 
-    App.setWindowTitle(f'Batch3D Viewer {B3D_VERSION} Build {B3D_BUILD}')
+    App.setWindowTitle(f'Batch3D Viewer {B3D_VERSION}{B3D_VERSION_SUFFIX} Build {B3D_BUILD}')
     App.setWindowIcon(QIcon('icon.ico'))
     
 

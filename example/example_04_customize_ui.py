@@ -35,7 +35,7 @@ window.resize(300, 200)
 def switch_objects(value):
     # NOTE: if you want to display lines and bboxs, 'line' or 'bbox' should be in the key
     #       and the shape of the data should be (..., 2, 3/6/7) or (..., 8, 3/6/7) respectively
-    b3d.addObj({
+    b3d.add({
         'points':pointslist[value],
         'lines':lineslist[value],
         'bboxs':bboxslist[value],

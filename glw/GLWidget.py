@@ -333,17 +333,20 @@ class GLWidget(QOpenGLWidget):
         if sys.platform == 'win32':
             backgroundColor = [0., 0., 0., 0.]
             self.font = QFont([u'Cascadia Mono', u'Microsoft Yahei UI'], 9, )
-            self.shaderVersion = '460'
+            # majorVersion = 4
+            # minorVersion = 6
         # For macOS
         elif sys.platform == 'darwin':
             backgroundColor = [0.109, 0.117, 0.125, 1.0]
             self.font = QFont(['SF Pro Display', 'Helvetica Neue', 'Arial'], 10, QFont.Weight.Normal)
-            self.shaderVersion = '120'
+            # majorVersion = 1
+            # minorVersion = 2
             
         else:
             backgroundColor = [0.109, 0.117, 0.125, 1.0]
             self.font = QFont([u'Cascadia Mono', u'Microsoft Yahei UI'], 9, )
-            self.shaderVersion = '460'
+            # majorVersion = 4
+            # minorVersion = 6
             
             
         self.setMinimumSize(200, 200)            
@@ -367,16 +370,12 @@ class GLWidget(QOpenGLWidget):
         self._SSAOStrength = 60.0
         
         
-        GLFormat = self.format()
-        GLFormat.setVersion(4, 6)
-        GLFormat.setProfile(QSurfaceFormat.CoreProfile)
-        GLFormat.setSamples(4)  # 4x MSAA
-        GLFormat.setSwapInterval(1)
-        self.setFormat(GLFormat)
-      
-
-        # self.statusbar = StatusBar(self)
-        # self.statusbar.setHidden(True)
+        # GLFormat = self.format()
+        # GLFormat.setVersion(majorVersion, minorVersion)
+        # GLFormat.setProfile(QSurfaceFormat.CoreProfile)
+        # GLFormat.setSamples(4)  # 4x MSAA
+        # GLFormat.setSwapInterval(1)
+        # self.setFormat(GLFormat)
 
 
         self.mouseClickPointinWorldCoordinate = np.array([0,0,0,1])
@@ -658,7 +657,7 @@ class GLWidget(QOpenGLWidget):
         self._glRenderMode = mode
         self.update()
 
-    def buildShader(self, vshader_path:str, fshader_path:str, gshader_path:Optional[str]=None) -> int:
+    def buildShader(self, vshader_path:str, fshader_path:str, gshader_path:Optional[str]=None, manualVersion:str='420 core') -> int:
         '''
         Compile and link the vertex and fragment shaders.
         Args:
@@ -671,14 +670,14 @@ class GLWidget(QOpenGLWidget):
         try:
             self.makeCurrent()
             
-            vshader_src = open(vshader_path, encoding='utf-8').read()
-            fshader_src = open(fshader_path, encoding='utf-8').read()
+            vshader_src = f'#version {manualVersion}\n' + open(vshader_path, encoding='utf-8').read()
+            fshader_src = f'#version {manualVersion}\n' + open(fshader_path, encoding='utf-8').read()
 
             vshader = shaders.compileShader(vshader_src, GL_VERTEX_SHADER)
             fshader = shaders.compileShader(fshader_src, GL_FRAGMENT_SHADER)
 
             if gshader_path is not None:
-                gshader_src = open(gshader_path, encoding='utf-8').read()
+                gshader_src = f'#version {manualVersion}\n' + open(gshader_path, encoding='utf-8').read()
                 gshader = shaders.compileShader(gshader_src, GL_GEOMETRY_SHADER)
                 program = shaders.compileProgram(vshader, gshader, fshader)
             else:
@@ -856,6 +855,19 @@ class GLWidget(QOpenGLWidget):
     def initializeGL(self):
         
         try:
+
+            glMajorVersion = glGetIntegerv(GL_MAJOR_VERSION)
+            glMinorVersion = glGetIntegerv(GL_MINOR_VERSION)
+            gl_version = glGetString(GL_VERSION).decode('utf-8')
+            glsl_version = glGetString(GL_SHADING_LANGUAGE_VERSION).decode('utf-8')
+            renderer = glGetString(GL_RENDERER).decode('utf-8')
+            vendor = glGetString(GL_VENDOR).decode('utf-8')
+            print(f'OpenGL version: {gl_version}, major: {glMajorVersion}, minor: {glMinorVersion}')
+            print(f'GLSL version: {glsl_version}')
+            print(f'OpenGL profile: {self.context().format().profile().name}')
+            print(f'OpenGL renderer: {renderer}')
+            print(f'OpenGL vendor: {vendor}')
+
             glEnable(GL_DEPTH_TEST)
             glEnable(GL_BLEND)
             glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
@@ -866,51 +878,44 @@ class GLWidget(QOpenGLWidget):
 
             glClearColor(*self._bgColor)
 
-        
+            self.quad = FullScreenQuad()        
             self.grid.load()
             self.smallGrid.load()
             self.axis.load()
-
-            self.quad = FullScreenQuad()
-            gl_version = glGetString(GL_VERSION).decode()
-            glsl_version = glGetString(GL_SHADING_LANGUAGE_VERSION).decode()
-            renderer = glGetString(GL_RENDERER).decode('utf-8')
-            vendor = glGetString(GL_VENDOR).decode('utf-8')
-            print(f'OpenGL version: {gl_version}')
-            print(f'GLSL version: {glsl_version}')
-            print(f'OpenGL profile: {self.context().format().profile().name}')
-            print(f'OpenGL renderer: {renderer}')
-            print(f'OpenGL vendor: {vendor}')
-
-
+            
+            
             print('Compiling OpenGL shaders...')
-
-
-
-            print(f'OpenGL shader version: {self.shaderVersion}')
+            shaderVersion = f'{glMajorVersion}{glMinorVersion}0 core'
+            print(f'OpenGL shader version: {shaderVersion}')
+            self.shaderFolder = '460'
             # _version = '120'
             self.SSAOGeoProg = self.buildShader(
-                vshader_path=f'./glw/shaders/{self.shaderVersion}/ssao_geo_vs.glsl',
-                fshader_path=f'./glw/shaders/{self.shaderVersion}/ssao_geo_fs.glsl'
+                vshader_path=f'./glw/shaders/{self.shaderFolder}/ssao_geo_vs.glsl',
+                fshader_path=f'./glw/shaders/{self.shaderFolder}/ssao_geo_fs.glsl',
+                manualVersion=shaderVersion
             )
             self.SSAOCoreProg = self.buildShader(
-                vshader_path=f'./glw/shaders/{self.shaderVersion}/ssao_core_vs.glsl',
-                fshader_path=f'./glw/shaders/{self.shaderVersion}/ssao_core_fs.glsl'
+                vshader_path=f'./glw/shaders/{self.shaderFolder}/ssao_core_vs.glsl',
+                fshader_path=f'./glw/shaders/{self.shaderFolder}/ssao_core_fs.glsl',
+                manualVersion=shaderVersion
             )
             self.SSAOBlurProg = self.buildShader(
-                vshader_path=f'./glw/shaders/{self.shaderVersion}/ssao_blur_vs.glsl',
-                fshader_path=f'./glw/shaders/{self.shaderVersion}/ssao_blur_fs.glsl'
+                vshader_path=f'./glw/shaders/{self.shaderFolder}/ssao_blur_vs.glsl',
+                fshader_path=f'./glw/shaders/{self.shaderFolder}/ssao_blur_fs.glsl',
+                manualVersion=shaderVersion
             )
             self.SSAOLightProg = self.buildShader(
-                vshader_path=f'./glw/shaders/{self.shaderVersion}/ssao_light_vs.glsl',
-                fshader_path=f'./glw/shaders/{self.shaderVersion}/ssao_light_fs.glsl',
+                vshader_path=f'./glw/shaders/{self.shaderFolder}/ssao_light_vs.glsl',
+                fshader_path=f'./glw/shaders/{self.shaderFolder}/ssao_light_fs.glsl',
+                manualVersion=shaderVersion
             )
 
             self.SSAOLightLineProg = self.buildShader(
-                vshader_path=f'./glw/shaders/{self.shaderVersion}/ssao_light_line_vs.glsl',
-                fshader_path=f'./glw/shaders/{self.shaderVersion}/ssao_light_fs.glsl',
-                gshader_path=f'./glw/shaders/{self.shaderVersion}/ssao_light_line_gs.glsl'
-            )                
+                vshader_path=f'./glw/shaders/{self.shaderFolder}/ssao_light_line_vs.glsl',
+                fshader_path=f'./glw/shaders/{self.shaderFolder}/ssao_light_fs.glsl',
+                gshader_path=f'./glw/shaders/{self.shaderFolder}/ssao_light_line_gs.glsl',
+                manualVersion=shaderVersion
+            )
 
             self.geoProgAttribList = ['a_Position', 'a_Normal']
             self.geoProgUniformList = ['u_pointSize', 'u_mvpMatrix', 'u_mvMatrix', 'u_normalMatrix']

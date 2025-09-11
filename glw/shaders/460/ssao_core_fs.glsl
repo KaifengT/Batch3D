@@ -1,8 +1,6 @@
 // reference from https://john-chapman-graphics.blogspot.com/2013/01/ssao-tutorial.html
 // reference from https://learnopengl.com/Advanced-Lighting/SSAO, https://blog.csdn.net/u013617851/article/details/122397080
 
-#version 460 core
-
 in vec2 TexCoord;
 
 out vec4 FragColor;

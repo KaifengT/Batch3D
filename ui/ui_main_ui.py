@@ -80,10 +80,12 @@ class Ui_MainWindow(object):
         self.verticalLayout.addWidget(self.pushButton_openremotefolder)
 
         self.tableWidget = TableWidget(self.tool)
-        if (self.tableWidget.columnCount() < 1):
-            self.tableWidget.setColumnCount(1)
+        if (self.tableWidget.columnCount() < 2):
+            self.tableWidget.setColumnCount(2)
         __qtablewidgetitem = QTableWidgetItem()
         self.tableWidget.setHorizontalHeaderItem(0, __qtablewidgetitem)
+        __qtablewidgetitem1 = QTableWidgetItem()
+        self.tableWidget.setHorizontalHeaderItem(1, __qtablewidgetitem1)
         self.tableWidget.setObjectName(u"tableWidget")
         self.tableWidget.setMaximumSize(QSize(16777215, 16777215))
         self.tableWidget.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
@@ -153,12 +155,12 @@ class Ui_MainWindow(object):
         self.tableWidget_obj = TableWidget(self.tool)
         if (self.tableWidget_obj.columnCount() < 3):
             self.tableWidget_obj.setColumnCount(3)
-        __qtablewidgetitem1 = QTableWidgetItem()
-        self.tableWidget_obj.setHorizontalHeaderItem(0, __qtablewidgetitem1)
         __qtablewidgetitem2 = QTableWidgetItem()
-        self.tableWidget_obj.setHorizontalHeaderItem(1, __qtablewidgetitem2)
+        self.tableWidget_obj.setHorizontalHeaderItem(0, __qtablewidgetitem2)
         __qtablewidgetitem3 = QTableWidgetItem()
-        self.tableWidget_obj.setHorizontalHeaderItem(2, __qtablewidgetitem3)
+        self.tableWidget_obj.setHorizontalHeaderItem(1, __qtablewidgetitem3)
+        __qtablewidgetitem4 = QTableWidgetItem()
+        self.tableWidget_obj.setHorizontalHeaderItem(2, __qtablewidgetitem4)
         self.tableWidget_obj.setObjectName(u"tableWidget_obj")
         self.tableWidget_obj.setMaximumSize(QSize(16777215, 16777215))
         self.tableWidget_obj.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
@@ -337,15 +339,17 @@ class Ui_MainWindow(object):
         self.pushButton_openremotefolder.setText(QCoreApplication.translate("MainWindow", u"Remote Folder", None))
         ___qtablewidgetitem = self.tableWidget.horizontalHeaderItem(0)
         ___qtablewidgetitem.setText(QCoreApplication.translate("MainWindow", u"File", None));
+        ___qtablewidgetitem1 = self.tableWidget.horizontalHeaderItem(1)
+        ___qtablewidgetitem1.setText(QCoreApplication.translate("MainWindow", u"Modify Time", None));
         self.label_5.setText(QCoreApplication.translate("MainWindow", u"Arrow", None))
         self.checkBox_arrow.setText(QCoreApplication.translate("MainWindow", u"CheckBox", None))
         self.label_3.setText(QCoreApplication.translate("MainWindow", u"Slice", None))
-        ___qtablewidgetitem1 = self.tableWidget_obj.horizontalHeaderItem(0)
-        ___qtablewidgetitem1.setText(QCoreApplication.translate("MainWindow", u"Vis", None));
-        ___qtablewidgetitem2 = self.tableWidget_obj.horizontalHeaderItem(1)
-        ___qtablewidgetitem2.setText(QCoreApplication.translate("MainWindow", u"ID", None));
-        ___qtablewidgetitem3 = self.tableWidget_obj.horizontalHeaderItem(2)
-        ___qtablewidgetitem3.setText(QCoreApplication.translate("MainWindow", u"Size", None));
+        ___qtablewidgetitem2 = self.tableWidget_obj.horizontalHeaderItem(0)
+        ___qtablewidgetitem2.setText(QCoreApplication.translate("MainWindow", u"Vis", None));
+        ___qtablewidgetitem3 = self.tableWidget_obj.horizontalHeaderItem(1)
+        ___qtablewidgetitem3.setText(QCoreApplication.translate("MainWindow", u"ID", None));
+        ___qtablewidgetitem4 = self.tableWidget_obj.horizontalHeaderItem(2)
+        ___qtablewidgetitem4.setText(QCoreApplication.translate("MainWindow", u"Size", None));
         self.pushButton_openscript.setText(QCoreApplication.translate("MainWindow", u"Open Script", None))
         self.pushButton_runscript.setText(QCoreApplication.translate("MainWindow", u"Exec Script ", None))
         self.pushButton_openconsole.setText(QCoreApplication.translate("MainWindow", u"console", None))

@@ -3,6 +3,7 @@ from PySide6.QtWidgets import QMainWindow
 from PySide6.QtOpenGLWidgets import QOpenGLWidget
 from typing import Tuple, Optional, Union
 from trimesh.visual.material import SimpleMaterial, PBRMaterial
+import trimesh
 from enum import Enum
 import numpy as np
 
@@ -142,13 +143,13 @@ class GLCamera(QObject):
     
     updateSignal = Signal()
     
-    def setCamera(self, azimuth: float = 0, elevation: float = 50, distance: float = 10, lookatPoint: np.ndarray = None) -> np.ndarray:
+    def setCamera(self, azimuth: float = 135, elevation: float = -55, distance: float = 10, lookatPoint: np.ndarray = None) -> np.ndarray:
         """
         Set the camera position and orientation.
         
         Args:
-            azimuth (float): Azimuth angle in degrees. Defaults to 0
-            elevation (float): Elevation angle in degrees. Defaults to 50
+            azimuth (float): Azimuth angle in degrees. Defaults to 135
+            elevation (float): Elevation angle in degrees. Defaults to -55
             distance (float): Distance from the look-at point. Defaults to 10
             lookatPoint (np.ndarray): 3D point to look at. Defaults to origin
             
@@ -697,12 +698,12 @@ class b3d(QMainWindow):
     def resetSliceFunc():
         pass
         
-    def addObj(data:dict):
+    def addObj(data:dict[str, Optional[trimesh.parent.Geometry3D|np.ndarray|dict]]|list[str]|tuple[str]|str):
         '''
         Add object to current scene
         
         Args:
-            data (dict): dictionary of objects to add
+            data (dict|list|tuple|str): dictionary of objects to add or path(s). If data is a dict, it should be in the format of {key: value}, where
                 - key (str): object name
                 - value (trimesh.parent.Geometry3D, np.ndarray, dict, None): object data
                 if value is None, the object named <key> will be removed from the scene
@@ -718,21 +719,45 @@ class b3d(QMainWindow):
             }
             b3d.addObj(data)
         ```
-        '''
+        or
+        ```
+            b3d.addObj('path/to/mesh.obj')
+        ```
+        '''  
         pass
         
-    def add(data:dict):
+    def add(data:dict[str, Optional[trimesh.parent.Geometry3D|np.ndarray|dict]]|list[str]|tuple[str]|str):
         '''
         This is an alias of addObj()
-        Add object to current scene
-        '''
+        Args:
+            data (dict|list|tuple|str): dictionary of objects to add or path(s). If data is a dict, it should be in the format of {key: value}, where
+                - key (str): object name
+                - value (trimesh.parent.Geometry3D, np.ndarray, dict, None): object data
+                if value is None, the object named <key> will be removed from the scene
+        Example:
+        ```
+            data = {
+                'pointcloud_#FF0000DD_&10': np.random.rand(100, 1000, 3),
+                'lines_#00FF00': np.random.rand(100, 3),
+                'box_#0000FF': np.random.rand(100, 8, 3),
+                'axis': np.eye(4),
+                'mesh': trimesh.load('path/to/mesh.obj'),
+                'mesh_2': {'vertex': np.random.rand(100, 3), 'face': np.random.randint(0, 100, (200, 3))},
+            }
+            b3d.add(data)
+        ```
+        or
+        ```
+            b3d.add('path/to/mesh.obj')
+        ```
+        '''  
         pass
       
-    def updateObj(data:dict):
+    def updateObj(data:dict[str, Optional[trimesh.parent.Geometry3D|np.ndarray|dict]]|list[str]|tuple[str]|str):
         '''
         Reset objects in current scene
         Args:
-            data (dict): dictionary of objects to set, same as addObj()
+            data: same as addObj()
         '''
         pass
         
@@ -761,12 +786,12 @@ class b3d(QMainWindow):
     def clear():
         pass
                 
-    def loadObj(fullpath:str|dict, extName='', setWorkspace=True):
+    def loadObj(data:str|dict|list[str]|tuple[str], extName='', setWorkspace=True, **kwargs):
         pass
-        
-    def loadObj_update(fullpath:str|dict, keys:list, extName='', setWorkspace=True):
+    
+    def mergeObj(data:str|dict|list[str]|tuple[str], extName='', setWorkspace=True, path=''):
         pass
-        
+                
     def setObjTransform(ID, transform=None):
         """
         Set the transformation matrix for an object in the OpenGL widget.

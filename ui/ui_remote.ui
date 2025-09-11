@@ -3,7 +3,7 @@
  <class>RemoteWidget</class>
  <widget class="QWidget" name="RemoteWidget">
   <property name="windowModality">
-   <enum>Qt::ApplicationModal</enum>
+   <enum>Qt::WindowModality::ApplicationModal</enum>
   </property>
   <property name="geometry">
    <rect>
@@ -31,6 +31,9 @@ border-bottom-right-radius: 2px;</string>
        <property name="text">
         <string/>
        </property>
+       <property name="placeholderText">
+        <string>ip Address</string>
+       </property>
       </widget>
      </item>
      <item>
@@ -40,6 +43,9 @@ border-bottom-right-radius: 2px;</string>
        </property>
        <property name="text">
         <string>22</string>
+       </property>
+       <property name="placeholderText">
+        <string>Port</string>
        </property>
       </widget>
      </item>
@@ -52,6 +58,9 @@ border-bottom-right-radius: 2px;</string>
        <property name="text">
         <string>root</string>
        </property>
+       <property name="placeholderText">
+        <string>User Name</string>
+       </property>
       </widget>
      </item>
      <item>
@@ -63,7 +72,10 @@ border-bottom-right-radius: 2px;</string>
         <string/>
        </property>
        <property name="echoMode">
-        <enum>QLineEdit::Password</enum>
+        <enum>QLineEdit::EchoMode::Password</enum>
+       </property>
+       <property name="placeholderText">
+        <string>Password</string>
        </property>
       </widget>
      </item>
@@ -116,10 +128,10 @@ border-bottom-right-radius: 2px;</string>
    <item>
     <widget class="TableWidget" name="tableWidget">
      <property name="horizontalScrollBarPolicy">
-      <enum>Qt::ScrollBarAsNeeded</enum>
+      <enum>Qt::ScrollBarPolicy::ScrollBarAsNeeded</enum>
      </property>
      <property name="editTriggers">
-      <set>QAbstractItemView::NoEditTriggers</set>
+      <set>QAbstractItemView::EditTrigger::NoEditTriggers</set>
      </property>
      <property name="columnCount">
       <number>3</number>
@@ -173,7 +185,7 @@ border-bottom-right-radius: 2px;</string>
      <item>
       <spacer name="horizontalSpacer">
        <property name="orientation">
-        <enum>Qt::Horizontal</enum>
+        <enum>Qt::Orientation::Horizontal</enum>
        </property>
        <property name="sizeHint" stdset="0">
         <size>

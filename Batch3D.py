@@ -11,7 +11,7 @@ import copy
 from typing import List, Tuple, Union, TextIO
 from types import ModuleType
 import webbrowser
-from PySide6.QtWidgets import ( QApplication, QMainWindow, QTableWidgetItem, QWidget, QFileDialog, QDialog, QTextEdit, QGraphicsDropShadowEffect, QHBoxLayout, QVBoxLayout, QLabel)
+from PySide6.QtWidgets import ( QApplication, QMainWindow, QTableWidgetItem, QWidget, QFileDialog, QDialog, QTextEdit, QGraphicsDropShadowEffect, QHBoxLayout, QVBoxLayout, QLabel, QAbstractItemView)
 from PySide6.QtCore import  QSize, QThread, Signal, Qt, QPropertyAnimation, QEasingCurve, QPoint, QRect, QObject, QTimer, QEvent, QEventLoop
 from PySide6.QtGui import QCloseEvent, QIcon, QFont, QAction, QColor, QSurfaceFormat, QTextCursor, QCursor, QDropEvent
 import multiprocessing
@@ -22,7 +22,7 @@ from ui.dragDropWidget import DragDropWidget
 from ui.statusBar import StatusBar
 import pickle
 from backend import backendCheckVersion, backendSFTP
-import hashlib
+import datetime
 import traceback
 from ui.windowBlocker import windowBlocker
 import json
@@ -34,6 +34,7 @@ from trimesh.visual.texture import TextureVisuals
 from trimesh.visual.color import ColorVisuals
 from trimesh.scene.transforms import SceneGraph
 from concurrent.futures import ThreadPoolExecutor
+from tools.getTime import humanTimeDiff
 import importlib
 # This is to avoid the error: "ImportError: numpy.core.multiarray failed to import"
 import numpy.core.multiarray
@@ -54,13 +55,16 @@ from qfluentwidgets import FluentIcon as FIF
 ########################################################################
 
 DEFAULT_WORKSPACE = os.getcwd()
-TOOL_UI_WIDTH = 350
+TOOL_UI_WIDTH = 390
 PROGBAR_HEIGHT = 50
 CONSOLE_HEIGHT = 250
 
-B3D_VERSION = '1.8.3'
+DEFAULT_SIZE = 3
+
+B3D_VERSION = '1.9.0'
 B3D_VERSION_SUFFIX = ' Beta'
-B3D_BUILD = '2507'
+B3D_BUILD = '2508'
+
 
 class MyFluentIcon(FluentIconBase, Enum):
     """ Custom icons """
@@ -81,8 +85,25 @@ class cellWidget(QTableWidgetItem):
         self.isRemote = isRemote
         self.isdir = isdir
         super().__init__(text,)
+
+
+class sortableCellWidget(QTableWidgetItem):
+    def __init__(self, text: str) -> None:
+        self.sortData = None
+        super().__init__(text,)
         
-        self.setToolTip('Double click to Reload')
+    def setSortData(self, data):
+        self.sortData = data
+        
+        self.setToolTip(str(data))
+        
+    def __lt__(self, other):
+        
+        if self.sortData is not None and hasattr(other, 'sortData') and other.sortData is not None:
+            return self.sortData < other.sortData
+        else:
+            return super().__lt__(other)
+
 
 class cellWidget_toggle(QTableWidgetItem):
     def __init__(self, icon=None) -> None:
@@ -113,7 +134,7 @@ class RemoteUI(QDialog):
         self.ui.pushButton_cancel.clicked.connect(self.close)
                 
         self.ui.tableWidget.cellDoubleClicked.connect(self.chdirSFTP)
-        
+        self.ui.tableWidget.setSortingEnabled(True)
 
         self.ui.pushButton_go.clicked.connect(lambda: self.chdirSFTP_path(self.ui.lineEdit_dir.text()))
         self.ui.pushButton_refresh.clicked.connect(lambda: self.chdirSFTP_path(self.ui.lineEdit_dir.text()))
@@ -235,10 +256,17 @@ class RemoteUI(QDialog):
             else:
                 event_widget = cellWidget(k, dirname.rstrip('/') + '/' + k, True, False)
                 event_widget.setIcon(MyFluentIcon.File.qicon())
-                size_weight = QTableWidgetItem(self.bytestoReadable(v['size']))
+                size_weight = sortableCellWidget(self.bytestoReadable(v['size']))
+                size_weight.setSortData(v['size'])
+                
+            event_widget.setToolTip('Remote Path:' + '\n' + event_widget.fullpath)
 
             size_weight.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
-            mtime_weight = QTableWidgetItem(v['mtime'])
+            readabletime = humanTimeDiff(v['mtime'])
+            strtime = v['mtime'].strftime('%Y-%m-%d %H:%M')
+            mtime_weight = sortableCellWidget(readabletime)
+            mtime_weight.setSortData(strtime)
+            
             self.ui.tableWidget.setItem(0, 0, event_widget)
             self.ui.tableWidget.setItem(0, 2, size_weight)
             self.ui.tableWidget.setItem(0, 1, mtime_weight)
@@ -921,8 +949,6 @@ class dataParser:
 
 
 
-DEFAULT_SIZE = 3
-
 class App(QMainWindow):
     # ----------------------------------------------------------------------
     sendCodeSignal = Signal(str, str)
@@ -934,11 +960,13 @@ class App(QMainWindow):
     # NOTE: this signal should not be used for internal
     workspaceUpdatedSignal = Signal(dict)
 
-    def __init__(self,):
+    def __init__(self, glMajorVersion:int=4, glMinorVersion:int=6) -> None:
         """"""
         super().__init__()
-                
-        
+
+        self.glMajorVersion = glMajorVersion
+        self.glMinorVersion = glMinorVersion
+
         self.ui = Ui_MainWindow()
         self.ui.setupUi(self)
         self.tgtTheme = Theme.LIGHT
@@ -963,7 +991,7 @@ class App(QMainWindow):
         self.tool_anim.setEasingCurve(QEasingCurve.InOutQuart)
 
         self.tool_anim_button = ToggleToolButton(FIF.PIN, self)
-        self.tool_anim_button.move(380, 15)
+        self.tool_anim_button.move(TOOL_UI_WIDTH+30, 15)
         self.tool_anim_button.setFixedSize(30, 30)
         self.tool_anim_button.toggle()
         self.tool_anim_button.toggled.connect(self.moveToolWidget)
@@ -972,17 +1000,17 @@ class App(QMainWindow):
         self.tool_b_anim.setDuration(200)
         self.tool_b_anim.setEasingCurve(QEasingCurve.InOutQuart)
         
-        self.windowBlocker = windowBlocker(self) 
+        # self.windowBlocker = windowBlocker(self) 
         
         self.colormanager = colorManager()
 
         self.statusbar = StatusBar(self)
 
-        self.dragWidget1 = DragDropWidget(self, acceptedExtensions=dataParser.SUPPORT_EXT, message='Drag a file here to RESET and load')
+        self.dragWidget1 = DragDropWidget(self, acceptedExtensions=dataParser.SUPPORT_EXT, message='Drag a file here to reset and load')
         self.dragWidget1.setThemeColor(themeColor())
         self.dragWidget1.setTheme(self.tgtTheme)
         self.dragWidget1.hide()
-        self.dragWidget2 = DragDropWidget(self, acceptedExtensions=dataParser.SUPPORT_EXT, message='Drag files here to load')
+        self.dragWidget2 = DragDropWidget(self, acceptedExtensions=dataParser.SUPPORT_EXT, message='Drag files here to merge')
         self.dragWidget2.setThemeColor(themeColor())
         self.dragWidget2.setTheme(self.tgtTheme)
         self.dragWidget2.hide()
@@ -1004,8 +1032,8 @@ class App(QMainWindow):
         
         self.obj_properties = {}
 
-        self.ui.tableWidget_obj.setColumnWidth(0, 55)
-        self.ui.tableWidget_obj.setColumnWidth(1, 150)
+        self.ui.tableWidget_obj.setColumnWidth(0, 40)
+        self.ui.tableWidget_obj.setColumnWidth(1, 200)
         
         self.ui.tableWidget_obj.setBorderVisible(True)
         self.ui.tableWidget_obj.setBorderRadius(6)
@@ -1019,13 +1047,27 @@ class App(QMainWindow):
         self.ui.tableWidget.currentCellChanged.connect(self.cellClickedCallback)
         self.ui.tableWidget.cellDoubleClicked.connect(self.cellClickedCallback)
         self.ui.tableWidget.setSortingEnabled(True)
+        self.ui.tableWidget.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self.ui.tableWidget.setSelectionMode(QAbstractItemView.SingleSelection)
+        self.ui.tableWidget.setColumnWidth(0, 240)
 
         self.tableWidgetMenu = RoundMenu(parent=self)
         self.tableWidgetRefreshAction = Action(FIF.SYNC, 'Refresh', self)
         self.tableWidgetRefreshAction.triggered.connect(self.refreshFileList)
         self.tableWidgetOpeninFileBrowserAction = Action(FIF.LINK, 'Open in File Browser', self)
         self.tableWidgetOpeninFileBrowserAction.triggered.connect(self._openInFileBrowser)
-        self.tableWidgetMenu.addActions([self.tableWidgetRefreshAction, self.tableWidgetOpeninFileBrowserAction])
+        self.tableWidgetMergeAction = Action(FIF.ADD, 'Merge', self)
+        self.tableWidgetMergeAction.triggered.connect(self._mergeFiletoScene)
+        self.tableWidgetMenu.addActions([self.tableWidgetRefreshAction, self.tableWidgetOpeninFileBrowserAction, self.tableWidgetMergeAction])
+        
+        self.tableCurrentHoverItem = None
+
+        self.tableObjectWidgetMenu = RoundMenu(parent=self)
+        self.tableObjectWidgetDeleteAction = Action(FIF.BROOM, 'Clear all', self)
+        self.tableObjectWidgetDeleteAction.triggered.connect(self.clear)
+        self.tableObjectWidgetMenu.addAction(self.tableObjectWidgetDeleteAction)
+        self.ui.tableWidget_obj.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.ui.tableWidget_obj.customContextMenuRequested.connect(lambda pos: self.tableObjectWidgetMenu.popup(self.ui.tableWidget_obj.mapToGlobal(pos)))
 
         self.ui.tableWidget.setContextMenuPolicy(Qt.CustomContextMenu)
         self.ui.tableWidget.customContextMenuRequested.connect(self._popFileTableMenu)
@@ -1036,7 +1078,7 @@ class App(QMainWindow):
         
 
 
-        self.backendSFTP = backendSFTP()
+        self.backendSFTP = backendSFTP(cacheDir=os.path.join(DEFAULT_WORKSPACE, 'cache'))
         self.backendSFTPThread = QThread(self, )
         self.backendSFTP.moveToThread(self.backendSFTPThread)
         self.backendSFTP.executeSignal.connect(self.backendExeUICallback)
@@ -1070,8 +1112,8 @@ class App(QMainWindow):
         
         self.ui.pushButton_openremotefolder.clicked.connect(self.openRemoteUI)
         
-        self.remoteUI.closedSignal.connect(lambda:self.windowBlocker.setHidden(True))
-        self.remoteUI.showSiganl.connect(lambda:self.windowBlocker.setHidden(False))
+        # self.remoteUI.closedSignal.connect(lambda:self.windowBlocker.setHidden(True))
+        # self.remoteUI.showSiganl.connect(lambda:self.windowBlocker.setHidden(False))
         self.backendSFTP.listFolderContextSignal.connect(self.remoteUI.setFolderContents)
         
         self.ui.pushButton_runscript.setIcon(FIF.SEND)
@@ -1106,6 +1148,8 @@ class App(QMainWindow):
             self.themeMicaStyleMAINWINDOWAction.triggered.connect(lambda:self.changeMicaStyle(DWM_SYSTEMBACKDROP_TYPE.DWMSBT_MAINWINDOW))
             self.themeMicaStyleTRANSIENTWINDOWAction.triggered.connect(lambda:self.changeMicaStyle(DWM_SYSTEMBACKDROP_TYPE.DWMSBT_TRANSIENTWINDOW))
             self.themeMicaStyleTABBEDWINDOWAction.triggered.connect(lambda:self.changeMicaStyle(DWM_SYSTEMBACKDROP_TYPE.DWMSBT_TABBEDWINDOW))
+        else:
+            self.themeMicaStyleMenu.setEnabled(False)
 
         self.ui.spinBox.valueChanged.connect(self.slicefromBatch)
         
@@ -1198,7 +1242,7 @@ class App(QMainWindow):
             self.tool_b_anim.setEndValue(QPoint(15, self.tool_anim_button.pos().y()))
         else:
             self.tool_anim.setEndValue(QPoint(20, self.ui.tool.pos().y()))
-            self.tool_b_anim.setEndValue(QPoint(380, self.tool_anim_button.pos().y()))
+            self.tool_b_anim.setEndValue(QPoint(TOOL_UI_WIDTH+30, self.tool_anim_button.pos().y()))
         self.tool_anim.start()
         self.tool_b_anim.start()
         self.update()
@@ -1220,15 +1264,17 @@ class App(QMainWindow):
             filelist = filelist[::-1]
             self.ui.tableWidget.setRowCount(0)
             for f in filelist:
-                
-                self.addFiletoTable(f)
+                fp = os.path.join(self.currentPath, f)
+                stat_info = os.stat(fp)
+                dt = datetime.datetime.fromtimestamp(stat_info.st_mtime) # .strftime('%Y-%m-%d %H:%M')
+                self.addFiletoTable(f, fp, mtime=dt)
 
         if self.ui.tableWidget.rowCount() > 0:
             self.ui.tableWidget.blockSignals(True)
             self.ui.tableWidget.setCurrentCell(-1, -1)
             self.ui.tableWidget.blockSignals(False)
 
-    def openRemoteFolder(self, filelist:dict, dirname:str):
+    def openRemoteFolder(self, filelist:dict[str, dict], dirname:str):
 
         filelist = natsort.natsorted(
             filelist.items(), 
@@ -1241,7 +1287,7 @@ class App(QMainWindow):
         self.ui.tableWidget.setRowCount(0)
 
         for k, v in filelist.items():
-            self.addFiletoTable(k, isRemote=True)
+            self.addFiletoTable(k, dirname + '/' + k, isRemote=True, mtime=v.get('mtime', datetime.datetime.fromtimestamp(0)))
 
         self.currentPath = DEFAULT_WORKSPACE
         
@@ -1278,6 +1324,13 @@ class App(QMainWindow):
             self.tableWidgetOpeninFileBrowserAction.setEnabled(False)
 
         self.tableWidgetMenu.popup(self.ui.tableWidget.mapToGlobal(pos))
+        
+        self.tableCurrentHoverItem = self.ui.tableWidget.itemAt(pos)
+        if self.tableCurrentHoverItem is not None:
+            self.tableWidgetMergeAction.setEnabled(True)
+        else:
+            self.tableWidgetMergeAction.setEnabled(False)
+        
 
     def _openInFileBrowser(self, ):
         if os.path.exists(self.currentPath) and os.path.isdir(self.currentPath):
@@ -1290,16 +1343,24 @@ class App(QMainWindow):
         else:
             self.popMessage('Error', 'Current path does not exist or is not a directory', 'error')
 
-    def addFiletoTable(self, filepath:str, isRemote=False):
-        extName = os.path.splitext(filepath)[-1][1:]
+    def addFiletoTable(self, text:str, filepath:str, isRemote=False, **kwargs):
+        extName = os.path.splitext(filepath)[-1]
 
-        if extName.lower() in ['obj', 'pkl', 'cug', 'npy', 'npz', 'ply', 'stl', 'pcd', 'glb', 'xyz'] and not filepath.startswith('.'):
+        if extName.lower() in dataParser.SUPPORT_EXT and not filepath.startswith('.'):
 
             self.ui.tableWidget.insertRow(0)
-            event_widget = cellWidget(filepath, os.path.join(self.currentPath, filepath), isRemote=isRemote)
+            
+            event_widget = cellWidget(text, filepath, isRemote=isRemote)
             event_widget.setIcon(MyFluentIcon.File.qicon())
-
+            event_widget.setToolTip('Double click to Reload' + '\n' + filepath)
             self.ui.tableWidget.setItem(0, 0, event_widget)
+            
+            mtime = kwargs.get('mtime', None)
+            if mtime is not None:
+                
+                mtime_weight = sortableCellWidget(humanTimeDiff(mtime))
+                mtime_weight.setSortData(mtime.strftime('%Y-%m-%d %H:%M'))
+                self.ui.tableWidget.setItem(0, 1, mtime_weight)
 
     def resetObjPropsTable(self, keys:str|list|tuple=None):
         row_count = self.ui.tableWidget_obj.rowCount()
@@ -1370,7 +1431,8 @@ class App(QMainWindow):
         
         def add_slider(row_num):
             sl = Slider(Qt.Orientation.Horizontal, None)
-            sl.setMaximumSize(96, 24)
+            # sl.setMaximumSize(150, 24)
+            sl.setMaximumHeight(24)
             sl.setMaximum(20)
             sl.setSingleStep(2)
             sl.setMinimum(1)
@@ -1517,46 +1579,15 @@ class App(QMainWindow):
             #     f.write(textInfo)
             
             return textInfo
-        
-    def _isHexColorinName(self, name) -> str:
-        if '#' in name:
-            name = name.split('#', 2)[1]
-            name = name.split('_', 2)[0]
-            if len(name) == 6 or len(name) == 8:
-                return name
-            else:
-                return None
-        else:
-            return None
-        
-    def _isSizeinName(self, name) -> float:
-        if '&' in name:
-            size = name.split('&', 2)[1]
-            try:
-                size = float(size)
-                return size
-            except:
-                return 2
-        else:
-            return 2
-            
-    def _decode_HexColor_to_RGB(self, hexcolor):
-        if hexcolor is None:
-            return None
-        if len(hexcolor) == 6:
-            return tuple(int(hexcolor[i:i+2], 16) / 255. for i in (0, 2, 4))
-        elif len(hexcolor) == 8:
-            return tuple(int(hexcolor[i:i+2], 16) / 255. for i in (0, 2, 4, 6))
-        else:
-            return (0.9, 0.9, 0.9, 0.9)        
+              
         
     def cellClickedCallback(self, row, col, prow=None, pcol=None):
         try:
-            fullpath = self.ui.tableWidget.item(row, col).fullpath
+            fullpath = self.ui.tableWidget.item(row, 0).fullpath
         except:
             return
-        isRemote = self.ui.tableWidget.item(row, col).isRemote
-        filepath = self.ui.tableWidget.item(row, col).text()
+        isRemote = self.ui.tableWidget.item(row, 0).isRemote
+        filepath = self.ui.tableWidget.item(row, 0).text()
         
         if isRemote:
             self.sftpSignal.emit('downloadFile', {'filename':filepath})
@@ -1631,12 +1662,12 @@ class App(QMainWindow):
         self.ui.spinBox.valueChanged.connect(self.slicefromBatch)
         
         
-    def addObj(self, data:dict[str, Optional[trimesh.parent.Geometry3D|np.ndarray|dict]]):
+    def addObj(self, data:dict[str, Optional[trimesh.parent.Geometry3D|np.ndarray|dict]]|list[str]|tuple[str]|str):
         '''
         Add object to current scene
         
         Args:
-            data (dict): dictionary of objects to add
+            data (dict|list|tuple|str): dictionary of objects to add or path(s). If data is a dict, it should be in the format of {key: value}, where
                 - key (str): object name
                 - value (trimesh.parent.Geometry3D, np.ndarray, dict, None): object data
                 if value is None, the object named <key> will be removed from the scene
@@ -1652,15 +1683,14 @@ class App(QMainWindow):
             }
             b3d.addObj(data)
         ```
-        '''
-        if not isinstance(data, dict):
-            raise RuntimeError('addObj(data): data must be a dict')
+        or
+        ```
+            b3d.addObj('path/to/mesh.obj')
+        ```
+        '''        
+        self.mergeObj(data)
         
-        obj = self.getWorkspaceObj()
-        obj.update(data)
-        self.loadObj_update(obj, keys=list(data.keys()))
-        
-    def add(self, data:dict):
+    def add(self, data:dict[str, Optional[trimesh.parent.Geometry3D|np.ndarray|dict]]|list[str]|tuple[str]|str):
         '''
         This is an alias of addObj()
         Add object to current scene
@@ -1668,14 +1698,12 @@ class App(QMainWindow):
         self.addObj(data)
         
       
-    def updateObj(self, data:dict):
+    def updateObj(self, data:dict[str, Optional[trimesh.parent.Geometry3D|np.ndarray|dict]]|list[str]|tuple[str]|str):
         '''
         Reset objects in current scene
         Args:
-            data (dict): dictionary of objects to set, same as addObj()
+            data: same as addObj()
         '''
-        if not isinstance(data, dict):
-            raise RuntimeError('updateObj(data): data must be a dict')
         self.loadObj(data)
 
         
@@ -1693,7 +1721,7 @@ class App(QMainWindow):
             if k in obj.keys():
                 obj[k] = None
 
-        self.loadObj_update(obj, keys=key)
+        self._loadObjUpdate(obj, keys=key)
 
     def rm(self, key:str|list[str]):
         '''
@@ -1717,10 +1745,11 @@ class App(QMainWindow):
         self.resetSliceFunc()
         self._workspace_obj = {}
         self.ui.label_info.setText('')
+        self.colormanager.reset()
         
       
                 
-    def loadObj(self, fullpath:str|dict, extName='', setWorkspace=True):
+    def loadObj(self, data:str|dict|list[str]|tuple[str], extName='', setWorkspace=True, **kwargs):
         
         
         self.resetObjPropsTable()
@@ -1731,7 +1760,7 @@ class App(QMainWindow):
         try:
             
             # load file from multi source
-            obj = dataParser.loadFromAny(fullpath, extName)
+            obj = dataParser.loadFromAny(data, extName)
                         
             # store raw obj to workspace_obj
             if setWorkspace:
@@ -1772,9 +1801,46 @@ class App(QMainWindow):
         self.clearObjPropsTable()
         self.changeObjectProps()
         
-
+    def mergeObj(self, data:str|dict|list[str]|tuple[str], extName='', setWorkspace=True, path=''):
+        '''
+        Merge objects from file or dict to current scene
+        Args:
+            data (str or dict): file path or dictionary of objects to merge
+        '''
+        rnnewobj = {}
+        
+        if isinstance(data, str):
+            data = [data, ]
+        
+        if isinstance(data, (list, tuple)):
+            for localfile in data:
+                newobj = dataParser.loadFromAny(localfile, extName)
+                baseName = os.path.basename(localfile)
+                fileName, ext = os.path.splitext(baseName)
+                for k, v in newobj.items():
+                    rnnewobj[f'{fileName}.{k}'] = v
+                    
+        elif isinstance(data, io.BytesIO):
+            newobj = dataParser.loadFromAny(data, extName)
+            baseName = os.path.basename(path)
+            fileName, ext = os.path.splitext(baseName)
+            if len(fileName):
+                for k, v in newobj.items():
+                    rnnewobj[f'{fileName}.{k}'] = v
+            else:
+                rnnewobj = newobj
+                    
+        elif isinstance(data, dict):
+            rnnewobj = data
+        else:
+            self.popMessage('Error', 'mergeObj(data): data must be a str, list of str or dict', 'error')
+            return
+            
+        obj = self.getWorkspaceObj()
+        obj.update(rnnewobj)
+        self._loadObjUpdate(obj, keys=list(rnnewobj.keys()))
                 
-    def loadObj_Thread(self, fullpath:str|dict, extName='', setWorkspace=True):
+    def _loadObj_Thread(self, fullpath:str|dict|list[str]|tuple[str], extName='', setWorkspace=True):
 
         
         def _inThread(fn, executor:ThreadPoolExecutor):
@@ -1843,8 +1909,17 @@ class App(QMainWindow):
 
         self.clearObjPropsTable()
         self.changeObjectProps()
-        
-    def loadObj_update(self, fullpath:str|dict, keys:list, extName='', setWorkspace=True):
+        rnnewobj = {}
+        newobj = dataParser.loadFromAny(fullpath, '')
+        baseName = os.path.basename(fullpath)
+        fileName, ext = os.path.splitext(baseName)
+        for k, v in newobj.items():
+            rnnewobj[f'{fileName}.{k}'] = v
+        obj = self.getWorkspaceObj()
+        obj.update(rnnewobj)
+        self._loadObjUpdate(obj, keys=list(rnnewobj.keys()))        
+            
+    def _loadObjUpdate(self, fullpath:str|dict|list[str]|tuple[str], keys:list, extName='', setWorkspace=True):
         
         
         self.resetObjPropsTable(keys=keys)
@@ -1909,10 +1984,19 @@ class App(QMainWindow):
         self.clearObjPropsTable()
         self.changeObjectProps()
         
+    def _mergeFiletoScene(self,):
         
-        
-        
-        
+        if self.tableCurrentHoverItem is not None:
+            fullpath = self.tableCurrentHoverItem.fullpath
+            isRemote = self.tableCurrentHoverItem.isRemote
+            filepath = self.tableCurrentHoverItem.text()
+            
+            if isRemote:
+                self.sftpSignal.emit('downloadFile', {'filename':filepath, 'merge':True})
+                
+            else:
+                self.mergeObj(fullpath)
+
     def setObjTransform(self, ID, transform:np.ndarray=None):
         """
         Set the transformation matrix for an object in the OpenGL widget.
@@ -1939,9 +2023,9 @@ class App(QMainWindow):
         else:
             currentScriptPath = QFileDialog.getOpenFileName(self, 
                                                             "Select Script", 
-                                                            os.path.dirname(self.currentScriptPath) if os.path.isfile(self.currentScriptPath) else DEFAULT_WORKSPACE, 
+                                                            os.path.dirname(self.currentScriptPath) if os.path.isfile(self.currentScriptPath) else os.path.join(DEFAULT_WORKSPACE, 'example'), 
                                                             '*.py'
-                                                            )[0] # 起始路径
+                                                            )[0]
 
         # print(self.currentScriptPath)
 
@@ -2024,49 +2108,29 @@ class App(QMainWindow):
             except Exception as e:
                 exc_type, exc_value, exc_tb = sys.exc_info()
                 
-                # 准备详细的错误信息
                 error_details_list = traceback.format_exception(exc_type, exc_value, exc_tb)
                 error_details_str = "".join(error_details_list)
                 
-                # 1. 在控制台打印详细的错误信息和追溯
                 print(f" --- Error executing script: {fname} --- ")
                 print(error_details_str)
                 print(f" --- End of script error for: {fname} --- ")
                 
-                # 2. 在UI的PopMessageWidget中显示错误摘要
                 self.popMessage(f'Script <{fname}> exec error', str(exc_value), 'error')
 
                 os.chdir(DEFAULT_WORKSPACE)
 
 
-    # def runScriptStateChangeRunning(self, ):
-    #     self.ui.pushButton_runscript.setText('Terminate Script')
-    #     # self.ui.pushButton_runscript.applyStyleSheet(**Button_Style_R)
-    #     self.ui.pushButton_runscript.setIcon(FIF.CANCEL)
-    #     self.ui.pushButton_runscript.disconnect(self)
-    #     self.ui.pushButton_runscript.clicked.connect(self.runScriptTerminate)
-    #     self.ui.widget_circle.start()
-        
-    # def runScriptStateChangeFinish(self, ):
-    #     # print('nb')
-    #     self.ui.pushButton_runscript.setText('Run Script')
-    #     self.ui.pushButton_runscript.setIcon(FIF.SEND)
-    #     # self.ui.pushButton_runscript.applyStyleSheet(**Button_Style_G)
-    #     self.ui.pushButton_runscript.disconnect(self)
-    #     self.ui.pushButton_runscript.clicked.connect(self.runScript)
-    #     self.ui.widget_circle.stop()
-        
-    # def runScriptTerminate(self, ):
-    #     self.quitBackendSignal.emit()
-    #     self.backend.quit()
-    #     self.backend.wait()
-        
-    #     self.runScriptStateChangeFinish()
-    #     self.backend.start()
 
     def getFilePathFromList(self, row:int):
-        fullpath = self.ui.tableWidget.item(row, 0).fullpath
-        isRemote = self.ui.tableWidget.item(row, 0).isRemote
+        
+        item = self.ui.tableWidget.item(row, 0)
+
+        if hasattr(item, 'fullpath') and hasattr(item, 'isRemote'):
+            fullpath = item.fullpath
+            isRemote = item.isRemote
+        else:
+            fullpath = None
+            isRemote = False
 
         return fullpath, isRemote
 
@@ -2109,10 +2173,6 @@ class App(QMainWindow):
         
         self.saveSettings()
         
-        # self.backend.quit()
-        # self.backend.wait(200)
-        # self.backend.terminate()
-        # 
         self.backendSFTPThread.quit()
         self.backendSFTPThread.wait(200)
         self.backendSFTPThread.terminate()
@@ -2130,9 +2190,12 @@ class App(QMainWindow):
         self.remoteUI.show()
         
     def openDetailUI(self, ):
-        self.fileDetailUI.close()
-        self.applyMicaTheme(self.fileDetailUI.winId(), mica=self.tgtMicaStyle)
-        self.fileDetailUI.show()
+        
+        if self.fileDetailUI.isVisible():
+            self.fileDetailUI.close()
+        else:
+            self.applyMicaTheme(self.fileDetailUI.winId(), mica=self.tgtMicaStyle)
+            self.fileDetailUI.show()
         
     def setDownloadProgress(self, dbytes:int, totalbytes:int, isBytes=True):
         self.statusbar.setProgress(dbytes, totalbytes, isBytes)
@@ -2141,7 +2204,7 @@ class App(QMainWindow):
         self.statusbar.setHidden(hidden)
         
     def resizeEvent(self, event: QCloseEvent) -> None:
-        self.windowBlocker.resize(self.size())   
+        # self.windowBlocker.resize(self.size())   
 
         self.ui.tool.setFixedWidth(TOOL_UI_WIDTH)
         self.ui.tool.setFixedHeight(self.height() - PROGBAR_HEIGHT)
@@ -2260,20 +2323,24 @@ class App(QMainWindow):
         for action in self.themeMicaStyleMenu.actions():
             action.setChecked(False)
         
-        if micaStyle == DWM_SYSTEMBACKDROP_TYPE.DWMSBT_NONE:
-            self.themeMicaStyleNONEAction.setChecked(True)
-        elif micaStyle == DWM_SYSTEMBACKDROP_TYPE.DWMSBT_TABBEDWINDOW:
-            self.themeMicaStyleTABBEDWINDOWAction.setChecked(True)
-        elif micaStyle == DWM_SYSTEMBACKDROP_TYPE.DWMSBT_TRANSIENTWINDOW:
-            self.themeMicaStyleTRANSIENTWINDOWAction.setChecked(True)
-        elif micaStyle == DWM_SYSTEMBACKDROP_TYPE.DWMSBT_MAINWINDOW:
-            self.themeMicaStyleMAINWINDOWAction.setChecked(True)
-
-        self.tgtMicaStyle = micaStyle
         if sys.platform == 'win32':
+            
+            if micaStyle == DWM_SYSTEMBACKDROP_TYPE.DWMSBT_NONE:
+                self.themeMicaStyleNONEAction.setChecked(True)
+            elif micaStyle == DWM_SYSTEMBACKDROP_TYPE.DWMSBT_TABBEDWINDOW:
+                self.themeMicaStyleTABBEDWINDOWAction.setChecked(True)
+            elif micaStyle == DWM_SYSTEMBACKDROP_TYPE.DWMSBT_TRANSIENTWINDOW:
+                self.themeMicaStyleTRANSIENTWINDOWAction.setChecked(True)
+            elif micaStyle == DWM_SYSTEMBACKDROP_TYPE.DWMSBT_MAINWINDOW:
+                self.themeMicaStyleMAINWINDOWAction.setChecked(True)            
+            self.tgtMicaStyle = micaStyle
+            
             self.applyMicaTheme(self.remoteUI.winId(), self.tgtMicaStyle)
             self.applyMicaTheme(self.fileDetailUI.winId(), self.tgtMicaStyle)
             self.applyMicaTheme(self.winId(), self.tgtMicaStyle)
+            
+        else:
+            self.themeMicaStyleMenu.setDisabled(True)
 
     def loadSettings(self, ):
         
@@ -2291,7 +2358,7 @@ class App(QMainWindow):
                     settings = {}
                 
                 self.tgtTheme = m[settings.get('theme', 'Light')]
-                self.tgtMicaStyle = settings.get('mica', DWM_SYSTEMBACKDROP_TYPE.DWMSBT_TRANSIENTWINDOW)
+                self.tgtMicaStyle = settings.get('mica', 3)
                 self.ui.checkBox_arrow.setChecked(settings.get('arrow', False))
                 self.ui.openGLWidget.glSettings.setSettings(settings.get('gl_settings', {}))
 
@@ -2305,7 +2372,8 @@ class App(QMainWindow):
                 self.checkUpdateOnStartup = settings.get('checkUpdateOnStartup', True)
 
         except:
-            traceback.print_exc()
+            # traceback.print_exc()
+            ...
 
     def saveSettings(self, ):
         
@@ -2317,6 +2385,8 @@ class App(QMainWindow):
                 'localPath': self.currentPath,
                 'arrow': self.ui.checkBox_arrow.isChecked(),
                 'checkUpdateOnStartup': self.checkUpdateOnStartup,
+                'gl_major_version': self.glMajorVersion,
+                'gl_minor_version': self.glMinorVersion,
                 'gl_settings': self.ui.openGLWidget.glSettings.getSettings()
             }
             
@@ -2420,16 +2490,8 @@ class App(QMainWindow):
                 if self.dragWidget1.geometry().contains(pos):
                     self.loadObj(localFiles[0])
                 elif self.dragWidget2.geometry().contains(pos):
-                    rnnewobj = {}
-                    for localfile in localFiles:
-                        newobj = dataParser.loadFromAny(localfile, '')
-                        baseName = os.path.basename(localfile)
-                        fileName, ext = os.path.splitext(baseName)
-                        for k, v in newobj.items():
-                            rnnewobj[f'{fileName}.{k}'] = v
-                    obj = self.getWorkspaceObj()
-                    obj.update(rnnewobj)
-                    self.loadObj_update(obj, keys=list(rnnewobj.keys()))
+                    self.mergeObj(localFiles)
+                    
         else:
             self.openFolder(localFiles[0])
             
@@ -2476,10 +2538,6 @@ class App(QMainWindow):
         else:
             print(f"Current version is up to date, latest version: {data['latest_version']}")
 
-
-def changeGlobalTheme(x):
-    global CURRENT_THEME
-    CURRENT_THEME = [Theme.LIGHT, Theme.DARK][x]
     
 
 def enableNvidiaGPU():
@@ -2498,13 +2556,20 @@ def enableNvidiaGPU():
             pass
         
         
-enableNvidiaGPU()
 
+
+def setOpenglFormat(major, minor, profile=QSurfaceFormat.CoreProfile):
+    fmt = QSurfaceFormat()
+    fmt.setDepthBufferSize(24)
+    fmt.setStencilBufferSize(8)
+    fmt.setVersion(major, minor)
+    fmt.setProfile(profile)
+    QSurfaceFormat.setDefaultFormat(fmt)
 
 
 if __name__ == "__main__":
     
-    CURRENT_THEME = qconfig.theme
+    enableNvidiaGPU()
     
     try:
         from tools.getWinColor import get_windows_colorization_color
@@ -2515,13 +2580,26 @@ if __name__ == "__main__":
         ...
     
     
-    
+    try:
+        with open(os.path.join(DEFAULT_WORKSPACE, 'user.config'), 'r') as f:
+            settings = json.load(f)
+
+        glMajorVersion = settings.get('gl_major_version', 4)
+        glMinorVersion = settings.get('gl_minor_version', 6)
+        setOpenglFormat(glMajorVersion, glMinorVersion)
+    except:
+        glMajorVersion = 4
+        glMinorVersion = 6
+        setOpenglFormat(glMajorVersion, glMinorVersion)
+
+
+
     multiprocessing.freeze_support()
     app = QApplication(sys.argv)
 
     # setup_opengl_format()
 
-    App = App()
+    App = App(glMajorVersion, glMinorVersion)
 
     App.setWindowTitle(f'Batch3D Viewer {B3D_VERSION}{B3D_VERSION_SUFFIX} Build {B3D_BUILD}')
     App.setWindowIcon(QIcon('icon.ico'))
@@ -2533,7 +2611,7 @@ if __name__ == "__main__":
 
     if sys.platform == 'win32':
         import ctypes
-        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("myappid")
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("Batch3D.Batch3D.1.0")
         try:
             App.setAttribute(Qt.WA_TranslucentBackground)
             font = QFont([u'Microsoft Yahei UI'], 10)

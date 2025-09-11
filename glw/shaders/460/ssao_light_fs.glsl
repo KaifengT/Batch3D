@@ -1,5 +1,3 @@
-#version 460 core
-
 
 struct PointLight {
     vec3 position;

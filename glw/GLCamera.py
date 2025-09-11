@@ -104,7 +104,7 @@ class GLCamera(QObject):
         self.lockRotate = isLock
         
 
-    def setCamera(self, azimuth=0, elevation=50, distance=10, lookatPoint=np.array([0., 0., 0.,])) -> np.ndarray:
+    def setCamera(self, azimuth=135, elevation=-55, distance=10, lookatPoint=np.array([0., 0., 0.,])) -> np.ndarray:
         if self.controltype == self.controlType.trackball:
             self.azimuth=azimuth
             self.elevation=elevation

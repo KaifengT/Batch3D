@@ -1,4 +1,3 @@
-#version 460 core
 
 layout (location=0) in vec4 a_Position;
 layout (location=2) in vec3 a_Normal;
@@ -9,8 +8,8 @@ uniform mat4 u_mvpMatrix;
 uniform mat4 u_mvMatrix;
 uniform mat3 u_normalMatrix;
 
-layout (location = 0) out vec4 ViewPos;
-layout (location = 1) out vec4 ViewNormal;
+out vec4 ViewPos;
+out vec4 ViewNormal;
 
 
 void main() {

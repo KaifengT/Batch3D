@@ -1,6 +1,3 @@
-#version 460 core
-
-
 
 in vec4 ViewPos;
 in vec4 ViewNormal;

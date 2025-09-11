@@ -3,7 +3,7 @@
 ################################################################################
 ## Form generated from reading UI file 'ui_remote.ui'
 ##
-## Created by: Qt User Interface Compiler version 6.6.0
+## Created by: Qt User Interface Compiler version 6.9.1
 ##
 ## WARNING! All changes made in this file will be lost when recompiling UI file!
 ################################################################################
@@ -26,7 +26,7 @@ class Ui_RemoteWidget(object):
     def setupUi(self, RemoteWidget):
         if not RemoteWidget.objectName():
             RemoteWidget.setObjectName(u"RemoteWidget")
-        RemoteWidget.setWindowModality(Qt.ApplicationModal)
+        RemoteWidget.setWindowModality(Qt.WindowModality.ApplicationModal)
         RemoteWidget.resize(584, 596)
         RemoteWidget.setStyleSheet(u"\n"
 "border-top-left-radius: 2px;\n"
@@ -59,7 +59,7 @@ class Ui_RemoteWidget(object):
 
         self.lineEdit_passwd = LineEdit(RemoteWidget)
         self.lineEdit_passwd.setObjectName(u"lineEdit_passwd")
-        self.lineEdit_passwd.setEchoMode(QLineEdit.Password)
+        self.lineEdit_passwd.setEchoMode(QLineEdit.EchoMode.Password)
 
         self.horizontalLayout_2.addWidget(self.lineEdit_passwd)
 
@@ -105,14 +105,14 @@ class Ui_RemoteWidget(object):
         __qtablewidgetitem2.setTextAlignment(Qt.AlignTrailing|Qt.AlignVCenter);
         self.tableWidget.setHorizontalHeaderItem(2, __qtablewidgetitem2)
         self.tableWidget.setObjectName(u"tableWidget")
-        self.tableWidget.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
-        self.tableWidget.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        self.tableWidget.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self.tableWidget.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.tableWidget.setColumnCount(3)
         self.tableWidget.horizontalHeader().setVisible(True)
         self.tableWidget.horizontalHeader().setCascadingSectionResizes(True)
         self.tableWidget.horizontalHeader().setMinimumSectionSize(120)
         self.tableWidget.horizontalHeader().setDefaultSectionSize(270)
-        self.tableWidget.horizontalHeader().setProperty("showSortIndicator", True)
+        self.tableWidget.horizontalHeader().setProperty(u"showSortIndicator", True)
         self.tableWidget.horizontalHeader().setStretchLastSection(True)
         self.tableWidget.verticalHeader().setVisible(False)
 
@@ -120,7 +120,7 @@ class Ui_RemoteWidget(object):
 
         self.horizontalLayout_4 = QHBoxLayout()
         self.horizontalLayout_4.setObjectName(u"horizontalLayout_4")
-        self.horizontalSpacer = QSpacerItem(40, 20, QSizePolicy.Expanding, QSizePolicy.Minimum)
+        self.horizontalSpacer = QSpacerItem(40, 20, QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
 
         self.horizontalLayout_4.addItem(self.horizontalSpacer)
 
@@ -158,11 +158,15 @@ class Ui_RemoteWidget(object):
     def retranslateUi(self, RemoteWidget):
         RemoteWidget.setWindowTitle(QCoreApplication.translate("RemoteWidget", u"Remote Folder", None))
         self.lineEdit_host.setText("")
+        self.lineEdit_host.setPlaceholderText(QCoreApplication.translate("RemoteWidget", u"ip Address", None))
         self.lineEdit_port.setInputMask(QCoreApplication.translate("RemoteWidget", u"00000", None))
         self.lineEdit_port.setText(QCoreApplication.translate("RemoteWidget", u"22", None))
+        self.lineEdit_port.setPlaceholderText(QCoreApplication.translate("RemoteWidget", u"Port", None))
         self.lineEdit_username.setText(QCoreApplication.translate("RemoteWidget", u"root", None))
+        self.lineEdit_username.setPlaceholderText(QCoreApplication.translate("RemoteWidget", u"User Name", None))
         self.lineEdit_passwd.setInputMask("")
         self.lineEdit_passwd.setText("")
+        self.lineEdit_passwd.setPlaceholderText(QCoreApplication.translate("RemoteWidget", u"Password", None))
         self.pushButton_connect.setText(QCoreApplication.translate("RemoteWidget", u"Connect Server", None))
         self.pushButton_refresh.setText("")
         self.lineEdit_dir.setText(QCoreApplication.translate("RemoteWidget", u"/root", None))

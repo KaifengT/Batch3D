@@ -153,6 +153,11 @@ border-radius:10px;
              <string>File</string>
             </property>
            </column>
+           <column>
+            <property name="text">
+             <string>Modify Time</string>
+            </property>
+           </column>
           </widget>
          </item>
          <item>

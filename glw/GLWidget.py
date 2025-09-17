@@ -12,7 +12,7 @@ from OpenGL.GLU import *
 from OpenGL.GL import shaders
 from PySide6.QtOpenGLWidgets import QOpenGLWidget
 from typing import Tuple, Iterable, Optional, Union
-from .GLMesh import Mesh, PointCloud, Grid, Axis, BoundingBox, Lines, Arrow, BaseObject, FullScreenQuad, Sphere, UnionObject
+from .GLMesh import Mesh, PointCloud, Grid, Axis, BoundingBox, Lines, Arrow, BaseObject, FullScreenQuad, Sphere, UnionObject, Label, Character
 
 from PIL import Image
 from .GLCamera import GLCamera
@@ -916,6 +916,13 @@ class GLWidget(QOpenGLWidget):
                 gshader_path=f'./glw/shaders/{self.shaderFolder}/ssao_light_line_gs.glsl',
                 manualVersion=shaderVersion
             )
+            
+            self.textProg = self.buildShader(
+                vshader_path=f'./glw/shaders/{self.shaderFolder}/text_vs.glsl',
+                gshader_path=f'./glw/shaders/{self.shaderFolder}/text_gs.glsl',
+                fshader_path=f'./glw/shaders/{self.shaderFolder}/text_fs.glsl',
+                manualVersion=shaderVersion
+            )
 
             self.geoProgAttribList = ['a_Position', 'a_Normal']
             self.geoProgUniformList = ['u_pointSize', 'u_mvpMatrix', 'u_mvMatrix', 'u_normalMatrix']
@@ -940,6 +947,8 @@ class GLWidget(QOpenGLWidget):
                                         'u_screenSize',
                                         'u_pointSize','u_lineWidth',
             ]
+            
+            self.textProgUniformList = ['u_mvpMatrix', 'u_AlbedoTexture', 'u_screenSize', 'u_bearingAndSize', 'u_advance', 'u_fontSize', 'u_textColor']
 
             print('Shaders compiled successfully.')
 
@@ -950,6 +959,8 @@ class GLWidget(QOpenGLWidget):
             self.SSAOBlurProgLocMap = self._cacheShaderLocMap(self.SSAOBlurProg, self.coreBlurProgAttribList, self.blurProgUniformList)
 
             self.SSAOLightLineProgLocMap = self._cacheShaderLocMap(self.SSAOLightLineProg, self.lightProgAttribList, self.lightProgUniformList)
+            
+            self.textProgLocMap = self._cacheShaderLocMap(self.textProg, [], self.textProgUniformList)
 
             self.SSAOGeoFBO = FBOManager()
             self.SSAOCoreFBO = FBOManager()
@@ -994,8 +1005,23 @@ class GLWidget(QOpenGLWidget):
             locMap (dict): The location map for shader variables.
         '''
         for obj in self._objectList.values():
-            self._setGeoProgMVPMatrix(locMap, obj.transform, viewMatrix, projMatrix)
-            obj.render(locMap=locMap)
+            if not isinstance(obj, Label):
+                self._setGeoProgMVPMatrix(locMap, obj.transform, viewMatrix, projMatrix)
+                obj.render(locMap=locMap)
+                
+    def _renderLabels(self, locMap:dict, viewMatrix:np.ndarray, projMatrix:np.ndarray):
+        '''
+        A helper function to render all labels in the scene.
+        Args:
+            locMap (dict): The location map for shader variables.
+        '''
+        for obj in self._objectList.values():
+            if isinstance(obj, Label):
+                mvpMatrix = projMatrix @ viewMatrix @ obj.transform
+                glUniformMatrix4fv(locMap['u_mvpMatrix'], 1, GL_FALSE, mvpMatrix.T, None)
+                glUniform2f(locMap['u_screenSize'], float(self._rawWindowW), float(self._rawWindowH))
+                obj.render(locMap=locMap)
+                
 
     def _setGeoProgMVPMatrix(self, locMap:dict, modelMatrix:np.ndarray, viewMatrix:np.ndarray, projMatrix:np.ndarray):
         '''
@@ -1079,6 +1105,8 @@ class GLWidget(QOpenGLWidget):
         self.camera.setAspectRatio(float(self._scaledWindowW) / float(self._scaledWindowH))
         projMatrix = self.camera.updateProjTransform(isEmit=False)
         camtrans = self.camera.updateTransform(isEmit=False)
+        
+        self.camera.updateIntr(self._rawWindowH, self._rawWindowW)
         
         campos = np.linalg.inv(camtrans)[:3,3]
         
@@ -1189,25 +1217,26 @@ class GLWidget(QOpenGLWidget):
 
 
         for obj in self._objectList.values():
-            if not isinstance(obj, UnionObject):
-                if obj.renderType != GL_LINES:
-                    glUseProgram(self.SSAOLightProg)
-                    self._setLightProgMVPMatrix(self.SSAOLightProgLocMap, obj.transform, camtrans, projMatrix.T)
-                    obj.render(locMap=self.SSAOLightProgLocMap)
-                else:
-                    glUseProgram(self.SSAOLightLineProg)
-                    self._setLightProgMVPMatrix(self.SSAOLightLineProgLocMap, obj.transform, camtrans, projMatrix.T)
-                    obj.render(locMap=self.SSAOLightLineProgLocMap)
-            else:
-                for _obj in obj.objs:
-                    if _obj.renderType == GL_LINES:
-                        glUseProgram(self.SSAOLightLineProg)
-                        self._setLightProgMVPMatrix(self.SSAOLightLineProgLocMap, _obj.transform, camtrans, projMatrix.T)
-                        _obj.render(locMap=self.SSAOLightLineProgLocMap)
-                    else:
+            if not isinstance(obj, Label):
+                if not isinstance(obj, UnionObject):
+                    if obj.renderType != GL_LINES:
                         glUseProgram(self.SSAOLightProg)
-                        self._setLightProgMVPMatrix(self.SSAOLightProgLocMap, _obj.transform, camtrans, projMatrix.T)
-                        _obj.render(locMap=self.SSAOLightProgLocMap)
+                        self._setLightProgMVPMatrix(self.SSAOLightProgLocMap, obj.transform, camtrans, projMatrix.T)
+                        obj.render(locMap=self.SSAOLightProgLocMap)
+                    else:
+                        glUseProgram(self.SSAOLightLineProg)
+                        self._setLightProgMVPMatrix(self.SSAOLightLineProgLocMap, obj.transform, camtrans, projMatrix.T)
+                        obj.render(locMap=self.SSAOLightLineProgLocMap)
+                else:
+                    for _obj in obj.objs:
+                        if _obj.renderType == GL_LINES:
+                            glUseProgram(self.SSAOLightLineProg)
+                            self._setLightProgMVPMatrix(self.SSAOLightLineProgLocMap, _obj.transform, camtrans, projMatrix.T)
+                            _obj.render(locMap=self.SSAOLightLineProgLocMap)
+                        else:
+                            glUseProgram(self.SSAOLightProg)
+                            self._setLightProgMVPMatrix(self.SSAOLightProgLocMap, _obj.transform, camtrans, projMatrix.T)
+                            _obj.render(locMap=self.SSAOLightProgLocMap)
 
         # self._renderObjs(locMap=self.SSAOLightProgLocMap)
         
@@ -1232,6 +1261,16 @@ class GLWidget(QOpenGLWidget):
         if self._isAxisVisable:
             self._setLightProgMVPMatrix(self.SSAOLightLineProgLocMap, self.axis.transform, camtrans, projMatrix.T)
             self.axis.render(locMap=self.SSAOLightLineProgLocMap)
+
+
+
+        glUseProgram(self.textProg)
+        self._renderLabels(self.textProgLocMap, viewMatrix=camtrans, projMatrix=projMatrix.T)
+        
+        # mvpMatrix = projMatrix.T @ camtrans
+        # glUniformMatrix4fv(glGetUniformLocation(self.textProg, 'u_mvpMatrix'), 1, GL_FALSE, mvpMatrix.T, None)
+        # glUniform2f(glGetUniformLocation(self.textProg, 'u_screenSize'), float(self._rawWindowW), float(self._rawWindowH))
+        # self.testLabel.render(locMap=self.textProgLocMap)
 
 
         glDepthMask(GL_TRUE)
@@ -1286,12 +1325,24 @@ class GLWidget(QOpenGLWidget):
         Returns:
             uv (tuple): The UV coordinates.
         '''
-        camCoord = self.camera.CameraTransformMat @ p  
+        camCoord = self.camera.CameraTransformMat @ p
+        
+        # Handle different projection modes
+        if self.camera.projection_mode == self.camera.projectionMode.perspective:
+            ...
+
+        elif self.camera.projection_mode == self.camera.projectionMode.orthographic:
+            # Orthographic projection: no perspective division needed
+            camCoord[2] = -1.0
+
+        else:
+            raise ValueError(f'Unknown projection mode: {self.camera.projection_mode}')
+            
         projected_coordinates = self.camera.intr @ camCoord[:3]
         projected_coordinates = projected_coordinates[:2] / projected_coordinates[2]
         projected_coordinates[0] = (self._scaledWindowW * self.pixelRatio) - projected_coordinates[0]
         return int(projected_coordinates[1]//self.pixelRatio), int(projected_coordinates[0]//self.pixelRatio)
-
+        
 
     def UVtoWorldCoordinate(self, u:int, v:int, dis:float=10) -> np.ndarray:
         '''
@@ -1324,11 +1375,11 @@ class GLWidget(QOpenGLWidget):
         self.mouseClickPointinWorldCoordinate = self.camera.rayVector(mouseCoordinateinViewPortX, mouseCoordinateinViewPortY, dis=linerDepthValue)
         
         # if event.buttons() & Qt.RightButton:
-        #     transform = np.identity(4, dtype=np.float32)
-        #     transform[:3, 3] = self.mouseClickPointinWorldCoordinate[:3]
-        #     self.updateObject(ID=1, obj=Axis(
-        #         transform=transform,
-        #     ))
+            # transform = np.identity(4, dtype=np.float32)
+            # transform[:3, 3] = self.mouseClickPointinWorldCoordinate[:3]
+            # self.updateObject(ID=np.random.randint(1, 1000), obj=Label(
+            #     'clicked', position=self.mouseClickPointinWorldCoordinate[:3]
+            # ))
         
         if event.buttons() & Qt.RightButton:
             self.rightMouseClickSignal.emit(self.mouseClickPointinUV, self.mouseClickPointinWorldCoordinate)

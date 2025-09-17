@@ -787,6 +787,8 @@ class dataParser:
     def parseDict(k:str, v:dict):
         assert 'vertex' in v.keys(), 'mesh missing vertex(vertex)'
         assert 'face' in v.keys(), 'mesh missing face(face)'
+        assert hasattr(v['vertex'], 'shape'), 'mesh vertex must be numpy array'
+        assert hasattr(v['face'], 'shape'), 'mesh face must be numpy array'
         if v['vertex'].shape[-1] == 3:
             obj = Mesh(v['vertex'], v['face'])
         elif v['vertex'].shape[-1] in (6, 7):
@@ -796,7 +798,8 @@ class dataParser:
         elif v['vertex'].shape[-1] == 10:
             obj = Mesh(v['vertex'][..., :3], v['face'], color=v['vertex'][..., 3:7], norm=v['vertex'][..., 7:10])
         else:
-            assert 'vertex format error'
+            errShape = v['vertex'].shape
+            raise ValueError(f'Vertex format error: vertex shape must be (N, 3), (N, 6), (N, 7), (N, 9) or (N, 10) but got {errShape}')
 
         return obj, k, obj.mainColors, False
     

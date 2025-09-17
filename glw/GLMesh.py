@@ -13,6 +13,7 @@ from .utils.transformations import invHRT, rotation_matrix, rotationMatrixY, rpy
 from PIL import Image
 from trimesh.visual.material import SimpleMaterial, PBRMaterial
 from PySide6.QtGui import QOpenGLContext
+import freetype
 
 DEFAULT_COLOR3 = np.array([0.8, 0.8, 0.8], dtype=np.float32)
 DEFAULT_COLOR4 = np.array([0.8, 0.8, 0.8, 1.0], dtype=np.float32)
@@ -809,6 +810,15 @@ class BaseObject:
                             glActiveTexture(GL_TEXTURE0 + i)
                             glBindTexture(GL_TEXTURE_2D, param['data'])
                             glUniform1i(loc, i)
+                            
+                        elif param['type'] == 'vec3':
+                            glUniform3fv(loc, 1, param['data'], None)
+                            
+                        elif param['type'] == 'vec4':
+                            glUniform4fv(loc, 1, param['data'], None)
+                            
+                        elif param['type'] == 'vec2':
+                            glUniform2fv(loc, 1, param['data'], None)
 
             self.vao.bind()
             
@@ -1375,3 +1385,96 @@ class FullScreenQuad(BaseObject):
         
         self.setContextfromCurrent()
 
+
+class Character(BaseObject):
+    
+    def __init__(self, char:str, 
+                 face:freetype.Face, 
+                 pAdvance:float=0.0, 
+                 color:np.ndarray=np.array([0.8, 0.8, 0.8], dtype=np.float32),
+                 position:np.ndarray=np.array([0.0, 0.0, 0.0], dtype=np.float32),
+                 fontSize:float=1.0) -> None:
+        super().__init__()
+
+        face.load_char(char, freetype.FT_LOAD_RENDER | freetype.FT_LOAD_TARGET_NORMAL)
+
+        sizeX, sizeY = face.glyph.bitmap.width, face.glyph.bitmap.rows
+        bearingX, bearingY = face.glyph.bitmap_left, face.glyph.bitmap_top
+        self.advance = face.glyph.advance.x >> 6
+
+        self.materialParameter = BaseObject.getDefaultMaterialParameter()
+        
+        self.materialParameter.update(
+            {
+                'u_bearingAndSize': {'data': np.array([bearingX, bearingY, sizeX, sizeY], dtype=np.float32), 'type': 'vec4'},
+                'u_advance': {'data': pAdvance, 'type': 'float'},
+                'u_fontSize': {'data': fontSize, 'type': 'float'},
+                'u_textColor': {'data': color, 'type': 'vec3'}
+            }
+        )
+
+        
+        tid = glGenTextures(1)
+        glBindTexture(GL_TEXTURE_2D, tid)
+        glPixelStorei(GL_UNPACK_ALIGNMENT, 1)
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RED, face.glyph.bitmap.width, face.glyph.bitmap.rows, 0, GL_RED, GL_UNSIGNED_BYTE, face.glyph.bitmap.buffer)
+        glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR)
+        glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR)
+        glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE)
+        glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE)
+        glGenerateMipmap(GL_TEXTURE_2D)
+        glBindTexture(GL_TEXTURE_2D, 0)
+
+        self.materialParameter.update({'u_AlbedoTexture': {'data':tid, 'type':'texture'},
+                                'u_EnableAlbedoTexture': {'data': 1, 'type': 'int'}})
+
+        self.renderType = GL_POINTS
+        
+        self.vao.createVAO()
+        self.vao.bindVertexBuffer(0, position, 3)
+
+        self.setContextfromCurrent()
+
+    def getAdvance(self) -> float:
+        return self.advance
+
+class Label(BaseObject):
+    
+    face = freetype.Face('ui/SourceCodePro-Semibold.ttf')
+
+    def __init__(self, 
+                 string:str, 
+                 position:np.ndarray=np.array([0.0, 0.0, 0.0], dtype=np.float32),
+                 color:np.ndarray=np.array([0.8, 0.8, 0.8], dtype=np.float32),
+                 fontSize:float=1.0) -> None:
+        super().__init__()
+
+        self.renderType = GL_POINTS
+        self.string = string
+        self.characters:List[Character] = []
+        
+        self.color = color
+        self.position = position
+        self.fontSize = fontSize
+        
+        
+    def load(self):
+        
+        self.face.set_pixel_sizes(0, int(32*self.fontSize))
+        
+        pAdvance = 0.0
+        for char in self.string:
+            chObj = Character(char, self.face, pAdvance, self.color, self.position, 1.0)
+            pAdvance += chObj.getAdvance()
+            self.characters.append(chObj)
+            
+        self.setContextfromCurrent()
+
+    def render(self, locMap:dict={},):
+        for char in self.characters:
+            char.render(locMap)
+            
+
+
+    
+    

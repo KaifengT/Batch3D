@@ -616,14 +616,17 @@ class dataParser:
             
             dst = R @ src.T
         """
-        src = src / (linalg.norm(src, axis=-1, keepdims=True)) + np.array([0, 1e-5, 1e-5])
-        dst = dst / linalg.norm(dst, axis=-1, keepdims=True) 
+        src = src / (linalg.norm(src, axis=-1, keepdims=True) + 1e-7)
+        dst = dst / (linalg.norm(dst, axis=-1, keepdims=True) + 1e-7)
         y_ax = np.cross(src, dst, )
-        y_ax = y_ax / (linalg.norm(y_ax, axis=-1, keepdims=True))
+        y_ax = y_ax / (linalg.norm(y_ax, axis=-1, keepdims=True) + 1e-7)
+        y_ax = np.where(linalg.norm(y_ax, axis=-1, keepdims=True) < 1e-7, np.array([0, 1, 0]), y_ax)
+        
+        
         x_src_ax = np.cross(y_ax, src, )
-        x_src_ax = x_src_ax / (linalg.norm(x_src_ax, axis=-1, keepdims=True))
+        x_src_ax = x_src_ax / (linalg.norm(x_src_ax, axis=-1, keepdims=True) + 1e-7)
         x_dst_ax = np.cross(y_ax, dst, )
-        x_dst_ax = x_dst_ax / (linalg.norm(x_dst_ax, axis=-1, keepdims=True))
+        x_dst_ax = x_dst_ax / (linalg.norm(x_dst_ax, axis=-1, keepdims=True) + 1e-7)
         f_src = np.concatenate([x_src_ax[..., None], y_ax[..., None], src[..., None]], axis=-1) # (B, 3, 3)
         f_dst = np.concatenate([x_dst_ax[..., None], y_ax[..., None], dst[..., None]], axis=-1) # (B, 3, 3)
         f_src = np.transpose(f_src, [0, 2, 1])
@@ -639,16 +642,12 @@ class dataParser:
             color = color.repeat(12, axis=0).reshape(-1, color.shape[-1])
                         
         verctor_line = v[:, 1] - v[:, 0]
-        verctor_len = np.linalg.norm(verctor_line, axis=-1, keepdims=True)
-        vaild_mask = np.where(verctor_len > 1e-7)
-        v = v[vaild_mask[0]]
-        verctor_line = v[:, 1] - v[:, 0]
         
         nline = np.linalg.norm(verctor_line, axis=-1, keepdims=True)
-        
+        arrowSize = 0.05
         B = len(verctor_line)
         BR = dataParser._get_R_between_two_vec(np.array([[0, 0, 1]]).repeat(len(verctor_line), axis=0), verctor_line) # (B, 3, 3)
-        temp, normal, indices = Arrow.getTemplate(size=0.05) # (12, 3)
+        temp, normal, indices = Arrow.getTemplate(size=arrowSize) # (12, 3)
         numV = temp.shape[0]
         numI = indices.shape[0]
         temp = temp[None, ...].repeat(len(verctor_line), axis=0) # (B, 12, 3)
@@ -672,7 +671,9 @@ class dataParser:
         offsets = np.arange(0, len(verctor_line), 1, dtype=np.uint32).repeat(numI, axis=0)
         offsets *= numV
 
-        return Arrow(vertex=vertex, indices=indices+offsets[:, None], normal=normal, color=color)
+        arrowHeight = arrowSize * nline
+
+        return Arrow(vertex=vertex, indices=indices+offsets[:, None], normal=normal, color=color), arrowHeight
 
     @staticmethod
     def _rmnan(v):
@@ -705,17 +706,21 @@ class dataParser:
         
             
             v = v.reshape(-1, 2, 3)
-            lines = Lines(vertex=v, color=user_color, size=dataParser._isSizeinName(k))
             
             #-----# Arrow
             if arrow:
-                arrow = dataParser._getArrowfromLine(v, user_color)
+                arrow, height = dataParser._getArrowfromLine(v, user_color)
+                lineNormal = np.linalg.norm(v[:, 1] - v[:, 0], axis=-1, keepdims=True)
+                lineNormal = (v[:, 1] - v[:, 0]) / (lineNormal + 1e-7)
+                vSubArrow = v[:, 1] - lineNormal * height
+                vSubArrow = np.stack((v[:, 0], vSubArrow), axis=1)
+                lines = Lines(vertex=vSubArrow, color=user_color, size=dataParser._isSizeinName(k))
                 obj = UnionObject()
                 obj.add(arrow)
                 obj.add(lines)
                 
             else:
-                obj = lines
+                obj = Lines(vertex=v, color=user_color, size=dataParser._isSizeinName(k))
                 
 
         # -------- bounding box
@@ -750,7 +755,7 @@ class dataParser:
         elif len(v.shape) >= 2 and v.shape[-1] == 4 and v.shape[-2] == 4: # (..., 4, 4)
             v = v.reshape(-1, 4, 4)
             B = len(v)
-            length = 0.3
+            length = 1.0
             mat = v.repeat(3, axis=0)
             line_base = np.array([[length, 0, 0], 
                     [0, length, 0],

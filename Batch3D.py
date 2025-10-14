@@ -61,9 +61,9 @@ CONSOLE_HEIGHT = 250
 
 DEFAULT_SIZE = 3
 
-B3D_VERSION = '1.9.0'
+B3D_VERSION = '1.9.1'
 B3D_VERSION_SUFFIX = ' Beta'
-B3D_BUILD = '2508'
+B3D_BUILD = '2509'
 
 
 class MyFluentIcon(FluentIconBase, Enum):

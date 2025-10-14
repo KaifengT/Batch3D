@@ -69,7 +69,7 @@ void main()
 
     }
 
-    AO = 1.0 - (AO/float(u_kernelSize));
+    AO = 1.0 - ((AO/float(u_kernelSize)) / 4.0);
     // AO = 0.5;
     // vec3 A0_vec3 = vec3(pow(AO, 2.0));
 

@@ -5,7 +5,7 @@ import sys, os
 import traceback
 import numpy as np
 from PySide6.QtCore import (Qt, Signal, QPoint, QTimer)
-from PySide6.QtGui import (QColor, QWheelEvent, QMouseEvent, QSurfaceFormat, QFont)
+from PySide6.QtGui import (QColor, QWheelEvent, QMouseEvent, QSurfaceFormat, QFont, QOpenGLContext)
 from PySide6.QtWidgets import (QWidget, QFileDialog)
 from OpenGL.GL import *
 from OpenGL.GLU import *
@@ -470,10 +470,11 @@ class GLWidget(QOpenGLWidget):
         assert len(color) == 4, "Color must be a tuple of 4 floats (R, G, B, A) in range 0-1."
         if all(0 <= c <= 1. for c in color):
             self._bgColor = color
-            print(f'Setting background color to: {self._bgColor}')
-            self.makeCurrent()
-            glClearColor(*self._bgColor)
-            self.update()
+            # print(f'Setting background color to: {self._bgColor}')
+            if isinstance(self.context(), QOpenGLContext) and self.context().isValid():
+                self.makeCurrent()
+                glClearColor(*self._bgColor)
+                self.update()
         else:
             raise ValueError("Color values must be in the range 0-1.")
 
@@ -657,7 +658,7 @@ class GLWidget(QOpenGLWidget):
         self._glRenderMode = mode
         self.update()
 
-    def buildShader(self, vshader_path:str, fshader_path:str, gshader_path:Optional[str]=None, manualVersion:str='420 core') -> int:
+    def buildShader(self, vshader_path:str, fshader_path:str, gshader_path:Optional[str]=None, manualVersion:str='420 core', validate=True) -> int:
         '''
         Compile and link the vertex and fragment shaders.
         Args:
@@ -679,9 +680,9 @@ class GLWidget(QOpenGLWidget):
             if gshader_path is not None:
                 gshader_src = f'#version {manualVersion}\n' + open(gshader_path, encoding='utf-8').read()
                 gshader = shaders.compileShader(gshader_src, GL_GEOMETRY_SHADER)
-                program = shaders.compileProgram(vshader, gshader, fshader)
+                program = shaders.compileProgram(vshader, gshader, fshader, validate=validate)
             else:
-                program = shaders.compileProgram(vshader, fshader)
+                program = shaders.compileProgram(vshader, fshader, validate=validate)
             return program
         
         except Exception as e:
@@ -888,40 +889,46 @@ class GLWidget(QOpenGLWidget):
             shaderVersion = f'{glMajorVersion}{glMinorVersion}0 core'
             print(f'OpenGL shader version: {shaderVersion}')
             self.shaderFolder = '460'
-            # _version = '120'
+
             self.SSAOGeoProg = self.buildShader(
                 vshader_path=f'./glw/shaders/{self.shaderFolder}/ssao_geo_vs.glsl',
                 fshader_path=f'./glw/shaders/{self.shaderFolder}/ssao_geo_fs.glsl',
-                manualVersion=shaderVersion
+                manualVersion=shaderVersion,
+                validate=not sys.platform == 'darwin'
             )
             self.SSAOCoreProg = self.buildShader(
                 vshader_path=f'./glw/shaders/{self.shaderFolder}/ssao_core_vs.glsl',
                 fshader_path=f'./glw/shaders/{self.shaderFolder}/ssao_core_fs.glsl',
-                manualVersion=shaderVersion
+                manualVersion=shaderVersion,
+                validate=not sys.platform == 'darwin'
             )
             self.SSAOBlurProg = self.buildShader(
                 vshader_path=f'./glw/shaders/{self.shaderFolder}/ssao_blur_vs.glsl',
                 fshader_path=f'./glw/shaders/{self.shaderFolder}/ssao_blur_fs.glsl',
-                manualVersion=shaderVersion
+                manualVersion=shaderVersion,
+                validate=not sys.platform == 'darwin'
             )
             self.SSAOLightProg = self.buildShader(
                 vshader_path=f'./glw/shaders/{self.shaderFolder}/ssao_light_vs.glsl',
                 fshader_path=f'./glw/shaders/{self.shaderFolder}/ssao_light_fs.glsl',
-                manualVersion=shaderVersion
+                manualVersion=shaderVersion,
+                validate=not sys.platform == 'darwin'
             )
 
             self.SSAOLightLineProg = self.buildShader(
                 vshader_path=f'./glw/shaders/{self.shaderFolder}/ssao_light_line_vs.glsl',
                 fshader_path=f'./glw/shaders/{self.shaderFolder}/ssao_light_fs.glsl',
                 gshader_path=f'./glw/shaders/{self.shaderFolder}/ssao_light_line_gs.glsl',
-                manualVersion=shaderVersion
+                manualVersion=shaderVersion,
+                validate=not sys.platform == 'darwin'
             )
             
             self.textProg = self.buildShader(
                 vshader_path=f'./glw/shaders/{self.shaderFolder}/text_vs.glsl',
                 gshader_path=f'./glw/shaders/{self.shaderFolder}/text_gs.glsl',
                 fshader_path=f'./glw/shaders/{self.shaderFolder}/text_fs.glsl',
-                manualVersion=shaderVersion
+                manualVersion=shaderVersion,
+                validate=not sys.platform == 'darwin'
             )
 
             self.geoProgAttribList = ['a_Position', 'a_Normal']

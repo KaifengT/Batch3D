@@ -61,9 +61,12 @@ CONSOLE_HEIGHT = 250
 
 DEFAULT_SIZE = 3
 
-B3D_VERSION = '1.9.1'
+B3D_VERSION = '1.9.2'
 B3D_VERSION_SUFFIX = ' Beta'
-B3D_BUILD = '2509'
+B3D_BUILD = '2510'
+
+DEFAULT_LIGHT_BG = (0.9, 0.9, 0.9, 1.0)
+DEFAULT_DARK_BG = (0.1, 0.1, 0.1, 1.0)
 
 
 class MyFluentIcon(FluentIconBase, Enum):
@@ -122,7 +125,8 @@ class RemoteUI(QDialog):
         super().__init__(parent,)
         self.ui = Ui_RemoteWidget()
         self.ui.setupUi(self)
-        self.setAttribute(Qt.WA_TranslucentBackground)
+        if sys.platform == 'win32':
+            self.setAttribute(Qt.WA_TranslucentBackground)
         # self.setWindowFlags(Qt.FramelessWindowHint)
 
         self.ui.pushButton_go.setIcon(FIF.RIGHT_ARROW)
@@ -2104,14 +2108,18 @@ class App(QMainWindow):
 
                 self.scriptModules = set(sys.modules.keys()) - self.sysModules
 
-                if sys.platform == 'win32':
-                    for item_name, item_instance in self.script_namespace.items():
-                        if isinstance(item_instance, QWidget) and item_instance.isWindow():
+
+                for item_name, item_instance in self.script_namespace.items():
+                    if isinstance(item_instance, QWidget) and item_instance.isWindow():
+                        if sys.platform == 'win32':
                             hwnd = item_instance.winId()
                             if hwnd != 0:
                                 self.applyMicaTheme(hwnd, self.tgtMicaStyle)
                             
                             item_instance.setStyleSheet("background-color: #00000000;")
+                        else:
+                            color = DEFAULT_LIGHT_BG if qconfig.theme == Theme.LIGHT else DEFAULT_DARK_BG
+                            item_instance.setStyleSheet("background-color: rgb({}, {}, {});".format(int(color[0]*255), int(color[1]*255), int(color[2]*255)))
                 
             except Exception as e:
                 exc_type, exc_value, exc_tb = sys.exc_info()
@@ -2255,24 +2263,32 @@ class App(QMainWindow):
             label_info_color = '#202020'
             tool_color = '#FEFEFE'
             shadow_color = '#808080'
+            if sys.platform == 'win32':
+                bg = '#00000000'
+            else:
+                bg = f'rgb({int(DEFAULT_LIGHT_BG[0]*255)}, {int(DEFAULT_LIGHT_BG[1]*255)}, {int(DEFAULT_LIGHT_BG[2]*255)})'
         else:
             label_info_color = '#FEFEFE'
             tool_color = '#201e1c'
             shadow_color = '#101010'
+            if sys.platform == 'win32':
+                bg = '#00000000'
+            else:
+                bg = f'rgb({int(DEFAULT_DARK_BG[0]*255)}, {int(DEFAULT_DARK_BG[1]*255)}, {int(DEFAULT_DARK_BG[2]*255)})'
         
         self.ui.label_info.setStyleSheet(
             '''
             QTextBrowser
                 {{
-                    background-color: #00000000;
+                    background-color: {0};
                     
                     border-radius: 6px;
                     border: 0px;
                     font: 1000 8pt;
                     
-                    color: {0};
+                    color: {1};
                 }}
-            '''.format(label_info_color)
+            '''.format(bg, label_info_color)
         )
         
         self.ui.tool.setStyleSheet(
@@ -2321,6 +2337,13 @@ class App(QMainWindow):
             self.applyMicaTheme(self.remoteUI.winId(), self.tgtMicaStyle)
             self.applyMicaTheme(self.fileDetailUI.winId(), self.tgtMicaStyle)
             self.applyMicaTheme(self.winId(), self.tgtMicaStyle)
+            
+        else:
+            bg = DEFAULT_LIGHT_BG if theme == Theme.LIGHT else DEFAULT_DARK_BG
+            self.ui.openGLWidget.setBackgroundColor(bg)
+            self.remoteUI.setStyleSheet(f"background-color: rgb({int(bg[0]*255)}, {int(bg[1]*255)}, {int(bg[2]*255)});")
+
+
 
         self.dragWidget1.setTheme(theme)
         self.dragWidget2.setTheme(theme)

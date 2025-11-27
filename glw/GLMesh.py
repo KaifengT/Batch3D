@@ -20,7 +20,7 @@ DEFAULT_COLOR4 = np.array([0.8, 0.8, 0.8, 1.0], dtype=np.float32)
 class colorManager:
     _color =  np.array([    
         # [217, 217, 217], # rgb(217, 217, 217),
-        [233, 119, 119], # rgb(233, 119, 119),
+        [248, 104, 104], # rgb(248, 104, 104),
         [65 , 157, 129], # rgb(65 , 157, 129),
         [156, 201, 226], # rgb(156, 201, 226),
         [228, 177, 240], # rgb(228, 177, 240),
@@ -1210,9 +1210,10 @@ class Lines(BaseObject):
 
         self.transform = transform
 
-        
+        self.color = self.checkColor(vertex.shape, color)
+                        
         self.vertex = vertex.reshape(-1, 3)
-        self.color = self.checkColor(self.vertex.shape, color)
+        self.color = self.color.reshape(-1, self.color.shape[-1])
                         
         self.renderType = GL_LINES
         self.size = size

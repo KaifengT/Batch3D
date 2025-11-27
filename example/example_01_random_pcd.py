@@ -11,8 +11,8 @@ from b3d import b3d
 pcd = np.random.rand(20000, 3) 
 pcd2 = np.random.rand(20000, 6) 
 
-lines = np.random.rand(100, 2, 3)
-bboxs = np.random.rand(8, 3)
+lines = np.random.rand(100, 2, 7)
+bboxs = np.random.rand(8, 6)
 
 b3d.add({'pointcloud_#FF0000DD_&10':pcd,
                 'colored_pcd':pcd2,

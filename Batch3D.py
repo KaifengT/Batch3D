@@ -641,9 +641,6 @@ class dataParser:
     def _getArrowfromLine(v:np.ndarray, color:np.ndarray):
         
         
-        if hasattr(color, 'ndim') and color.ndim > 1:
-            color = color[..., 1, :]
-            color = color.repeat(12, axis=0).reshape(-1, color.shape[-1])
                         
         verctor_line = v[:, 1] - v[:, 0]
         
@@ -676,6 +673,10 @@ class dataParser:
         offsets *= numV
 
         arrowHeight = arrowSize * nline
+
+        if hasattr(color, 'ndim') and color.ndim > 1:
+            color = color[..., 1, :]
+            color = color.repeat(numV, axis=0).reshape(-1, color.shape[-1])
 
         return Arrow(vertex=vertex, indices=indices+offsets[:, None], normal=normal, color=color), arrowHeight
 

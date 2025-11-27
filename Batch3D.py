@@ -90,10 +90,10 @@ class cellWidget(QTableWidgetItem):
         super().__init__(text,)
 
 
-class sortableCellWidget(QTableWidgetItem):
-    def __init__(self, text: str) -> None:
+class sortableCellWidget(cellWidget):
+    def __init__(self, text: str, **kwargs) -> None:
         self.sortData = None
-        super().__init__(text,)
+        super().__init__(text, **kwargs)
         
     def setSortData(self, data):
         self.sortData = data
@@ -103,8 +103,22 @@ class sortableCellWidget(QTableWidgetItem):
     def __lt__(self, other):
         
         if self.sortData is not None and hasattr(other, 'sortData') and other.sortData is not None:
-            return self.sortData < other.sortData
+            
+            
+            if other.sortData == '##ALWAYS_TOP##':
+                return False
+            if self.sortData == '##ALWAYS_TOP##':
+                return False
+            
+            
+            if self.isdir != other.isdir:
+                return False  # directories always on top
+            
+            idx = natsort.index_natsorted([self.sortData, other.sortData])
+            return idx[0] == 0
+        
         else:
+            print('sortableCellWidget: sortData is None, fallback to text comparison')
             return super().__lt__(other)
 
 
@@ -237,6 +251,7 @@ class RemoteUI(QDialog):
     def setFolderContents(self, files_dict:dict, dirname:str):
         self.ui.tableWidget.setRowCount(0)
         self.ui.tableWidget.scrollToTop()
+        self.ui.tableWidget.setSortingEnabled(False)
         # self.ui.tableWidget.setHorizontalHeaderLabels([dirname])
         self.ui.lineEdit_dir.setText(dirname)
 
@@ -252,15 +267,20 @@ class RemoteUI(QDialog):
         for k, v in files_dict.items():
             self.ui.tableWidget.insertRow(0)
             
+            
+            event_widget = sortableCellWidget(k, fullpath=dirname.rstrip('/') + '/' + k, isRemote=True, isdir=v['isdir'])
+            event_widget.setSortData(k)            
+            
             if v['isdir']:
-                event_widget = cellWidget(k, dirname.rstrip('/') + '/' + k, True, True)
                 event_widget.setIcon(MyFluentIcon.Folder.qicon())
-                size_weight = QTableWidgetItem('--')
+                _size = '--'
+                size_weight = sortableCellWidget(_size, isRemote=True, isdir=True)
+                size_weight.setSortData(-1)
 
             else:
-                event_widget = cellWidget(k, dirname.rstrip('/') + '/' + k, True, False)
                 event_widget.setIcon(MyFluentIcon.File.qicon())
-                size_weight = sortableCellWidget(self.bytestoReadable(v['size']))
+                _size = self.bytestoReadable(v['size'])                
+                size_weight = sortableCellWidget(_size, isRemote=True, isdir=False)
                 size_weight.setSortData(v['size'])
                 
             event_widget.setToolTip('Remote Path:' + '\n' + event_widget.fullpath)
@@ -268,16 +288,31 @@ class RemoteUI(QDialog):
             size_weight.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
             readabletime = humanTimeDiff(v['mtime'])
             strtime = v['mtime'].strftime('%Y-%m-%d %H:%M')
-            mtime_weight = sortableCellWidget(readabletime)
+            
+            
+            mtime_weight = sortableCellWidget(readabletime, isRemote=True, isdir=v['isdir'])
             mtime_weight.setSortData(strtime)
             
             self.ui.tableWidget.setItem(0, 0, event_widget)
-            self.ui.tableWidget.setItem(0, 2, size_weight)
             self.ui.tableWidget.setItem(0, 1, mtime_weight)
+            self.ui.tableWidget.setItem(0, 2, size_weight)
+            
+            # print(k, 't', mtime_weight.text(), 's', size_weight.text(), 'dir', v['isdir'])
+            
             
         self.ui.tableWidget.insertRow(0)
-        event_widget = cellWidget('..', os.path.dirname(dirname), True, True)
+        event_widget = sortableCellWidget('..', fullpath=os.path.dirname(dirname), isRemote=True, isdir=True)
+        event_widget.setSortData('##ALWAYS_TOP##')
+        mtime_weight = sortableCellWidget('', fullpath=os.path.dirname(dirname), isRemote=True, isdir=True)
+        mtime_weight.setSortData('##ALWAYS_TOP##')
+        size_weight = sortableCellWidget('', fullpath=os.path.dirname(dirname), isRemote=True, isdir=True)
+        size_weight.setSortData('##ALWAYS_TOP##')
+
         self.ui.tableWidget.setItem(0, 0, event_widget)
+        self.ui.tableWidget.setItem(0, 1, mtime_weight)
+        self.ui.tableWidget.setItem(0, 2, size_weight)
+        
+        self.ui.tableWidget.setSortingEnabled(True)
         
     def showInfo(self, data:dict):
         
@@ -1050,6 +1085,7 @@ class App(QMainWindow):
         
         self.ui.tableWidget_obj.setBorderVisible(True)
         self.ui.tableWidget_obj.setBorderRadius(6)
+        self.ui.tableWidget_obj.setSortingEnabled(False)
 
         self.ui.tableWidget.setBorderVisible(True)
         self.ui.tableWidget.setBorderRadius(6)
@@ -1270,7 +1306,7 @@ class App(QMainWindow):
             else:
                 self.currentPath = QFileDialog.getExistingDirectory(self,"Select Folder",'./') # 起始路径
         
-        # print(self.currentPath)
+        self.ui.tableWidget.setSortingEnabled(False)
         if len(self.currentPath) and os.path.exists(self.currentPath):
             filelist = os.listdir(self.currentPath)
             filelist = natsort.natsorted(filelist, )
@@ -1281,6 +1317,8 @@ class App(QMainWindow):
                 stat_info = os.stat(fp)
                 dt = datetime.datetime.fromtimestamp(stat_info.st_mtime) # .strftime('%Y-%m-%d %H:%M')
                 self.addFiletoTable(f, fp, mtime=dt)
+                
+        self.ui.tableWidget.setSortingEnabled(True)
 
         if self.ui.tableWidget.rowCount() > 0:
             self.ui.tableWidget.blockSignals(True)
@@ -1298,10 +1336,10 @@ class App(QMainWindow):
 
 
         self.ui.tableWidget.setRowCount(0)
-
+        self.ui.tableWidget.setSortingEnabled(False)
         for k, v in filelist.items():
             self.addFiletoTable(k, dirname + '/' + k, isRemote=True, mtime=v.get('mtime', datetime.datetime.fromtimestamp(0)))
-
+        self.ui.tableWidget.setSortingEnabled(True)
         self.currentPath = DEFAULT_WORKSPACE
         
         if self.ui.tableWidget.rowCount() > 0:
@@ -1363,8 +1401,9 @@ class App(QMainWindow):
 
             self.ui.tableWidget.insertRow(0)
             
-            event_widget = cellWidget(text, filepath, isRemote=isRemote)
+            event_widget = sortableCellWidget(text, fullpath=filepath, isRemote=isRemote)
             event_widget.setIcon(MyFluentIcon.File.qicon())
+            event_widget.setSortData(text)
             event_widget.setToolTip('Double click to Reload' + '\n' + filepath)
             self.ui.tableWidget.setItem(0, 0, event_widget)
             

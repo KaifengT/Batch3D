@@ -732,7 +732,7 @@ class dataParser:
         
         
         # print(k, ':', v.nbytes, 'bytes')
-        assert v.nbytes < 1e8, 'array too large, must slice to show'
+        # assert v.nbytes < 1e8, 'array too large, must slice to show'
         
         n_color = dataParser._decode_HexColor_to_RGB(dataParser._isHexColorinName(k))
         user_color = n_color if n_color is not None else cm.get_next_color()

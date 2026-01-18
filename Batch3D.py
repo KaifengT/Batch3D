@@ -1826,21 +1826,29 @@ class App(QMainWindow):
             if isinstance(obj, dict):
                 
                 for k, v in obj.items():
-                    k = str(k)
-                            
-                    if isinstance(v, dict):
-                        _v, _k, _c, _isadj = dataParser.parseDict(k, v)
-                        
-                    elif isinstance(v, (trimesh.parent.Geometry3D)):
-                        _v, _k, _c, _isadj = dataParser.parseTrimesh(k, v, cm=self.colormanager)
                     
-                    elif hasattr(v, 'shape'):
-                        _v, _k, _c, _isadj = dataParser.parseArray(k, v, cm=self.colormanager, arrow=self.ui.checkBox_arrow.isChecked())
-
+                    try:
+                    
+                        k = str(k)
+                                
+                        if isinstance(v, dict):
+                            _v, _k, _c, _isadj = dataParser.parseDict(k, v)
+                            
+                        elif isinstance(v, (trimesh.parent.Geometry3D)):
+                            _v, _k, _c, _isadj = dataParser.parseTrimesh(k, v, cm=self.colormanager)
                         
-                    if _v:
-                        self.ui.openGLWidget.updateObject(ID=_k, obj=_v)
-                        self.add2ObjPropsTable(_v, _k, _v.mainColors, _isadj)
+                        elif hasattr(v, 'shape'):
+                            _v, _k, _c, _isadj = dataParser.parseArray(k, v, cm=self.colormanager, arrow=self.ui.checkBox_arrow.isChecked())
+
+                            
+                        if _v:
+                            self.ui.openGLWidget.updateObject(ID=_k, obj=_v)
+                            self.add2ObjPropsTable(_v, _k, _v.mainColors, _isadj)
+                            
+                    except:
+                        traceback.print_exc()
+                        exc_type, exc_value, exc_traceback = sys.exc_info()
+                        self.popMessage(f'object load error: {k}', str(exc_value), 'warning')
                     
             else:
                 raise ValueError(f'Unsupported object type: {type(obj)}')
@@ -1891,7 +1899,8 @@ class App(QMainWindow):
         obj = self.getWorkspaceObj()
         obj.update(rnnewobj)
         self._loadObjUpdate(obj, keys=list(rnnewobj.keys()))
-                
+          
+    # Deprecated  
     def _loadObj_Thread(self, fullpath:str|dict|list[str]|tuple[str], extName='', setWorkspace=True):
 
         
@@ -1988,28 +1997,36 @@ class App(QMainWindow):
             if isinstance(obj, dict):
                 
                 for k, v in obj.items():
-                    k = str(k)
-                    if keys is not None and k not in keys:
-                        continue
                     
-                    # store deleted keys
-                    if v is None:
-                        self.ui.openGLWidget.updateObject(ID=k, obj=None)
-                        _delete.append(k)
-                        continue
-                            
-                    if isinstance(v, dict):
-                        _v, _k, _c, _isadj = dataParser.parseDict(k, v)
+                    try:
+                    
+                        k = str(k)
+                        if keys is not None and k not in keys:
+                            continue
                         
-                    elif isinstance(v, (trimesh.parent.Geometry3D)):
-                        _v, _k, _c, _isadj = dataParser.parseTrimesh(k, v, cm=self.colormanager)
-                    
-                    elif hasattr(v, 'shape'):
-                        _v, _k, _c, _isadj = dataParser.parseArray(k, v, cm=self.colormanager, arrow=self.ui.checkBox_arrow.isChecked())
+                        # store deleted keys
+                        if v is None:
+                            self.ui.openGLWidget.updateObject(ID=k, obj=None)
+                            _delete.append(k)
+                            continue
+                                
+                        if isinstance(v, dict):
+                            _v, _k, _c, _isadj = dataParser.parseDict(k, v)
+                            
+                        elif isinstance(v, (trimesh.parent.Geometry3D)):
+                            _v, _k, _c, _isadj = dataParser.parseTrimesh(k, v, cm=self.colormanager)
+                        
+                        elif hasattr(v, 'shape'):
+                            _v, _k, _c, _isadj = dataParser.parseArray(k, v, cm=self.colormanager, arrow=self.ui.checkBox_arrow.isChecked())
 
-                    if _v:
-                        self.ui.openGLWidget.updateObject(ID=_k, obj=_v)
-                        self.add2ObjPropsTable(_v, _k, _v.mainColors, _isadj)
+                        if _v:
+                            self.ui.openGLWidget.updateObject(ID=_k, obj=_v)
+                            self.add2ObjPropsTable(_v, _k, _v.mainColors, _isadj)
+                            
+                    except:
+                        traceback.print_exc()
+                        exc_type, exc_value, exc_traceback = sys.exc_info()
+                        self.popMessage(f'object load error: {k}', str(exc_value), 'warning')
                     
             else:
                 raise ValueError(f'Unsupported object type: {type(obj)}')

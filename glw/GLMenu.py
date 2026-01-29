@@ -15,7 +15,8 @@ class GLSettingWidget(QObject):
 
 
     def __init__(self, parent=None, 
-                 render_mode_callback=None, 
+                 render_mode_callback=None,
+                 flat_shading_callback=None, 
                  camera_control_callback=None, 
                  camera_persp_callback=None,
                  camera_view_callback=None,
@@ -35,6 +36,7 @@ class GLSettingWidget(QObject):
         
         self.parent = parent
         self.render_mode_callback = render_mode_callback
+        self.flat_shading_callback = flat_shading_callback
         self.camera_control_callback = camera_control_callback
         self.camera_persp_callback = camera_persp_callback
         self.camera_view_callback = camera_view_callback
@@ -99,9 +101,9 @@ class GLSettingWidget(QObject):
         
         
         
-        
         frame.layout().addWidget(BodyLabel("Render Mode", parent=self.gl_setting_Menu))
         frame.layout().addWidget(self.gl_render_mode_combobox)
+        
         frame.layout().addWidget(BodyLabel("Camera Control", parent=self.gl_setting_Menu))
         frame.layout().addWidget(self.gl_camera_control_combobox)
         frame.layout().addWidget(BodyLabel("Camera Projection", parent=self.gl_setting_Menu))
@@ -164,6 +166,22 @@ class GLSettingWidget(QObject):
         
         self.gl_setting_Menu.addSeparator()
         
+
+        
+        
+        self.flat_shading_toggle = SwitchButton(parent=self.gl_setting_Menu)
+        self.flat_shading_toggle.setChecked(False)
+        self.flat_shading_toggle.checkedChanged.connect(self._on_flat_shading_changed)
+
+        frame = QFrame()
+        fs_layout = QHBoxLayout()
+        fs_layout.setContentsMargins(0, 10, 0, 10)
+        fs_layout.addWidget(BodyLabel("Flat Shading", parent=self.gl_setting_Menu))
+        fs_layout.addItem(QSpacerItem(40, 20, QSizePolicy.Expanding, QSizePolicy.Minimum))
+        fs_layout.addWidget(self.flat_shading_toggle)
+        frame.setLayout(fs_layout)
+        frame.adjustSize()
+        self.gl_setting_Menu.addWidget(frame, selectable=False)
         
         
         frame = QFrame()
@@ -292,6 +310,10 @@ class GLSettingWidget(QObject):
         if self.render_mode_callback:
             self.render_mode_callback(mode)
     
+    def _on_flat_shading_changed(self, checked):
+        if self.flat_shading_callback:
+            self.flat_shading_callback(checked)
+
     def _on_camera_control_changed(self, index):
         if self.camera_control_callback:
             self.camera_control_callback(index)
@@ -378,6 +400,7 @@ class GLSettingWidget(QObject):
             'grid_visible': self.grid_control_toggle.isChecked(),
             'axis_visible': self.axis_control_toggle.isChecked(),
             'axis_length': self.axis_size_slider.value(),
+            'flat_shading': self.flat_shading_toggle.isChecked(),
             'ssao_enabled': self.enable_ssao_toggle.isChecked(),
             'ssao_kernel_size': self.ssao_kernel_size_spinbox.value(),
             'ssao_strength': self.ssao_strength_spinbox.value()
@@ -410,6 +433,6 @@ class GLSettingWidget(QObject):
         self.axis_control_toggle.setChecked(settings.get('axis_visible', self.axis_control_toggle.isChecked()))
         self.axis_size_slider.setValue(settings.get('axis_length', self.axis_size_slider.value()))
         self.enable_ssao_toggle.setChecked(settings.get('ssao_enabled', self.enable_ssao_toggle.isChecked()))
-
+        self.flat_shading_toggle.setChecked(settings.get('flat_shading', self.flat_shading_toggle.isChecked()))
         self.ssao_kernel_size_spinbox.setValue(settings.get('ssao_kernel_size', self.ssao_kernel_size_spinbox.value()))
         self.ssao_strength_spinbox.setValue(settings.get('ssao_strength', self.ssao_strength_spinbox.value()))

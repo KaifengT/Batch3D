@@ -14,6 +14,15 @@ from PySide6.QtOpenGLWidgets import QOpenGLWidget
 from typing import Tuple, Iterable, Optional, Union
 from .GLMesh import Mesh, PointCloud, Grid, Axis, BoundingBox, Lines, Arrow, BaseObject, FullScreenQuad, Sphere, UnionObject, Label, Character
 
+try:
+    from OpenGL.GL import glBlendFunci, glBlendFuncSeparatei
+except ImportError:
+    try:
+        from OpenGL.GL.ARB.draw_buffers_blend import glBlendFunciARB as glBlendFunci
+        from OpenGL.GL.ARB.draw_buffers_blend import glBlendFuncSeparateiARB as glBlendFuncSeparatei
+    except ImportError:
+        pass
+
 from PIL import Image
 from .GLCamera import GLCamera
 from .GLMenu import GLSettingWidget
@@ -414,9 +423,12 @@ class GLWidget(QOpenGLWidget):
         self.smallGrid = Grid(n=510, scale=0.1)
         self.axis = Axis()
         
+        self._flatShading = 0
+
         self.glSettings = GLSettingWidget(
             parent=self,
             render_mode_callback=self.setRenderMode,
+            flat_shading_callback=self.setFlatShading,
             camera_control_callback=self.setCameraControl,
             camera_persp_callback=self.setCameraPerspMode,
             camera_view_callback=self.setCameraViewPreset,
@@ -558,7 +570,7 @@ class GLWidget(QOpenGLWidget):
                 6: Free View
         """
         if preset > 5:
-            self.resetCamera()
+            self.grid.setMode(preset)
             self.camera.setProjectionMode(GLCamera.projectionMode.perspective)
             self.glCameraPerpCombobox.setCurrentItem('0')
             self.camera.setLockRotate(False)
@@ -658,6 +670,15 @@ class GLWidget(QOpenGLWidget):
         self._glRenderMode = mode
         self.update()
 
+    def setFlatShading(self, enable:bool=False):
+        '''
+        Set Flat Shading
+        Args:
+            enable (bool): Whether to enable flat shading.
+        '''
+        self._flatShading = 1 if enable else 0
+        self.update()
+
     def buildShader(self, vshader_path:str, fshader_path:str, gshader_path:Optional[str]=None, manualVersion:str='420 core', validate=True) -> int:
         '''
         Compile and link the vertex and fragment shaders.
@@ -686,7 +707,7 @@ class GLWidget(QOpenGLWidget):
             return program
         
         except Exception as e:
-            print(f"Error compiling/linking shaders: {e}")
+            print(f"Error compiling/linking shaders: {vshader_path} and {fshader_path} \n reason: \n {e}")
             traceback.print_exc()
             return None
 
@@ -811,7 +832,7 @@ class GLWidget(QOpenGLWidget):
             
             self.update()
 
-    def setLights(self, lights:Optional[list[PointLight]]=None):
+    def setLights(self, program, locmap, lights:Optional[list[PointLight]]=None):
         """
         Set the point lights for the scene.
         Args:
@@ -822,16 +843,17 @@ class GLWidget(QOpenGLWidget):
         lights = lights if lights is not None else self.defaultLights
         numLights = min(len(lights), 5)
         
-        if hasattr(self, 'SSAOLightProg') and self.SSAOLightProg is not None:
+        # if hasattr(self, 'SSAOLightProg') and self.SSAOLightProg is not None:
+        if program is not None:
             self.makeCurrent()
             
-            glUseProgram(self.SSAOLightProg)
+            glUseProgram(program)
 
             for i in range(numLights):
-                glUniform3f(self.SSAOLightProgLocMap[f'u_Lights[{i}].position'], *lights[i].position)
-                glUniform3f(self.SSAOLightProgLocMap[f'u_Lights[{i}].color'],    *lights[i].color)
+                glUniform3f(locmap[f'u_Lights[{i}].position'], *lights[i].position)
+                glUniform3f(locmap[f'u_Lights[{i}].color'],    *lights[i].color)
 
-            glUniform1i(self.SSAOLightProgLocMap['u_NumLights'], numLights)
+            glUniform1i(locmap['u_NumLights'], numLights)
             glUseProgram(0)
             self.update()
 
@@ -923,6 +945,28 @@ class GLWidget(QOpenGLWidget):
                 validate=not sys.platform == 'darwin'
             )
             
+            self.OITAccumProg = self.buildShader(
+                vshader_path=f'./glw/shaders/{self.shaderFolder}/ssao_light_vs.glsl',
+                fshader_path=f'./glw/shaders/{self.shaderFolder}/oit_accum_fs.glsl',
+                manualVersion=shaderVersion,
+                validate=not sys.platform == 'darwin'
+            )
+            
+            self.OITAccumLineProg = self.buildShader(
+                vshader_path=f'./glw/shaders/{self.shaderFolder}/ssao_light_line_vs.glsl',
+                gshader_path=f'./glw/shaders/{self.shaderFolder}/ssao_light_line_gs.glsl',
+                fshader_path=f'./glw/shaders/{self.shaderFolder}/oit_accum_fs.glsl',
+                manualVersion=shaderVersion,
+                validate=not sys.platform == 'darwin'
+            )
+
+            self.OITCompositeProg = self.buildShader(
+                vshader_path=f'./glw/shaders/{self.shaderFolder}/oit_composite_vs.glsl',
+                fshader_path=f'./glw/shaders/{self.shaderFolder}/oit_composite_fs.glsl',
+                manualVersion=shaderVersion,
+                validate=not sys.platform == 'darwin'
+            )
+
             self.textProg = self.buildShader(
                 vshader_path=f'./glw/shaders/{self.shaderFolder}/text_vs.glsl',
                 gshader_path=f'./glw/shaders/{self.shaderFolder}/text_gs.glsl',
@@ -952,7 +996,7 @@ class GLWidget(QOpenGLWidget):
                                         'u_farPlane',
                                         'u_farPlaneRatio',
                                         'u_screenSize',
-                                        'u_pointSize','u_lineWidth',
+                                        'u_pointSize','u_lineWidth','u_FlatShading'
             ]
             
             self.textProgUniformList = ['u_mvpMatrix', 'u_AlbedoTexture', 'u_screenSize', 'u_bearingAndSize', 'u_advance', 'u_fontSize', 'u_textColor']
@@ -966,12 +1010,18 @@ class GLWidget(QOpenGLWidget):
             self.SSAOBlurProgLocMap = self._cacheShaderLocMap(self.SSAOBlurProg, self.coreBlurProgAttribList, self.blurProgUniformList)
 
             self.SSAOLightLineProgLocMap = self._cacheShaderLocMap(self.SSAOLightLineProg, self.lightProgAttribList, self.lightProgUniformList)
+
+            self.OITAccumProgLocMap = self._cacheShaderLocMap(self.OITAccumProg, self.lightProgAttribList, self.lightProgUniformList)
+            self.OITAccumLineProgLocMap = self._cacheShaderLocMap(self.OITAccumLineProg, self.lightProgAttribList, self.lightProgUniformList)
+            self.OITCompositeProgLocMap = self._cacheShaderLocMap(self.OITCompositeProg, [], ['u_AccumTexture', 'u_RevealTexture'])
             
             self.textProgLocMap = self._cacheShaderLocMap(self.textProg, [], self.textProgUniformList)
 
             self.SSAOGeoFBO = FBOManager()
             self.SSAOCoreFBO = FBOManager()
             self.SSAOBlurFBO = FBOManager()
+
+            self.OITFBO = FBOManager()
 
             self.SSAONoiseTexture = self.generateNoiseTexture(4, 4)
 
@@ -995,7 +1045,8 @@ class GLWidget(QOpenGLWidget):
             
             glUseProgram(self.SSAOLightProg)
 
-            self.setLights()
+            self.setLights(self.SSAOLightProg, self.SSAOLightProgLocMap)
+            self.setLights(self.OITAccumProg, self.OITAccumProgLocMap)
             self.setAmbientColor()
 
 
@@ -1059,6 +1110,7 @@ class GLWidget(QOpenGLWidget):
         glUniformMatrix4fv(locMap['u_ModelMatrix'], 1, GL_FALSE, modelMatrix.T, None)
         glUniformMatrix4fv(locMap['u_mvpMatrix'], 1, GL_FALSE, mvpMatrix.T, None)
         glUniformMatrix3fv(locMap['u_worldNormalMatrix'], 1, GL_FALSE, np.linalg.inv(modelMatrix)[:3, :3], None)
+        glUniform1i(locMap['u_FlatShading'], self._flatShading)
         
         
 
@@ -1223,7 +1275,72 @@ class GLWidget(QOpenGLWidget):
 
 
 
+        # for obj in self._objectList.values():
+        #     if not isinstance(obj, Label):
+        #         if not isinstance(obj, UnionObject):
+        #             if obj.renderType != GL_LINES:
+        #                 glUseProgram(self.SSAOLightProg)
+        #                 self._setLightProgMVPMatrix(self.SSAOLightProgLocMap, obj.transform, camtrans, projMatrix.T)
+        #                 obj.render(locMap=self.SSAOLightProgLocMap)
+        #             else:
+        #                 glUseProgram(self.SSAOLightLineProg)
+        #                 self._setLightProgMVPMatrix(self.SSAOLightLineProgLocMap, obj.transform, camtrans, projMatrix.T)
+        #                 obj.render(locMap=self.SSAOLightLineProgLocMap)
+        #         else:
+        #             for _obj in obj.objs:
+        #                 if _obj.renderType == GL_LINES:
+        #                     glUseProgram(self.SSAOLightLineProg)
+        #                     self._setLightProgMVPMatrix(self.SSAOLightLineProgLocMap, _obj.transform, camtrans, projMatrix.T)
+        #                     _obj.render(locMap=self.SSAOLightLineProgLocMap)
+        #                 else:
+        #                     glUseProgram(self.SSAOLightProg)
+        #                     self._setLightProgMVPMatrix(self.SSAOLightProgLocMap, _obj.transform, camtrans, projMatrix.T)
+        #                     _obj.render(locMap=self.SSAOLightProgLocMap)
+
+
+        opaque_render_list = []
+        transparent_render_list = []
+
         for obj in self._objectList.values():
+            if isinstance(obj, Label): continue
+            
+            sub_objs = []
+            if isinstance(obj, UnionObject):
+                sub_objs = obj.objs
+            else:
+                sub_objs = [obj]
+            
+            for o in sub_objs:
+                is_trans = False
+                if hasattr(o, 'color') and o.color is not None:
+                    if len(o.color.shape) == 1 and o.color.shape[0] >= 4:
+                        if o.color[3] < 0.99:
+                            is_trans = True
+                    elif len(o.color.shape) == 2 and o.color.shape[1] >= 4:
+                        # For per-vertex colors, check if any alpha is transparent
+                        if np.min(o.color[:, 3]) < 0.99:
+                            is_trans = True
+                
+                # Check for texture transparency if color check passed as opaque
+                if not is_trans and hasattr(o, 'material') and o.material is not None:
+                    try:
+                        tex_image = None
+                        if hasattr(o.material, 'baseColorTexture'):
+                             tex_image = o.material.baseColorTexture
+                        elif hasattr(o.material, 'image'):
+                             tex_image = o.material.image
+                        
+                        if tex_image is not None and hasattr(tex_image, 'mode') and tex_image.mode in ('RGBA', 'LA'):
+                             is_trans = True
+                    except:
+                        pass
+
+                if is_trans:
+                    transparent_render_list.append(o)
+                else:
+                    opaque_render_list.append(o)
+
+        for obj in opaque_render_list:
             if not isinstance(obj, Label):
                 if not isinstance(obj, UnionObject):
                     if obj.renderType != GL_LINES:
@@ -1245,13 +1362,7 @@ class GLWidget(QOpenGLWidget):
                             self._setLightProgMVPMatrix(self.SSAOLightProgLocMap, _obj.transform, camtrans, projMatrix.T)
                             _obj.render(locMap=self.SSAOLightProgLocMap)
 
-        # self._renderObjs(locMap=self.SSAOLightProgLocMap)
-        
-        
-        # stage Final: Copy framebuffer to screen (default) framebuffer
-        # NOTE: remove before flight
-        
-        # self._copyBuffer2Screen(self.SSAOBlurFBO)
+
         glUseProgram(self.SSAOLightLineProg)
         
         glDepthMask(GL_FALSE)
@@ -1268,6 +1379,99 @@ class GLWidget(QOpenGLWidget):
         if self._isAxisVisable:
             self._setLightProgMVPMatrix(self.SSAOLightLineProgLocMap, self.axis.transform, camtrans, projMatrix.T)
             self.axis.render(locMap=self.SSAOLightLineProgLocMap)
+
+
+
+        ''' stage 5: OIT Pass '''
+        if len(transparent_render_list) > 0:
+                        
+            self.OITFBO.getFBO(self._rawWindowW, self._rawWindowH, depth=True, colors=[GL_RGBA32F, GL_R32F])
+            
+            glBindFramebuffer(GL_READ_FRAMEBUFFER, self.defaultFramebufferObject())
+            glBindFramebuffer(GL_DRAW_FRAMEBUFFER, self.OITFBO._fbo)
+            glBlitFramebuffer(0, 0, self._rawWindowW, self._rawWindowH, 0, 0, self._rawWindowW, self._rawWindowH, GL_DEPTH_BUFFER_BIT, GL_NEAREST)
+            
+            self.OITFBO.bindForWriting()
+            glDrawBuffers(2, [GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1])
+            
+            glClearBufferfv(GL_COLOR, 0, [0.0, 0.0, 0.0, 0.0])
+            glClearBufferfv(GL_COLOR, 1, [1.0, 1.0, 1.0, 1.0])
+            
+            glDepthMask(GL_FALSE)
+            glEnable(GL_BLEND)
+            glDisable(GL_CULL_FACE)
+            
+
+            glBlendEquation(GL_FUNC_ADD)
+            glBlendFunci(0, GL_ONE, GL_ONE)
+            glBlendFunci(1, GL_ZERO, GL_ONE_MINUS_SRC_COLOR)
+
+            
+            glUseProgram(self.OITAccumLineProg)
+            glUniform1i(self.OITAccumLineProgLocMap['u_enableAO'], self._enableSSAO)
+            glUniform3f(self.OITAccumLineProgLocMap['u_CamPos'], *campos)
+            glUniform1i(self.OITAccumLineProgLocMap['u_renderMode'], self._glRenderMode) 
+            glUniform2f(self.OITAccumLineProgLocMap['u_screenSize'], float(self._rawWindowW), float(self._rawWindowH))
+            
+            glUseProgram(self.OITAccumProg)
+            
+            if self._enableSSAO:
+                self.SSAOBlurFBO.bindTextureForReading(GL_TEXTURE21, 0)
+                glUniform1i(self.OITAccumProgLocMap['u_AOMap'], 21)
+
+            glUniform1i(self.OITAccumProgLocMap['u_enableAO'], self._enableSSAO)
+            glUniform3f(self.OITAccumProgLocMap['u_CamPos'], *campos)
+            glUniform1i(self.OITAccumProgLocMap['u_renderMode'], self._glRenderMode) 
+            glUniform2f(self.OITAccumProgLocMap['u_screenSize'], float(self._rawWindowW), float(self._rawWindowH))
+            
+            
+            
+            for obj in transparent_render_list:                    
+                if not isinstance(obj, UnionObject):
+                    if obj.renderType != GL_LINES:
+                        glUseProgram(self.OITAccumProg)
+                        self._setLightProgMVPMatrix(self.OITAccumProgLocMap, obj.transform, camtrans, projMatrix.T)
+                        obj.render(locMap=self.OITAccumProgLocMap)
+                    else:
+                        glUseProgram(self.OITAccumLineProg)
+                        self._setLightProgMVPMatrix(self.OITAccumLineProgLocMap, obj.transform, camtrans, projMatrix.T)
+                        obj.render(locMap=self.OITAccumLineProgLocMap)
+                else:
+                    for _obj in obj.objs:
+                        if _obj.renderType == GL_LINES:
+                            glUseProgram(self.OITAccumLineProg)
+                            self._setLightProgMVPMatrix(self.OITAccumLineProgLocMap, _obj.transform, camtrans, projMatrix.T)
+                            _obj.render(locMap=self.OITAccumLineProgLocMap)
+                        else:
+                            glUseProgram(self.OITAccumProg)
+                            self._setLightProgMVPMatrix(self.OITAccumProgLocMap, _obj.transform, camtrans, projMatrix.T)
+                            _obj.render(locMap=self.OITAccumProgLocMap)
+
+                    
+            glDepthMask(GL_TRUE)
+            glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
+            
+            glBindFramebuffer(GL_FRAMEBUFFER, self.defaultFramebufferObject())
+            glUseProgram(self.OITCompositeProg)
+            
+            # Note: attachment index in FBOManager: 0 is depth, 1 is color0 (Accum), 2 is color1 (Reveal)
+            self.OITFBO.bindTextureForReading(GL_TEXTURE22, 1)
+            glUniform1i(self.OITCompositeProgLocMap['u_AccumTexture'], 22)
+            self.OITFBO.bindTextureForReading(GL_TEXTURE23, 2)
+            glUniform1i(self.OITCompositeProgLocMap['u_RevealTexture'], 23)
+            
+            glEnable(GL_BLEND)
+            glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
+            self.quad.render()
+
+
+        # self._renderObjs(locMap=self.SSAOLightProgLocMap)
+        
+        
+        # stage Final: Copy framebuffer to screen (default) framebuffer
+        # NOTE: remove before flight
+        
+        # self._copyBuffer2Screen(self.SSAOBlurFBO)
 
 
 

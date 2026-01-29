@@ -23,7 +23,8 @@ uniform int u_FlatShading;
 uniform vec2 u_screenSize;
 uniform int u_enableAO;
 
-out vec4 FragColor;
+layout(location = 0) out vec4 Accum;
+layout(location = 1) out float Reveal;
 
 
 // PBR material parameters
@@ -94,8 +95,9 @@ void main()
     vec3 albedo = v_Color.rgb;
     float alpha = v_Color.a;
 
-
-
+    float z = gl_FragCoord.z;
+    float weight = alpha * max(0.1, 3000.0 * pow(1.0 - z, 2.0));
+    // float weight = 1.0;
 
     if (v_simpleRender == 0){
 
@@ -105,6 +107,9 @@ void main()
             albedo = cv4.rgb;
             alpha = cv4.a;
         }
+        
+        // Ensure alpha is sensible
+        alpha = clamp(alpha, 0.0, 1.0);
 
         if (u_EnableMetallicRoughnessTexture == 1) {
             vec4 metallicRoughness = texture(u_MetallicRoughnessTexture, v_Texcoord);
@@ -120,15 +125,16 @@ void main()
         metallic = clamp(metallic, 0.001, 0.999);
         roughness = clamp(roughness, 0.001, 0.999);
 
-        // vec3 N = normalize(v_Normal);
-        // Flat shading: calculate normal from position derivatives
-        // vec3 N = normalize(cross(dFdx(v_Position), dFdy(v_Position)));
+
         
         vec3 N;
         if (u_FlatShading == 1) {
-             N = normalize(cross(dFdx(v_Position), dFdy(v_Position)));
+            N = normalize(cross(dFdx(v_Position), dFdy(v_Position)));
         } else {
-             N = normalize(v_Normal);
+            N = normalize(v_Normal);
+            if (!gl_FrontFacing) {
+                N = -N;
+            }
         }
 
         vec3 V = normalize(v_WorldSpaceCamPos - v_Position);
@@ -177,45 +183,44 @@ void main()
             // gamma correction
             // color = color / (color + vec3(1.0));
             // color = pow(color, vec3(1.0/2.2));  
-        
-            FragColor = vec4(color, alpha);
-            // FragColor = vec4(metallic, roughness, 0.0, 1.0);
+            
+            // Weighted OIT output
+            Accum = vec4(color * alpha, alpha) * weight;
+            Reveal = alpha;
 
 
         }
         // render mode normal
         else if (u_renderMode == 2){
             // FragColor = vec4((1.0-N)*0.4 + 0.2, 1.0);
-            FragColor = vec4(N, 1.0);
+            Accum = vec4(N, 1.0);
+            Reveal = alpha;
         }
         // render mode ao
         else if (u_renderMode == 4 && u_enableAO == 1){
-            FragColor = vec4(ao, ao, ao, 1.0);
+            vec3 color = vec3(ao, ao, ao);
+            Accum = vec4(color * alpha, alpha) * weight;
+            Reveal = alpha;
         }
 
         else if (u_renderMode == 0){
-            
             vec3 rgb = min(v_Color.rgb, vec3(1.0));
-            FragColor = vec4(rgb, alpha);
+            Accum = vec4(rgb * alpha, alpha) * weight;
+            Reveal = alpha;
         }
 
         else{
             vec3 rgb = min(v_Color.rgb, vec3(1.0));
-            FragColor = vec4(rgb, alpha);
+            Accum = vec4(rgb * alpha, alpha) * weight;
+            Reveal = alpha;
         }
-
-
 
     }
 
     else{
-
-        // vec2 coord = gl_PointCoord - vec2(0.5);
-        // if (length(coord) > 0.5) {
-        //     discard;
-        // }
-
-        FragColor = v_Color;
-
+        // Simple Render
+        // FragColor = v_Color;
+        Accum = vec4(v_Color.rgb * alpha, alpha) * weight;
+        Reveal = alpha;
     }
 }  

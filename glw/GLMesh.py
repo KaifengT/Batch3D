@@ -692,9 +692,9 @@ class BaseObject:
                 return None
             
             color = color[:4]
-            linear = colorManager.linear2Srgb(color)
-            # linear = color
-            return linear
+            linear = colorManager.linear2Srgb(color[:3])
+            color[:3] = linear
+            return color
 
 
         miscParamter = {
@@ -1154,12 +1154,12 @@ class Axis(BaseObject):
             
         self.color = np.array(
             [
-                [176, 48, 82, 200],
-                [176, 48, 82, 200],
-                [136, 194, 115, 200],
-                [136, 194, 115, 200],
-                [2, 76, 170, 200],
-                [2, 76, 170, 200],
+                [176, 48, 82, 255],
+                [176, 48, 82, 255],
+                [136, 194, 115, 255],
+                [136, 194, 115, 255],
+                [2, 76, 170, 255],
+                [2, 76, 170, 255],
             ]
         ) / 255.
         

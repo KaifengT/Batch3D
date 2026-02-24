@@ -1,0 +1,13 @@
+numpy
+scipy
+pillow
+psutil
+PySide6
+PySide6_Fluent_Widgets
+pywin32
+trimesh
+PyOpenGL
+PyOpenGL-accelerate
+paramiko
+natsort
+freetype-py

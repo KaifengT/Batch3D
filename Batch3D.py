@@ -16,6 +16,7 @@ from PySide6.QtCore import  QSize, QThread, Signal, Qt, QPropertyAnimation, QEas
 from PySide6.QtGui import QCloseEvent, QIcon, QFont, QAction, QColor, QSurfaceFormat, QTextCursor, QCursor, QDropEvent
 import multiprocessing
 import io
+import html
 from ui.ui_main_ui import Ui_MainWindow
 from ui.ui_remote_ui import Ui_RemoteWidget
 from ui.dragDropWidget import DragDropWidget
@@ -1149,6 +1150,10 @@ class App(QMainWindow):
         self.fileDetailUI = fileDetailInfoUI()
         self.ui.label_info.setParent(self.fileDetailUI)
         self.fileDetailUI.verticalLayout.addWidget(self.ui.label_info)
+        self.ui.label_info.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self.ui.label_info.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self.ui.label_info.setLineWrapMode(QTextEdit.LineWrapMode.WidgetWidth)
+        self.ui.label_info.setFont(QFont(['Segoe UI', 'Microsoft YaHei UI', 'Arial'], 10, QFont.Weight.Medium))
         self.ui.pushButton_opendetail.clicked.connect(self.openDetailUI)
         self.ui.pushButton_opendetail.setIcon(FIF.INFO)
 
@@ -1567,77 +1572,243 @@ class App(QMainWindow):
             add_slider(row_count)
 
     def formatContentInfo(self, obj):
-        # textInfo = ' FILE CONTENT: '.center(50, '-') + '\n\n'
-        textInfo = '### FILE CONTENT: ' + '\n\n --- \n\n'
+        def esc(value):
+            return html.escape(str(value), quote=True)
 
-
-        def create_table_from_dict(d:dict):
+        def repr_text(value, limit=None):
             try:
-                text = ''
-                text += '| | name | type | shape | type |\n'
-                text += '| --- | --- | --- | --- | --- |\n'
-                for i, (k, v) in enumerate(d.items()):
-                    if hasattr(v, 'shape'):
-                        text += f'| {i+1} | {k} | {v.__class__.__name__} | {v.shape} | {v.dtype} |\n'
-                    else:
-                        text += f'| {i+1} | {k} | {v.__class__.__name__} | | | |\n'
-                return text + '\n *** \n\n'
-            except:
-                return 'ERROR'
+                text = repr(value)
+            except Exception as exc:
+                text = f'<unrepresentable: {exc}>'
+            text = text.replace('\r\n', '\n')
+            if limit is not None and len(text) > limit:
+                text = text[:limit].rstrip() + ' ...'
+            return text
 
+        def type_text(value):
+            return value.__class__.__name__
+
+        def shape_text(value):
+            if hasattr(value, 'shape'):
+                return str(value.shape)
+            if isinstance(value, dict):
+                return f'{len(value)} keys'
+            if isinstance(value, (list, tuple, set)):
+                return f'len={len(value)}'
+            return ''
+
+        def dtype_text(value):
+            if hasattr(value, 'dtype'):
+                return str(value.dtype)
+            return ''
+
+        theme = getattr(self, 'tgtTheme', qconfig.theme)
+        is_light_theme = theme == Theme.LIGHT
+        colors = {
+            'text': '#202124' if is_light_theme else '#F2F4F8',
+            'muted': '#667085' if is_light_theme else '#AAB2C0',
+            'panel': '#F7F9FC' if is_light_theme else '#242A32',
+            'nested_panel': '#FFFFFF' if is_light_theme else '#1D2229',
+            'table_header': '#E8EEF6' if is_light_theme else '#303946',
+            'table_row': '#FFFFFF' if is_light_theme else '#20262E',
+            'table_row_nested': '#F8FAFD' if is_light_theme else '#252C35',
+            'border': '#D7DEE8' if is_light_theme else '#3A4452',
+            'code_bg': '#F2F4F7' if is_light_theme else '#151A20',
+            'code_text': '#111827' if is_light_theme else '#E6EAF0',
+        }
+
+        def badge(text, bg, fg='#FFFFFF'):
+            if not text:
+                return ''
+            return (
+                f'<span style="background-color: {bg}; color: {fg}; '
+                'font-size: 8.5pt; font-weight: 700;">'
+                f'&nbsp;{esc(text)}&nbsp;</span>&nbsp;'
+            )
+
+        def value_badges(value):
+            badges = [badge(type_text(value), '#2F6FED')]
+            shape = shape_text(value)
+            if shape:
+                label = f'shape {shape}' if hasattr(value, 'shape') else shape
+                badges.append(badge(label, '#0F766E'))
+            dtype = dtype_text(value)
+            if dtype:
+                badges.append(badge(dtype, '#7C3AED'))
+            return ''.join(badges)
+
+        def accent_color(value):
+            if isinstance(value, dict):
+                return '#7C3AED'
+            if isinstance(value, np.ndarray):
+                return '#0F766E'
+            if isinstance(value, trimesh.parent.Geometry3D):
+                return '#2F6FED'
+            return '#B45309'
+
+        def summary_text(value):
+            if isinstance(value, dict):
+                return f'{len(value)} keys'
+            if isinstance(value, np.ndarray):
+                return f'ndim={value.ndim}, size={value.size}'
+            if isinstance(value, (list, tuple, set)):
+                return f'len={len(value)}'
+            if isinstance(value, trimesh.parent.Geometry3D):
+                parts = []
+                if hasattr(value, 'vertices'):
+                    parts.append(f'vertices {value.vertices.shape}')
+                if hasattr(value, 'faces'):
+                    parts.append(f'faces {value.faces.shape}')
+                return ', '.join(parts)
+            return repr_text(value, 160)
+
+        def structure_rows(d: dict, depth=0, prefix=''):
+            rows = []
+            for i, (k, v) in enumerate(d.items(), 1):
+                row_id = f'{prefix}.{i}' if prefix else str(i)
+                indent = '&nbsp;' * (depth * 4)
+                branch = '|- ' if depth else ''
+                key = f'<span class="key">{indent}{branch}{esc(k)}</span>'
+                row_bg = colors['table_row_nested'] if depth else colors['table_row']
+                rows.append(
+                    f'<tr bgcolor="{row_bg}">'
+                    f'<td>{esc(row_id)}</td>'
+                    f'<td>{key}</td>'
+                    f'<td>{esc(type_text(v))}</td>'
+                    f'<td>{esc(shape_text(v))}</td>'
+                    f'<td>{esc(dtype_text(v))}</td>'
+                    f'<td>{esc(summary_text(v))}</td>'
+                    '</tr>'
+                )
+                if isinstance(v, dict):
+                    rows.extend(structure_rows(v, depth + 1, row_id))
+            return rows
+
+        def structure_table(d: dict):
+            rows = structure_rows(d)
+            if len(rows) == 0:
+                rows = [f'<tr bgcolor="{colors["table_row"]}"><td colspan="6"><span class="muted">empty dict</span></td></tr>']
+            return (
+                f'<table cellspacing="1" cellpadding="6" border="0" width="100%" bgcolor="{colors["border"]}">'
+                f'<tr bgcolor="{colors["table_header"]}">'
+                '<th align="left">#</th>'
+                '<th align="left">key</th>'
+                '<th align="left">type</th>'
+                '<th align="left">shape / size</th>'
+                '<th align="left">dtype</th>'
+                '<th align="left">preview</th>'
+                '</tr>'
+                + ''.join(rows) +
+                '</table>'
+            )
+
+        def code_block(value):
+            return (
+                f'<table cellspacing="0" cellpadding="8" border="0" width="100%" bgcolor="{colors["code_bg"]}">'
+                '<tr><td>'
+                f'<pre>{esc(value)}</pre>'
+                '</td></tr></table>'
+            )
+
+        def geometry_details(value):
+            rows = []
+            for name in ('vertices', 'faces', 'vertex_normals', 'face_normals', 'colors'):
+                if hasattr(value, name):
+                    attr = getattr(value, name)
+                    rows.append(
+                        f'<tr bgcolor="{colors["table_row"]}">'
+                        f'<td><span class="key">{esc(name)}</span></td>'
+                        f'<td>{esc(type_text(attr))}</td>'
+                        f'<td>{esc(shape_text(attr))}</td>'
+                        f'<td>{esc(dtype_text(attr))}</td>'
+                        '</tr>'
+                    )
+            text = ''
+            if rows:
+                text += (
+                    f'<table cellspacing="1" cellpadding="6" border="0" width="100%" bgcolor="{colors["border"]}">'
+                    f'<tr bgcolor="{colors["table_header"]}"><th align="left">name</th><th align="left">type</th>'
+                    '<th align="left">shape / size</th><th align="left">dtype</th></tr>'
+                    + ''.join(rows) +
+                    '</table>'
+                )
+            metadata = getattr(value, 'metadata', None)
+            if isinstance(metadata, dict) and len(metadata):
+                text += '<h3>metadata</h3>' + structure_table(metadata)
+            return text
+
+        def value_details(key, value, depth=0):
+            margin = min(depth * 10, 50)
+            panel_bg = colors['panel'] if depth == 0 else colors['nested_panel']
+
+            def section(content):
+                return (
+                    f'<table cellspacing="0" cellpadding="0" border="0" width="100%" bgcolor="{colors["border"]}" '
+                    f'style="margin-left: {margin}px; margin-top: 8px; margin-bottom: 12px;">'
+                    '<tr>'
+                    f'<td width="5" bgcolor="{accent_color(value)}">&nbsp;</td>'
+                    f'<td bgcolor="{panel_bg}" style="padding: 9px 10px;">'
+                    '<div class="section-title">'
+                    f'<span class="key">{esc(key)}</span>&nbsp;&nbsp;{value_badges(value)}'
+                    '</div>'
+                    + content +
+                    '</td></tr></table>'
+                )
+
+            if isinstance(value, dict):
+                content = []
+                if len(value) == 0:
+                    content.append('<p><span class="muted">empty dict</span></p>')
+                else:
+                    for kk, vv in value.items():
+                        content.append(value_details(kk, vv, depth + 1))
+                return section(''.join(content))
+
+            if isinstance(value, np.ndarray):
+                return section(code_block(repr_text(value)))
+
+            if isinstance(value, trimesh.parent.Geometry3D):
+                return section(geometry_details(value))
+
+            return section(code_block(repr_text(value)))
+
+        def html_page(body):
+            return (
+                '<!DOCTYPE html><html><head><meta charset="utf-8">'
+                '<style>'
+                f'body {{ color: {colors["text"]}; font-family: "Segoe UI", "Microsoft YaHei UI", Arial, sans-serif; '
+                'font-size: 10pt; line-height: 1.38; }'
+                'h2 { font-size: 14pt; font-weight: 700; margin: 6px 0 10px 0; }'
+                'h3 { font-size: 10.5pt; font-weight: 700; margin: 12px 0 6px 0; }'
+                'table { margin: 6px 0 14px 0; }'
+                'th, td { padding: 4px 6px; vertical-align: top; }'
+                'pre { font-family: Consolas, "Cascadia Mono", "Microsoft YaHei UI", monospace; '
+                f'font-size: 9.5pt; font-weight: 400; white-space: pre-wrap; margin: 0; color: {colors["code_text"]}; }}'
+                '.section-title { font-size: 11pt; font-weight: 700; margin-bottom: 6px; }'
+                '.key { font-family: Consolas, "Cascadia Mono", "Microsoft YaHei UI", monospace; font-weight: 600; }'
+                f'.muted {{ color: {colors["muted"]}; font-size: 9pt; font-weight: 400; }}'
+                '</style></head><body>'
+                + body +
+                '</body></html>'
+            )
 
         try:
+            body = ['<h2>FILE CONTENT</h2>']
             if isinstance(obj, dict):
-
-                textInfo += create_table_from_dict(obj)
-
-                for i, (k, v) in enumerate(obj.items()):
-                    textInfo += f'#### {i+1}. '
-                    if isinstance(v, np.ndarray):
-                        textInfo += f'{k} : ndarray{v.shape}\n\n'
-                        textInfo +='```\n'+repr(v) + '\n\n```\n\n'
-
-                    elif isinstance(v, (dict)):
-                        textInfo += f'{k} : {v.__class__.__name__}\n\n'
-                        for kk, vv in v.items():
-                            textInfo += f'\t|-{kk} : {vv.__class__.__name__}\n'
-
-                    else:
-                        textInfo += f'{k} : {v.__class__.__name__}\n\n'
-                        # textInfo +='      '+repr(v).replace('array([', '').replace('])', '') + '\n\n'
-                        textInfo +='```\n'+repr(v) + '\n\n```\n\n'
-
-
-
-                    textInfo += '\n' + '-' * 50 + '\n\n'
-
-
+                body.append(f'<p><span class="muted">{len(obj)} top-level keys</span></p>')
+                body.append(structure_table(obj))
+                body.append('<h2>DETAILS</h2>')
+                for k, v in obj.items():
+                    body.append(value_details(k, v))
             elif isinstance(obj, trimesh.parent.Geometry3D):
-                #TODO
-                textInfo += f'#### {obj.__class__.__name__} :\n\n'
-                if hasattr(obj, 'vertices'):
-                    textInfo += f'vertices : {obj.vertices.shape}\n\n'
-                if hasattr(obj, 'faces'):
-                    textInfo += f'faces    : {obj.faces.shape}\n\n'
-                if hasattr(obj, 'vertex_normals'):
-                    textInfo += f'vertex_normals : {obj.vertex_normals.shape}\n\n'
-                if hasattr(obj, 'face_normals'):
-                    textInfo += f'face_normals : {obj.face_normals.shape}\n\n'
-                if hasattr(obj, 'colors'):
-                    textInfo += f'colors : {obj.colors.shape}\n\n'
-                if hasattr(obj, 'metadata'):
-                    for kk, vv in obj.metadata.items():
-                        textInfo += f'\t|-{kk} : {vv}\n'
+                body.append(f'<h3>{esc(obj.__class__.__name__)}</h3>')
+                body.append(geometry_details(obj))
             else:
-                textInfo += obj.__class__.__name__ + '\n\n'
+                body.append(f'<h3>{esc(obj.__class__.__name__)}</h3>')
+                body.append(code_block(repr_text(obj)))
+            return html_page(''.join(body))
         except:
-            textInfo += 'ERROR'
-        finally:
-
-            # with open('./test.md', 'w') as f:
-            #     f.write(textInfo)
-
-            return textInfo
+            return html_page('<h2>FILE CONTENT</h2>' + code_block('ERROR'))
 
 
     def cellClickedCallback(self, row, col, prow=None, pcol=None):
@@ -2127,7 +2298,7 @@ class App(QMainWindow):
                 self.setWorkspaceObj(obj)
 
             info = self.formatContentInfo(obj)
-            self.ui.label_info.setMarkdown(info)
+            self.ui.label_info.setHtml(info)
 
 
             if isinstance(obj, dict):
@@ -2280,7 +2451,7 @@ class App(QMainWindow):
                 self.setWorkspaceObj(obj)
 
             info = self.formatContentInfo(obj)
-            self.ui.label_info.setMarkdown(info)
+            self.ui.label_info.setHtml(info)
 
             for _k, _v, _c, _isadj in results:
                 self.ui.openGLWidget.updateObject(ID=_k, obj=_v)
@@ -2364,7 +2535,7 @@ class App(QMainWindow):
                     obj.pop(k)
 
             info = self.formatContentInfo(obj)
-            self.ui.label_info.setMarkdown(info)
+            self.ui.label_info.setHtml(info)
 
             # store raw obj to workspace_obj
             if setWorkspace:
@@ -2668,12 +2839,20 @@ class App(QMainWindow):
 
                     border-radius: 6px;
                     border: 0px;
-                    font: 1000 8pt;
+                    font-family: "Segoe UI", "Microsoft YaHei UI", "Arial";
+                    font-size: 10pt;
+                    font-weight: 500;
 
                     color: {1};
                 }}
             '''.format(bg, label_info_color)
         )
+
+        try:
+            if isinstance(getattr(self, '_workspace_obj', None), dict) and len(self._workspace_obj):
+                self.ui.label_info.setHtml(self.formatContentInfo(self._workspace_obj))
+        except:
+            pass
 
         self.ui.tool.setStyleSheet(
             '''

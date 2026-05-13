@@ -4,9 +4,9 @@ copyright: (c) 2025 by KaifengTang, TingruiGuo
 import sys, os
 import traceback
 import numpy as np
-from PySide6.QtCore import (Qt, Signal, QPoint, QTimer)
-from PySide6.QtGui import (QColor, QWheelEvent, QMouseEvent, QSurfaceFormat, QFont, QOpenGLContext)
-from PySide6.QtWidgets import (QWidget, QFileDialog)
+from PySide6.QtCore import (Qt, Signal, QPoint, QTimer, QByteArray, QBuffer, QIODevice, QMimeData)
+from PySide6.QtGui import (QColor, QWheelEvent, QMouseEvent, QSurfaceFormat, QFont, QOpenGLContext, QImage)
+from PySide6.QtWidgets import (QWidget, QFileDialog, QApplication)
 from OpenGL.GL import *
 from OpenGL.GLU import *
 from OpenGL.GL import shaders
@@ -25,7 +25,7 @@ except ImportError:
 
 from PIL import Image
 from .GLCamera import GLCamera
-from .GLMenu import GLSettingWidget
+from .GLMenu import GLSettingWidget, getCameraComboBox
 
 # from memory_profiler import profile
 class FBOManager:
@@ -41,9 +41,9 @@ class FBOManager:
         self._geometry_texture = None
         self._width = 0
         self._height = 0
-        
+
         self._attachments_id = []
-    
+
     @staticmethod
     def getFormat(internalType):
         if internalType == GL_RGBA32F:
@@ -70,8 +70,8 @@ class FBOManager:
             tuple (int, int): A tuple containing the FBO and the depth texture.
         '''
 
-        if (self._fbo is None or 
-            self._width != width or 
+        if (self._fbo is None or
+            self._width != width or
             self._height != height):
             # print(f"Creating FBO: {width}x{height}")
             self._createFBO(width, height, depth, ms, samples, colors)
@@ -126,7 +126,7 @@ class FBOManager:
             attachment (int): The attachment point of the texture. Choose from GL_COLOR_ATTACHMENT0 - GL_COLOR_ATTACHMENT31.
             filter (int): The texture filter mode.
                 supported types: GL_LINEAR, GL_NEAREST
-        
+
         Returns:
             None
         '''
@@ -134,7 +134,7 @@ class FBOManager:
         format, dataType = self.getFormat(internalType)
 
         texID = glGenTextures(1)
-        
+
         glBindTexture(GL_TEXTURE_2D, texID)
         glTexImage2D(GL_TEXTURE_2D, 0, internalType,
                     width, height, 0,
@@ -165,7 +165,7 @@ class FBOManager:
         Returns:
             None
         '''
-        
+
         texID = glGenTextures(1)
 
         glBindTexture(GL_TEXTURE_2D_MULTISAMPLE, texID)
@@ -187,11 +187,11 @@ class FBOManager:
     def _createFBO(self, width:int, height:int, depth:bool=False, ms:bool=False, samples:int=1, colors:Iterable[int]=[]):
 
         # print(f"FBOManager: Creating FBO: {width}x{height}")
-        
+
         if self._fbo is not None:
             # print(f"FBOManager: Cleaning up existing FBO and attachments: {self._fbo}")
             self.cleanUp()
-        
+
 
         self._fbo = glGenFramebuffers(1)
         # print(f"FBOManager: Generated FBO ID: {self._fbo}")
@@ -212,16 +212,16 @@ class FBOManager:
 
         glDrawBuffers(len(colors), [GL_COLOR_ATTACHMENT0 + i for i in range(len(colors))])
 
-                
+
         # check if the framebuffer is complete
         if glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE:
             print(f'FBOManager: FBO creation failed: {glCheckFramebufferStatus(GL_FRAMEBUFFER)}')
             exit(0)
-        
+
         glBindFramebuffer(GL_FRAMEBUFFER, 0)
         self._width = width
         self._height = height
-        
+
     def bindForWriting(self, ):
         '''
         Bind the FBO for writing.
@@ -233,9 +233,9 @@ class FBOManager:
         '''
         if self._fbo is None:
             raise RuntimeError('FBOManager: FBO is not created yet. Call getFBO() first.')
-        
+
         glBindFramebuffer(GL_FRAMEBUFFER, self._fbo)
-        
+
     def bindForReading(self, attachment=GL_COLOR_ATTACHMENT0):
         raise NotImplementedError("FBOManager: bindForReading() is not implemented yet.")
 
@@ -253,14 +253,14 @@ class FBOManager:
         '''
         if self._fbo is None:
             raise RuntimeError('FBOManager: FBO is not created yet. Call getFBO() first.')
-        
+
         if attachmentIndex >= len(self._attachments_id):
             raise ValueError(f'FBOManager: Invalid attachment index: {attachmentIndex}, max: {len(self._attachments_id)}.')
-        
+
         glActiveTexture(textureUnit)
         glBindTexture(GL_TEXTURE_2D, self._attachments_id[attachmentIndex])
-        
-            
+
+
     def cleanUp(self, ):
         '''
         cleanup the FBO and its associated textures.
@@ -286,7 +286,7 @@ class FBOManager:
     #     self.cleanUp()
 
 class DepthReader:
-        
+
     @staticmethod
     def convertNDC2Liner(ndc_depth:np.ndarray, camera:GLCamera):
         """
@@ -295,22 +295,22 @@ class DepthReader:
         Args:
             ndc_depth(np.ndarray): NDC depth (0.0 to 1.0)
             camera(GLCamera): GLCamera object containing camera parameters
-            
+
         Returns:
             linear_depth: linear depth in world coordinates
         """
 
         if camera.projection_mode == camera.projectionMode.perspective:
-            ndc_depth = ndc_depth * 2.0 - 1.0 
+            ndc_depth = ndc_depth * 2.0 - 1.0
             linear_depth = (2.0 * camera.near * camera.far) / (
                 camera.far + camera.near - ndc_depth * (camera.far - camera.near)
             )
         else:
             linear_depth = ndc_depth * (camera.far - camera.near) + camera.near
-        
+
         return linear_depth
-    
-    
+
+
 class PointLight:
     def __init__(self, position:np.ndarray, color:np.ndarray, intensity:float=1.0) -> None:
         self.position = position
@@ -326,11 +326,12 @@ class GLWidget(QOpenGLWidget):
     middleMouseClickSignal = Signal(np.ndarray, np.ndarray)
     mouseReleaseSignal = Signal(np.ndarray, np.ndarray)
     mouseMoveSignal = Signal(np.ndarray, np.ndarray)
+    cameraSelectedSignal = Signal(dict)
 
     # NOTE: signals belows are used for internal communication
     infoSignal = Signal(str, str, str) # title, message, type
 
-    def __init__(self, 
+    def __init__(self,
         parent:Optional[QWidget]=None,
         backgroundColor:Tuple=(0, 0, 0, 0),
         **kwargs,
@@ -350,35 +351,39 @@ class GLWidget(QOpenGLWidget):
             self.font = QFont(['SF Pro Display', 'Helvetica Neue', 'Arial'], 10, QFont.Weight.Normal)
             # majorVersion = 1
             # minorVersion = 2
-            
+
         else:
             backgroundColor = [0.109, 0.117, 0.125, 1.0]
             self.font = QFont([u'Cascadia Mono', u'Microsoft Yahei UI'], 9, )
             # majorVersion = 4
             # minorVersion = 6
-            
-            
-        self.setMinimumSize(200, 200)            
-            
+
+
+        self.setMinimumSize(200, 200)
+
         self._scaledWindowW = 0
         self._scaledWindowH = 0
         self._rawWindowW = 0
         self._rawWindowH = 0
-        
+
         self._bgColor = backgroundColor
         self._objectList: dict[str, BaseObject] = {}
         self._lastPos = QPoint(0, 0)
-        
+
         self._axisScale = 1.0
         self._isAxisVisable = True
         self._isGridVisable = True
         self._glRenderMode = 3
-        
+
         self._enableSSAO = 1
         self._SSAOkernelSize = 64
         self._SSAOStrength = 60.0
-        
-        
+
+
+        GLFormat = self.format()
+        if GLFormat.alphaBufferSize() < 8:
+            GLFormat.setAlphaBufferSize(8)
+            self.setFormat(GLFormat)
         # GLFormat = self.format()
         # GLFormat.setVersion(majorVersion, minorVersion)
         # GLFormat.setProfile(QSurfaceFormat.CoreProfile)
@@ -391,10 +396,10 @@ class GLWidget(QOpenGLWidget):
         self.mouseClickPointinUV = np.array([0, 0])
 
         self.canonicalModelMatrix = np.identity(4, dtype=np.float32)
-                        
+
         self.camera = GLCamera()
         self.camera.updateSignal.connect(self.update)
-        
+
 
         self.keyLightPos = np.array([0.0, 1.1, 1.1], dtype=np.float32) * 10000
         self.keyLightColor = np.array([0.3, 0.3, 0.3], dtype=np.float32)
@@ -422,7 +427,7 @@ class GLWidget(QOpenGLWidget):
         self.grid = Grid()
         self.smallGrid = Grid(n=510, scale=0.1)
         self.axis = Axis()
-        
+
         self._flatShading = 0
 
         self.glSettings = GLSettingWidget(
@@ -441,23 +446,149 @@ class GLWidget(QOpenGLWidget):
             axis_length_callback=self.setAxisScale,
             save_depth_callback=self.saveDepthMap,
             save_rgba_callback=self.saveRGBAMap,
+            copy_rgba_callback=self.copyRGBAMapToClipboard,
             enable_ssao_callback=self.setEnableSSAO,
             ssao_kernel_size_callback=self.setSSAOKernelSize,
             ssao_strength_callback=self.setSSAOStrength,
         )
-        
+
         self.glSettingButton = self.glSettings.get_button()
         self.glCameraPerpCombobox = self.glSettings.gl_camera_perp_combobox
         self.glCameraViewCombobox = self.glSettings.gl_camera_view_combobox
 
-                
+
         self.FPSTimer = QTimer()
         self.FPSTimer.timeout.connect(self.countFPS)
         self.FPSTimer.setInterval(1000) # 1 second
-        
+
         self._fps = 0
-        
+
         self._lastSavePath = ''
+
+        self._cameraMaskEnabled = False
+        self._cameraMaskOpacity = 0.7
+        self._cameraOutputResolution: Optional[tuple[int, int]] = None
+        self._cameraMaskProg = None
+        self._cameraMaskProgLocMap = {}
+        self._themeColor = np.array([1.0, 1.0, 1.0, 1.0], dtype=np.float32)
+
+        self._cameraConfigs = {}
+        self.cameraComboBox = getCameraComboBox(self)
+        self.cameraComboBox.setPlaceholderText("Select Camera")
+        self.cameraComboBox.hide()
+        self.cameraComboBox.currentTextChanged.connect(self._onCameraComboBoxChanged)
+
+        self.canvas2d_scale = 1.0
+        self.canvas2d_offset = np.array([0.0, 0.0], dtype=np.float32)
+        self.canvas2d_enabled = False
+
+    @staticmethod
+    def _normalizeRGBAColor(color) -> np.ndarray:
+        if isinstance(color, QColor):
+            return np.array([color.redF(), color.greenF(), color.blueF(), color.alphaF()], dtype=np.float32)
+
+        color = np.asarray(color, dtype=np.float32).flatten()
+        if color.size < 3:
+            raise ValueError('Theme color must have at least 3 channels')
+        if color.size == 3:
+            color = np.concatenate([color, np.array([1.0], dtype=np.float32)])
+        color = color[:4]
+        if np.max(color) > 1.0:
+            color = color / 255.0
+        return np.clip(color, 0.0, 1.0).astype(np.float32)
+
+    def setThemeColor(self, color):
+        self._themeColor = self._normalizeRGBAColor(color)
+        self._uploadCameraMaskLineColor()
+        self.update()
+
+    def _uploadCameraMaskLineColor(self):
+        if self._cameraMaskProg is None:
+            return
+
+        loc = self._cameraMaskProgLocMap.get('u_lineColor', -1)
+        if loc == -1:
+            return
+
+        if isinstance(self.context(), QOpenGLContext) and self.context().isValid():
+            self.makeCurrent()
+
+        glUseProgram(self._cameraMaskProg)
+        glUniform4f(loc, *[float(v) for v in self._themeColor])
+        glUseProgram(0)
+
+    def viewMatrixMod(self, viewMatrix):
+        return viewMatrix
+
+    def projMatrixMod(self, projMatrix):
+        if not self.canvas2d_enabled:
+            return projMatrix
+
+        canvasTransform = np.identity(4, dtype=np.float32)
+        canvasTransform[0, 3] = self.canvas2d_offset[0] * self.canvas2d_scale
+        canvasTransform[1, 3] = self.canvas2d_offset[1] * self.canvas2d_scale
+        canvasTransform[0, 0] = self.canvas2d_scale
+        canvasTransform[1, 1] = self.canvas2d_scale
+
+        return projMatrix @ canvasTransform.T
+
+    def reset2DCanvas(self):
+        self.canvas2d_scale = 1.0
+        self.canvas2d_offset = np.array([0.0, 0.0], dtype=np.float32)
+        self._setCanvas2DEnabled(False)
+
+    def _syncCanvas2DObjectVisibility(self):
+        for obj in self._objectList.values():
+            if obj.getProp('hideInCanvas2D', False):
+                obj.setProp('canvas2dAutoHidden', self.canvas2d_enabled)
+
+    def _setCanvas2DEnabled(self, enabled: bool):
+        self.canvas2d_enabled = bool(enabled)
+        self._syncCanvas2DObjectVisibility()
+        self.update()
+
+    def addCameraConfig(self, name: str, config: dict, callback: bool = True):
+        self._cameraConfigs[name] = config
+
+        self.cameraComboBox.blockSignals(True)
+        if self.cameraComboBox.findText(name) == -1:
+            self.cameraComboBox.addItem(name)
+        self.cameraComboBox.blockSignals(False)
+
+        if len(self._cameraConfigs) == 2:
+            self.cameraComboBox.setCurrentText(name)
+            if callback:
+                self._onCameraComboBoxChanged(name)
+
+        if len(self._cameraConfigs) >= 2:
+            self.cameraComboBox.show()
+            self.cameraComboBox.raise_()
+
+    def setCameraComboBoxtoDefault(self):
+        if "Default" in self._cameraConfigs:
+            self.cameraComboBox.blockSignals(True)
+            self.cameraComboBox.setCurrentText("Default")
+            self.cameraComboBox.blockSignals(False)
+
+    def clearCameraConfigs(self):
+        self._cameraConfigs.clear()
+        self.cameraComboBox.blockSignals(True)
+        self.cameraComboBox.clear()
+        self.cameraComboBox.blockSignals(False)
+        self.addCameraConfig("Default", {}, callback=False)
+        self.cameraComboBox.hide()
+        self.reset2DCanvas()
+
+    def _onCameraComboBoxChanged(self, text: str):
+        if text in self._cameraConfigs:
+            self.reset2DCanvas()
+            if len(self._cameraConfigs[text]):
+                self.cameraSelectedSignal.emit(self._cameraConfigs[text])
+                self._updateCameraIntrinsicPixelOffset()
+                self._setCanvas2DEnabled(True)
+                # self.infoSignal.emit("Camera Selected", f"Camera configuration '{text}' selected.", "msg")
+            if text == "Default":
+                self.resetCamera()
 
     def enableCountFps(self, enable:bool=True):
         if enable:
@@ -501,7 +632,7 @@ class GLWidget(QOpenGLWidget):
         '''
         self.camera.controltype = self.camera.controlType(index)
         self.resetCamera()
-        
+
     def setCameraPerspMode(self, index:int):
         '''
         Set camera perspective mode
@@ -511,9 +642,103 @@ class GLWidget(QOpenGLWidget):
              - 1: Orthographic
         '''
         self.camera.setProjectionMode(self.camera.projectionMode(index))
+        self._updateCameraIntrinsicPixelOffset()
         self.camera.updateIntr(self._rawWindowH, self._rawWindowW)
         self.update()
-        
+
+    def setCameraMaskEnabled(self, enabled: bool = False):
+        self._cameraMaskEnabled = bool(enabled)
+        self.update()
+
+    def setCameraMaskOpacity(self, opacity: float = 0.7):
+        self._cameraMaskOpacity = max(0.0, min(1.0, float(opacity)))
+        self.update()
+
+    def setCameraOutputResolution(self, width: int, height: int):
+        width = int(width)
+        height = int(height)
+        if width <= 0 or height <= 0:
+            raise ValueError(f'Camera output resolution must be positive, got {width}x{height}')
+        self._cameraOutputResolution = (width, height)
+        self.update()
+
+    def clearCameraOutputResolution(self):
+        self._cameraOutputResolution = None
+        self.update()
+
+    def getCameraMaskSettings(self) -> dict:
+        return {
+            'enabled': self._cameraMaskEnabled,
+            'opacity': self._cameraMaskOpacity,
+            'resolution': self._cameraOutputResolution,
+        }
+
+    def _calcCameraMaskContentPixelRect(self) -> Optional[np.ndarray]:
+        if (not self._cameraMaskEnabled or
+            self._cameraOutputResolution is None or
+            self._rawWindowW <= 0 or
+            self._rawWindowH <= 0):
+            return None
+
+        tgt_w, tgt_h = self._cameraOutputResolution
+        content_w = min(int(tgt_w), int(self._rawWindowW))
+        content_h = min(int(tgt_h), int(self._rawWindowH))
+        if content_w >= self._rawWindowW and content_h >= self._rawWindowH:
+            return None
+
+        left = int(np.floor((self._rawWindowW - content_w) * 0.5))
+        bottom = int(np.floor((self._rawWindowH - content_h) * 0.5))
+        right = left + content_w
+        top = bottom + content_h
+        return np.array([left, bottom, right, top], dtype=np.float32)
+
+    def _calcCameraMaskPixelMargin(self) -> tuple[float, float]:
+        if (
+            self._cameraOutputResolution is None or
+            self._rawWindowW <= 0 or
+            self._rawWindowH <= 0):
+            return 0.0, 0.0
+
+        tgt_w, tgt_h = self._cameraOutputResolution
+        content_w = min(int(tgt_w), int(self._rawWindowW))
+        content_h = min(int(tgt_h), int(self._rawWindowH))
+        margin_x = max(float(self._rawWindowW - content_w) * 0.5, 0.0)
+        margin_y = max(float(self._rawWindowH - content_h) * 0.5, 0.0)
+        return margin_x, margin_y
+
+    def _calcCameraMaskImageCropRect(self, image_width: int, image_height: int) -> Optional[tuple[int, int, int, int]]:
+        if (
+            not self.camera.useCustomIntrinsic or
+            not self._cameraMaskEnabled or
+            self._cameraOutputResolution is None or
+            image_width <= 0 or
+            image_height <= 0):
+            return None
+
+        tgt_w, tgt_h = self._cameraOutputResolution
+        content_w = min(int(tgt_w), int(image_width))
+        content_h = min(int(tgt_h), int(image_height))
+        margin_x = max(float(image_width - content_w) * 0.5, 0.0)
+        margin_y = max(float(image_height - content_h) * 0.5, 0.0)
+
+        if margin_x <= 0.0 and margin_y <= 0.0:
+            return None
+
+        left = int(round(margin_x))
+        top = int(round(margin_y))
+        right = int(round(float(image_width) - margin_x))
+        bottom = int(round(float(image_height) - margin_y))
+        crop_w = max(right - left, 1)
+        crop_h = max(bottom - top, 1)
+        return left, top, crop_w, crop_h
+
+    def _updateCameraIntrinsicPixelOffset(self):
+        if self.camera.useCustomIntrinsic:
+            margin_x, margin_y = self._calcCameraMaskPixelMargin()
+            self.camera.setIntrinsicPixelOffset(margin_x, margin_y)
+        else:
+            self.camera.setIntrinsicPixelOffset(0.0, 0.0)
+
     def setAxisVisibility(self, isVisible:bool=True):
         '''
         Set axis visibility
@@ -522,7 +747,7 @@ class GLWidget(QOpenGLWidget):
         '''
         self._isAxisVisable = isVisible
         self.update()
-        
+
     def setAxisScale(self, scale:float=1.0):
         '''
         Set axis size
@@ -534,7 +759,7 @@ class GLWidget(QOpenGLWidget):
         scaledMatrix[:3,:3] *= self._axisScale
         self.axis.setTransform(scaledMatrix)
         self.update()
-    
+
     def setGridVisibility(self, isVisible:bool=True):
         '''
         Set grid visibility
@@ -543,22 +768,29 @@ class GLWidget(QOpenGLWidget):
         '''
         self._isGridVisable = isVisible
         self.update()
-    
+
     def resetCamera(self, ):
-        self.camera.setCamera(azimuth=135, elevation=-55, distance=10, lookatPoint=np.array([0., 0., 0.,]))
+        print("Resetting camera to default view.")
+        self.camera.setCamera(azimuth=135, elevation=-55, distance=5, lookatPoint=np.array([0., 0., 0.,]))
+        self._updateCameraIntrinsicPixelOffset()
+        self.camera.setFOV(60)
         self.camera.updateIntr(self._rawWindowH, self._rawWindowW)
         self.camera.setLockRotate(False)
         self.glCameraViewCombobox.setCurrentItem('6')
-        
+        self.setCameraComboBoxtoDefault()
+        self.reset2DCanvas()
+
         if hasattr(self, 'grid'):
             self.grid.setMode(5)
         if hasattr(self, 'smallGrid'):
             self.smallGrid.setMode(5)
 
+        self.setCameraMaskEnabled(False)
+
     def setCameraViewPreset(self, preset:int=0):
         """
         Setting the camera view preset.
-        
+
         Args:
             preset (int): index from 0-6
                 0: Front View
@@ -574,6 +806,7 @@ class GLWidget(QOpenGLWidget):
             self.camera.setProjectionMode(GLCamera.projectionMode.perspective)
             self.glCameraPerpCombobox.setCurrentItem('0')
             self.camera.setLockRotate(False)
+            self._updateCameraIntrinsicPixelOffset()
             self.camera.updateIntr(self._rawWindowH, self._rawWindowW)
         else:
             self.camera.setViewPreset(preset)
@@ -582,8 +815,9 @@ class GLWidget(QOpenGLWidget):
             self.camera.setProjectionMode(GLCamera.projectionMode.orthographic)
             self.glCameraPerpCombobox.setCurrentItem('1')
             self.camera.setLockRotate(True)
+            self._updateCameraIntrinsicPixelOffset()
             self.camera.updateIntr(self._rawWindowH, self._rawWindowW)
-            
+
     def setObjectProps(self, ID:Union[int, str], props:dict):
         '''
         Setting the properties of an object in the objectList.
@@ -597,7 +831,7 @@ class GLWidget(QOpenGLWidget):
         Returns:
             None
         '''
-        
+
         _ID = str(ID)
         if _ID in self._objectList.keys():
             self._objectList[_ID].setMultiProp(props)
@@ -620,7 +854,7 @@ class GLWidget(QOpenGLWidget):
                 self._objectList[_ID].setTransform(transform)
             else:
                 self._objectList[_ID].setTransform(np.identity(4, dtype=np.float32))
-        
+
         self.update()
 
     def getObjectList(self, ) -> dict[str, BaseObject]:
@@ -636,24 +870,26 @@ class GLWidget(QOpenGLWidget):
         Update the object in the objectList with a new object or remove it if obj is None.
         Args:
             ID (Union[int, str]): The ID of the object in the objectList.
-            obj (BaseObject): The new object to be set. 
+            obj (BaseObject): The new object to be set.
                 If None, the object which name matches the ID will be removed from the list.
         Returns:
             None
         '''
-        
+
         self.makeCurrent()
-        
+
         _ID = str(ID)
         if isinstance(obj, BaseObject):
             if obj.vao.getVAO() == 0:
                 obj.load()
+            if obj.getProp('hideInCanvas2D', False):
+                obj.setProp('canvas2dAutoHidden', self.canvas2d_enabled)
             self._objectList.update({_ID:obj})
-            
+
         else:
             if _ID in self._objectList.keys():
                 self._objectList.pop(_ID)
-                
+
         self.update()
 
     def setRenderMode(self, mode:int):
@@ -691,7 +927,7 @@ class GLWidget(QOpenGLWidget):
         '''
         try:
             self.makeCurrent()
-            
+
             vshader_src = f'#version {manualVersion}\n' + open(vshader_path, encoding='utf-8').read()
             fshader_src = f'#version {manualVersion}\n' + open(fshader_path, encoding='utf-8').read()
 
@@ -705,7 +941,7 @@ class GLWidget(QOpenGLWidget):
             else:
                 program = shaders.compileProgram(vshader, fshader, validate=validate)
             return program
-        
+
         except Exception as e:
             print(f"Error compiling/linking shaders: {vshader_path} and {fshader_path} \n reason: \n {e}")
             traceback.print_exc()
@@ -736,7 +972,7 @@ class GLWidget(QOpenGLWidget):
         kernel_xy = np.random.uniform(-1.0, 1.0, (kernel_size, 2)).astype(np.float32)
         kernel_z = np.random.uniform(0.0, 1.0, (kernel_size, 1)).astype(np.float32)
         kernel = np.hstack((kernel_xy, kernel_z))
-        
+
         # Normalize the vectors to fit inside a unit sphere
         kernel = kernel / np.linalg.norm(kernel, axis=1, keepdims=True)
 
@@ -746,7 +982,7 @@ class GLWidget(QOpenGLWidget):
             # Use a quadratic function to concentrate sample points around the origin
             acceleration = 0.1 + 0.9 * scale * scale
             kernel[i] *= acceleration
-        
+
         return kernel
 
     @staticmethod
@@ -769,7 +1005,7 @@ class GLWidget(QOpenGLWidget):
         # else:
         #     glPixelStorei(GL_UNPACK_ALIGNMENT, 1)
         glPixelStorei(GL_UNPACK_ALIGNMENT, 4)
-        
+
         glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB32F, w, h, 0, GL_RGB, GL_FLOAT, noise)
         glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST)
         glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST)
@@ -777,10 +1013,10 @@ class GLWidget(QOpenGLWidget):
         glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT)
         glGenerateMipmap(GL_TEXTURE_2D)
         glBindTexture(GL_TEXTURE_2D, 0)
-        
+
         return tid
-        
-        
+
+
 
 
     def setEnableSSAO(self, enable=True):
@@ -811,7 +1047,7 @@ class GLWidget(QOpenGLWidget):
             glUniform3fv(self.SSAOCoreProgLocMap['u_kernel'], self._SSAOkernelSize, kernel.flatten())
             glUniform1i(self.SSAOCoreProgLocMap['u_kernelSize'], self._SSAOkernelSize)
             glUseProgram(0)
-            
+
             self.update()
 
     def setSSAOStrength(self, strength:float):
@@ -829,7 +1065,7 @@ class GLWidget(QOpenGLWidget):
             glUseProgram(self.SSAOCoreProg)
             glUniform1f(self.SSAOCoreProgLocMap['u_radiusPixels'], self._SSAOStrength)
             glUseProgram(0)
-            
+
             self.update()
 
     def setLights(self, program, locmap, lights:Optional[list[PointLight]]=None):
@@ -842,11 +1078,11 @@ class GLWidget(QOpenGLWidget):
         """
         lights = lights if lights is not None else self.defaultLights
         numLights = min(len(lights), 5)
-        
+
         # if hasattr(self, 'SSAOLightProg') and self.SSAOLightProg is not None:
         if program is not None:
             self.makeCurrent()
-            
+
             glUseProgram(program)
 
             for i in range(numLights):
@@ -876,7 +1112,7 @@ class GLWidget(QOpenGLWidget):
             self.update()
 
     def initializeGL(self):
-        
+
         try:
 
             glMajorVersion = glGetIntegerv(GL_MAJOR_VERSION)
@@ -895,18 +1131,18 @@ class GLWidget(QOpenGLWidget):
             glEnable(GL_BLEND)
             glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
             glEnable(GL_PROGRAM_POINT_SIZE)
-            
+
             # glEnable(GL_CULL_FACE)
             # glCullFace(GL_BACK)
 
             glClearColor(*self._bgColor)
 
-            self.quad = FullScreenQuad()        
+            self.quad = FullScreenQuad()
             self.grid.load()
             self.smallGrid.load()
             self.axis.load()
-            
-            
+
+
             print('Compiling OpenGL shaders...')
             shaderVersion = f'{glMajorVersion}{glMinorVersion}0 core'
             print(f'OpenGL shader version: {shaderVersion}')
@@ -944,14 +1180,14 @@ class GLWidget(QOpenGLWidget):
                 manualVersion=shaderVersion,
                 validate=not sys.platform == 'darwin'
             )
-            
+
             self.OITAccumProg = self.buildShader(
                 vshader_path=f'./glw/shaders/{self.shaderFolder}/ssao_light_vs.glsl',
                 fshader_path=f'./glw/shaders/{self.shaderFolder}/oit_accum_fs.glsl',
                 manualVersion=shaderVersion,
                 validate=not sys.platform == 'darwin'
             )
-            
+
             self.OITAccumLineProg = self.buildShader(
                 vshader_path=f'./glw/shaders/{self.shaderFolder}/ssao_light_line_vs.glsl',
                 gshader_path=f'./glw/shaders/{self.shaderFolder}/ssao_light_line_gs.glsl',
@@ -975,11 +1211,18 @@ class GLWidget(QOpenGLWidget):
                 validate=not sys.platform == 'darwin'
             )
 
+            self._cameraMaskProg = self.buildShader(
+                vshader_path=f'./glw/shaders/{self.shaderFolder}/camera_mask_vs.glsl',
+                fshader_path=f'./glw/shaders/{self.shaderFolder}/camera_mask_fs.glsl',
+                manualVersion=shaderVersion,
+                validate=not sys.platform == 'darwin'
+            )
+
             self.geoProgAttribList = ['a_Position', 'a_Normal']
             self.geoProgUniformList = ['u_pointSize', 'u_mvpMatrix', 'u_mvMatrix', 'u_normalMatrix']
 
             self.coreBlurProgAttribList = ['a_Position']
-            
+
             self.coreProgUniformList = ['u_projMode', 'u_screenSize', 'u_kernelNoise', 'u_normalMap', 'u_positionMap', 'u_ProjMatrix', 'u_kernelSize', 'u_radiusPixels', 'u_kernel']
             self.blurProgUniformList = ['u_AOMap', 'u_TexelSize', 'u_NormalMap', 'u_PositionMap', 'u_Radius', 'u_NormalSigma', 'u_DepthSigma', 'u_SpatialSigma']
             self.lightProgAttribList = ['a_Position', 'a_Color', 'a_Normal', 'a_Texcoord']
@@ -990,22 +1233,22 @@ class GLWidget(QOpenGLWidget):
                                     'u_Lights[2].position', 'u_Lights[2].color', \
                                     'u_Lights[3].position', 'u_Lights[3].color', \
                                     'u_Lights[4].position', 'u_Lights[4].color', \
-                                        'u_renderMode', 
-                                        'u_EnableAlbedoTexture', 'u_AlbedoTexture', 'u_Metallic', 'u_Roughness', 
+                                        'u_renderMode',
+                                        'u_EnableAlbedoTexture', 'u_AlbedoTexture', 'u_Metallic', 'u_Roughness',
                                         'u_EnableMetallicRoughnessTexture', 'u_MetallicRoughnessTexture',
                                         'u_farPlane',
                                         'u_farPlaneRatio',
                                         'u_screenSize',
                                         'u_pointSize','u_lineWidth','u_FlatShading'
             ]
-            
+
             self.textProgUniformList = ['u_mvpMatrix', 'u_AlbedoTexture', 'u_screenSize', 'u_bearingAndSize', 'u_advance', 'u_fontSize', 'u_textColor']
 
             print('Shaders compiled successfully.')
 
             self.SSAOGeoProgLocMap = self._cacheShaderLocMap(self.SSAOGeoProg, self.geoProgAttribList, self.geoProgUniformList)
             self.SSAOLightProgLocMap = self._cacheShaderLocMap(self.SSAOLightProg, self.lightProgAttribList, self.lightProgUniformList)
-            
+
             self.SSAOCoreProgLocMap = self._cacheShaderLocMap(self.SSAOCoreProg, self.coreBlurProgAttribList, self.coreProgUniformList)
             self.SSAOBlurProgLocMap = self._cacheShaderLocMap(self.SSAOBlurProg, self.coreBlurProgAttribList, self.blurProgUniformList)
 
@@ -1014,8 +1257,16 @@ class GLWidget(QOpenGLWidget):
             self.OITAccumProgLocMap = self._cacheShaderLocMap(self.OITAccumProg, self.lightProgAttribList, self.lightProgUniformList)
             self.OITAccumLineProgLocMap = self._cacheShaderLocMap(self.OITAccumLineProg, self.lightProgAttribList, self.lightProgUniformList)
             self.OITCompositeProgLocMap = self._cacheShaderLocMap(self.OITCompositeProg, [], ['u_AccumTexture', 'u_RevealTexture'])
-            
+
             self.textProgLocMap = self._cacheShaderLocMap(self.textProg, [], self.textProgUniformList)
+
+            if self._cameraMaskProg is not None:
+                self._cameraMaskProgLocMap = self._cacheShaderLocMap(
+                    self._cameraMaskProg,
+                    ['a_Position'],
+                    ['u_contentPixelRect', 'u_maskAlpha', 'u_lineColor']
+                )
+                self._uploadCameraMaskLineColor()
 
             self.SSAOGeoFBO = FBOManager()
             self.SSAOCoreFBO = FBOManager()
@@ -1027,10 +1278,10 @@ class GLWidget(QOpenGLWidget):
 
             # setup SSAO core shaders
 
-            
+
             kernel = self.generateSSAOKernel(self._SSAOkernelSize)
             glUseProgram(self.SSAOCoreProg)
-            
+
             glUniform3fv(self.SSAOCoreProgLocMap['u_kernel'], self._SSAOkernelSize, kernel.flatten())
             glUniform1i(self.SSAOCoreProgLocMap['u_kernelSize'], self._SSAOkernelSize)
             glUniform1f(self.SSAOCoreProgLocMap['u_radiusPixels'], self._SSAOStrength)
@@ -1042,7 +1293,7 @@ class GLWidget(QOpenGLWidget):
             glUniform1i(self.SSAOBlurProgLocMap["u_Radius"], 2)
 
             # setup SSAO lighting shaders
-            
+
             glUseProgram(self.SSAOLightProg)
 
             self.setLights(self.SSAOLightProg, self.SSAOLightProgLocMap)
@@ -1066,7 +1317,7 @@ class GLWidget(QOpenGLWidget):
             if not isinstance(obj, Label):
                 self._setGeoProgMVPMatrix(locMap, obj.transform, viewMatrix, projMatrix)
                 obj.render(locMap=locMap)
-                
+
     def _renderLabels(self, locMap:dict, viewMatrix:np.ndarray, projMatrix:np.ndarray):
         '''
         A helper function to render all labels in the scene.
@@ -1079,7 +1330,7 @@ class GLWidget(QOpenGLWidget):
                 glUniformMatrix4fv(locMap['u_mvpMatrix'], 1, GL_FALSE, mvpMatrix.T, None)
                 glUniform2f(locMap['u_screenSize'], float(self._rawWindowW), float(self._rawWindowH))
                 obj.render(locMap=locMap)
-                
+
 
     def _setGeoProgMVPMatrix(self, locMap:dict, modelMatrix:np.ndarray, viewMatrix:np.ndarray, projMatrix:np.ndarray):
         '''
@@ -1105,14 +1356,14 @@ class GLWidget(QOpenGLWidget):
             viewMatrix (np.ndarray): The view matrix.
             projMatrix (np.ndarray): The projection matrix.
         '''
-        
+
         mvpMatrix = projMatrix @ viewMatrix @ modelMatrix
         glUniformMatrix4fv(locMap['u_ModelMatrix'], 1, GL_FALSE, modelMatrix.T, None)
         glUniformMatrix4fv(locMap['u_mvpMatrix'], 1, GL_FALSE, mvpMatrix.T, None)
         glUniformMatrix3fv(locMap['u_worldNormalMatrix'], 1, GL_FALSE, np.linalg.inv(modelMatrix)[:3, :3], None)
         glUniform1i(locMap['u_FlatShading'], self._flatShading)
-        
-        
+
+
 
     def _copyBuffer2Screen(self, buffer:FBOManager):
         '''
@@ -1121,13 +1372,13 @@ class GLWidget(QOpenGLWidget):
         Args:
             buffer (FBOManager): The framebuffer object to copy from.
         '''
-        
+
         glBindFramebuffer(GL_READ_FRAMEBUFFER, buffer._fbo)
         glReadBuffer(GL_COLOR_ATTACHMENT0)
-        
+
         glBindFramebuffer(GL_DRAW_FRAMEBUFFER, self.defaultFramebufferObject())
         glDrawBuffer(GL_COLOR_ATTACHMENT0)
-        
+
         glBlitFramebuffer(
             0, 0, self._rawWindowW, self._rawWindowH,
             0, 0, self._rawWindowW, self._rawWindowH,
@@ -1159,29 +1410,30 @@ class GLWidget(QOpenGLWidget):
         )
 
     def paintGL(self):
-        
-        
+
+
         self.camera.setAspectRatio(float(self._scaledWindowW) / float(self._scaledWindowH))
-        projMatrix = self.camera.updateProjTransform(isEmit=False)
-        camtrans = self.camera.updateTransform(isEmit=False)
-        
+        # self._updateCameraIntrinsicPixelOffset()
         self.camera.updateIntr(self._rawWindowH, self._rawWindowW)
-        
+        projMatrix = self.camera.updateProjTransform(isEmit=False)
+        projMatrix = self.projMatrixMod(projMatrix)
+        camtrans = self.camera.updateTransform(isEmit=False)
+
         campos = np.linalg.inv(camtrans)[:3,3]
-        
+
         if self._glRenderMode != 0:
             glPolygonMode(GL_FRONT_AND_BACK, GL_FILL)
         else:
-            glPolygonMode(GL_FRONT_AND_BACK, GL_LINE)  
+            glPolygonMode(GL_FRONT_AND_BACK, GL_LINE)
 
         ''' stage 1: SSAO Geometry Pass'''
 
         self.SSAOGeoFBO.getFBO(self._rawWindowW, self._rawWindowH, depth=True, colors=[GL_RGB32F, GL_RGB32F])
         self.SSAOGeoFBO.bindForWriting()
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
-        
+
         glUseProgram(self.SSAOGeoProg)
-        
+
         # Set all matrixs
         # glUniformMatrix4fv(self.SSAOGeoProgLocMap['u_ModelMatrix'], 1, GL_FALSE, self.canonicalModelMatrix, None)
         # glUniformMatrix4fv(self.SSAOGeoProgLocMap['u_ProjMatrix'],  1, GL_FALSE, projMatrix, None)
@@ -1192,11 +1444,11 @@ class GLWidget(QOpenGLWidget):
 
         ''' stage 2: SSAO Core Pass '''
         if self._enableSSAO:
-            
+
             self.SSAOCoreFBO.getFBO(self._rawWindowW, self._rawWindowH, depth=False, colors=[GL_R32F])
             self.SSAOCoreFBO.bindForWriting()
             glClear(GL_COLOR_BUFFER_BIT)
-            
+
             glUseProgram(self.SSAOCoreProg)
 
 
@@ -1212,12 +1464,12 @@ class GLWidget(QOpenGLWidget):
             glBindTexture(GL_TEXTURE_2D, self.SSAONoiseTexture)
             glUniform1i(self.SSAOCoreProgLocMap['u_kernelNoise'], 3)
             glUniform2f(self.SSAOCoreProgLocMap['u_screenSize'], float(self._rawWindowW), float(self._rawWindowH))
-            glUniform1i(self.SSAOCoreProgLocMap['u_projMode'], 
+            glUniform1i(self.SSAOCoreProgLocMap['u_projMode'],
                         0 if self.camera.projection_mode == GLCamera.projectionMode.perspective else 1)
 
             self.quad.render()
-            
-            
+
+
 
             ''' stage 3: SSAO Blur Pass '''
 
@@ -1248,11 +1500,11 @@ class GLWidget(QOpenGLWidget):
 
         glBindFramebuffer(GL_FRAMEBUFFER, self.defaultFramebufferObject())
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
-        
-      
-        
+
+
+
         glUseProgram(self.SSAOLightProg)
-        
+
         if self._enableSSAO:
             self.SSAOBlurFBO.bindTextureForReading(GL_TEXTURE21, 0)
             glUniform1i(self.SSAOLightProgLocMap['u_AOMap'], 21)
@@ -1263,7 +1515,7 @@ class GLWidget(QOpenGLWidget):
         glUniform1i(self.SSAOLightProgLocMap['u_renderMode'], self._glRenderMode)
         glUniform2f(self.SSAOLightProgLocMap['u_screenSize'], float(self._rawWindowW), float(self._rawWindowH))
 
-        
+
         glUseProgram(self.SSAOLightLineProg)
 
         glUniform1i(self.SSAOLightLineProgLocMap['u_enableAO'], 0)
@@ -1303,13 +1555,13 @@ class GLWidget(QOpenGLWidget):
 
         for obj in self._objectList.values():
             if isinstance(obj, Label): continue
-            
+
             sub_objs = []
             if isinstance(obj, UnionObject):
                 sub_objs = obj.objs
             else:
                 sub_objs = [obj]
-            
+
             for o in sub_objs:
                 is_trans = False
                 if hasattr(o, 'color') and o.color is not None:
@@ -1320,7 +1572,7 @@ class GLWidget(QOpenGLWidget):
                         # For per-vertex colors, check if any alpha is transparent
                         if np.min(o.color[:, 3]) < 0.99:
                             is_trans = True
-                
+
                 # Check for texture transparency if color check passed as opaque
                 if not is_trans and hasattr(o, 'material') and o.material is not None:
                     try:
@@ -1329,7 +1581,7 @@ class GLWidget(QOpenGLWidget):
                              tex_image = o.material.baseColorTexture
                         elif hasattr(o.material, 'image'):
                              tex_image = o.material.image
-                        
+
                         if tex_image is not None and hasattr(tex_image, 'mode') and tex_image.mode in ('RGBA', 'LA'):
                              is_trans = True
                     except:
@@ -1364,10 +1616,10 @@ class GLWidget(QOpenGLWidget):
 
 
         glUseProgram(self.SSAOLightLineProg)
-        
+
         glDepthMask(GL_FALSE)
-        
-            
+
+
         if self._isGridVisable:
             glUniform1i(self.SSAOLightLineProgLocMap['u_farPlane'], 1)
             glUniform1f(self.SSAOLightLineProgLocMap['u_farPlaneRatio'], 0.02)
@@ -1384,49 +1636,49 @@ class GLWidget(QOpenGLWidget):
 
         ''' stage 5: OIT Pass '''
         if len(transparent_render_list) > 0:
-                        
+
             self.OITFBO.getFBO(self._rawWindowW, self._rawWindowH, depth=True, colors=[GL_RGBA32F, GL_R32F])
-            
+
             glBindFramebuffer(GL_READ_FRAMEBUFFER, self.defaultFramebufferObject())
             glBindFramebuffer(GL_DRAW_FRAMEBUFFER, self.OITFBO._fbo)
             glBlitFramebuffer(0, 0, self._rawWindowW, self._rawWindowH, 0, 0, self._rawWindowW, self._rawWindowH, GL_DEPTH_BUFFER_BIT, GL_NEAREST)
-            
+
             self.OITFBO.bindForWriting()
             glDrawBuffers(2, [GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1])
-            
+
             glClearBufferfv(GL_COLOR, 0, [0.0, 0.0, 0.0, 0.0])
             glClearBufferfv(GL_COLOR, 1, [1.0, 1.0, 1.0, 1.0])
-            
+
             glDepthMask(GL_FALSE)
             glEnable(GL_BLEND)
             glDisable(GL_CULL_FACE)
-            
+
 
             glBlendEquation(GL_FUNC_ADD)
             glBlendFunci(0, GL_ONE, GL_ONE)
             glBlendFunci(1, GL_ZERO, GL_ONE_MINUS_SRC_COLOR)
 
-            
+
             glUseProgram(self.OITAccumLineProg)
             glUniform1i(self.OITAccumLineProgLocMap['u_enableAO'], self._enableSSAO)
             glUniform3f(self.OITAccumLineProgLocMap['u_CamPos'], *campos)
-            glUniform1i(self.OITAccumLineProgLocMap['u_renderMode'], self._glRenderMode) 
+            glUniform1i(self.OITAccumLineProgLocMap['u_renderMode'], self._glRenderMode)
             glUniform2f(self.OITAccumLineProgLocMap['u_screenSize'], float(self._rawWindowW), float(self._rawWindowH))
-            
+
             glUseProgram(self.OITAccumProg)
-            
+
             if self._enableSSAO:
                 self.SSAOBlurFBO.bindTextureForReading(GL_TEXTURE21, 0)
                 glUniform1i(self.OITAccumProgLocMap['u_AOMap'], 21)
 
             glUniform1i(self.OITAccumProgLocMap['u_enableAO'], self._enableSSAO)
             glUniform3f(self.OITAccumProgLocMap['u_CamPos'], *campos)
-            glUniform1i(self.OITAccumProgLocMap['u_renderMode'], self._glRenderMode) 
+            glUniform1i(self.OITAccumProgLocMap['u_renderMode'], self._glRenderMode)
             glUniform2f(self.OITAccumProgLocMap['u_screenSize'], float(self._rawWindowW), float(self._rawWindowH))
-            
-            
-            
-            for obj in transparent_render_list:                    
+
+
+
+            for obj in transparent_render_list:
                 if not isinstance(obj, UnionObject):
                     if obj.renderType != GL_LINES:
                         glUseProgram(self.OITAccumProg)
@@ -1447,37 +1699,56 @@ class GLWidget(QOpenGLWidget):
                             self._setLightProgMVPMatrix(self.OITAccumProgLocMap, _obj.transform, camtrans, projMatrix.T)
                             _obj.render(locMap=self.OITAccumProgLocMap)
 
-                    
+
             glDepthMask(GL_TRUE)
             glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
-            
+
             glBindFramebuffer(GL_FRAMEBUFFER, self.defaultFramebufferObject())
             glUseProgram(self.OITCompositeProg)
-            
+
             # Note: attachment index in FBOManager: 0 is depth, 1 is color0 (Accum), 2 is color1 (Reveal)
             self.OITFBO.bindTextureForReading(GL_TEXTURE22, 1)
             glUniform1i(self.OITCompositeProgLocMap['u_AccumTexture'], 22)
             self.OITFBO.bindTextureForReading(GL_TEXTURE23, 2)
             glUniform1i(self.OITCompositeProgLocMap['u_RevealTexture'], 23)
-            
+
             glEnable(GL_BLEND)
             glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
             self.quad.render()
 
 
         # self._renderObjs(locMap=self.SSAOLightProgLocMap)
-        
-        
+
+
         # stage Final: Copy framebuffer to screen (default) framebuffer
         # NOTE: remove before flight
-        
+
         # self._copyBuffer2Screen(self.SSAOBlurFBO)
 
 
 
         glUseProgram(self.textProg)
         self._renderLabels(self.textProgLocMap, viewMatrix=camtrans, projMatrix=projMatrix.T)
-        
+
+        content_rect = self._calcCameraMaskContentPixelRect()
+        if self._cameraMaskProg is not None and content_rect is not None and self._cameraMaskOpacity > 0.0:
+            glDisable(GL_DEPTH_TEST)
+            glEnable(GL_BLEND)
+            glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
+
+            glUseProgram(self._cameraMaskProg)
+            glUniform4f(
+                self._cameraMaskProgLocMap['u_contentPixelRect'],
+                float(content_rect[0]),
+                float(content_rect[1]),
+                float(content_rect[2]),
+                float(content_rect[3]),
+            )
+            glUniform1f(self._cameraMaskProgLocMap['u_maskAlpha'], float(self._cameraMaskOpacity))
+            self.quad.render(locMap=self._cameraMaskProgLocMap)
+
+            glEnable(GL_DEPTH_TEST)
+
         # mvpMatrix = projMatrix.T @ camtrans
         # glUniformMatrix4fv(glGetUniformLocation(self.textProg, 'u_mvpMatrix'), 1, GL_FALSE, mvpMatrix.T, None)
         # glUniform2f(glGetUniformLocation(self.textProg, 'u_screenSize'), float(self._rawWindowW), float(self._rawWindowH))
@@ -1489,7 +1760,7 @@ class GLWidget(QOpenGLWidget):
         self._fps += 1
 
         glFlush()
-        
+
 
 
 
@@ -1497,35 +1768,39 @@ class GLWidget(QOpenGLWidget):
         '''
         Clean all Object in the scene.
         '''
-        
+
         # Each Object will change its context so we dont need to call makeContext()
         for k, v in self._objectList.items():
             if hasattr(v, 'cleanup'):
                 v.cleanup()
         self._objectList = {}
-        
+
+        self.clearCameraConfigs()
+        self.reset2DCanvas()
         self.update()
-        
+
 
     def resizeGL(self, w: int, h: int) -> None:
         self._scaledWindowW = w
         self._scaledWindowH = h
 
         self.pixelRatio = self.devicePixelRatioF()
-        
+
         self._rawWindowW = int(w * self.pixelRatio)
         self._rawWindowH = int(h * self.pixelRatio)
 
+        self._updateCameraIntrinsicPixelOffset()
         self.camera.updateIntr(self._rawWindowH, self._rawWindowW)
-        
+
         # self.statusbar.move(0, h-self.statusbar.height())
         # self.statusbar.resize(w, h)
 
         self.glSettings.move((self._scaledWindowW - self.glSettingButton.width()) - 20, 15)
-        
+        self.cameraComboBox.move((self._scaledWindowW - self.cameraComboBox.width()) - 20, 15 + self.glSettingButton.height() + 15)
+
         # print(f'GLWidget resized to {w}x{h}, PixelRatio: {self.PixelRatio}')
         return super().resizeGL(w, h)
-        
+
 
     def worldCoordinatetoUV(self, p:np.ndarray) -> tuple[int, int]:
         '''
@@ -1537,7 +1812,7 @@ class GLWidget(QOpenGLWidget):
             uv (tuple): The UV coordinates.
         '''
         camCoord = self.camera.CameraTransformMat @ p
-        
+
         # Handle different projection modes
         if self.camera.projection_mode == self.camera.projectionMode.perspective:
             ...
@@ -1548,12 +1823,12 @@ class GLWidget(QOpenGLWidget):
 
         else:
             raise ValueError(f'Unknown projection mode: {self.camera.projection_mode}')
-            
+
         projected_coordinates = self.camera.intr @ camCoord[:3]
         projected_coordinates = projected_coordinates[:2] / projected_coordinates[2]
         projected_coordinates[0] = (self._scaledWindowW * self.pixelRatio) - projected_coordinates[0]
         return int(projected_coordinates[1]//self.pixelRatio), int(projected_coordinates[0]//self.pixelRatio)
-        
+
 
     def UVtoWorldCoordinate(self, u:int, v:int, dis:float=10) -> np.ndarray:
         '''
@@ -1565,18 +1840,21 @@ class GLWidget(QOpenGLWidget):
         Returns:
             p (np.ndarray): The 3D world coordinates.
         '''
-        camCoord = self.camera.rayVector(u, v, dis=dis)
+        u = (u - self._scaledWindowW * self.pixelRatio / 2.0) / self.canvas2d_scale - self.canvas2d_offset[0] * self._scaledWindowW * self.pixelRatio / 2.0 + self._scaledWindowW * self.pixelRatio / 2.0
+        v = (v - self._scaledWindowH * self.pixelRatio / 2.0) / self.canvas2d_scale + self.canvas2d_offset[1] * self._scaledWindowH * self.pixelRatio / 2.0 + self._scaledWindowH * self.pixelRatio / 2.0
+
+        camCoord = self.camera.rayVector(int(u), int(v), dis=dis)
         p = camCoord[:3] / camCoord[3]
-        print(f'UV to 3D: {u}, {v} -> {p}')
+        # print(f'UV to 3D: {u}, {v} -> {p}')
         return p
-   
-   
+
+
     def mousePressEvent(self, event:QMouseEvent):
-        
+
         self._lastPos = event.pos()
         self.camera.updateTransform(isAnimated=True, isEmit=False)
         self.update()
-        
+
         mouseCoordinateinViewPortX = int((self._lastPos.x()) * self.pixelRatio )
         mouseCoordinateinViewPortY = int((self._scaledWindowH -  self._lastPos.y()) * self.pixelRatio)
         mouseCoordinateinViewPortRY = int(self._lastPos.y() * self.pixelRatio)
@@ -1584,14 +1862,14 @@ class GLWidget(QOpenGLWidget):
         self.mouseClickPointinUV = np.array([mouseCoordinateinViewPortX, mouseCoordinateinViewPortY])
         linerDepthValue = self.getDepthPoint(mouseCoordinateinViewPortX, mouseCoordinateinViewPortY)[0]
         self.mouseClickPointinWorldCoordinate = self.camera.rayVector(mouseCoordinateinViewPortX, mouseCoordinateinViewPortY, dis=linerDepthValue)
-        
+
         # if event.buttons() & Qt.RightButton:
             # transform = np.identity(4, dtype=np.float32)
             # transform[:3, 3] = self.mouseClickPointinWorldCoordinate[:3]
             # self.updateObject(ID=np.random.randint(1, 1000), obj=Label(
             #     'clicked', position=self.mouseClickPointinWorldCoordinate[:3]
             # ))
-        
+
         if event.buttons() & Qt.RightButton:
             self.rightMouseClickSignal.emit(self.mouseClickPointinUV, self.mouseClickPointinWorldCoordinate)
         elif event.buttons() & Qt.MiddleButton:
@@ -1603,8 +1881,23 @@ class GLWidget(QOpenGLWidget):
     def mouseMoveEvent(self, event:QMouseEvent):
         dx = event.x() - self._lastPos.x()
         dy = event.y() - self._lastPos.y()
-        
+
         # self.fps += 1
+        if self.canvas2d_enabled and event.buttons() & Qt.LeftButton:
+            if self._scaledWindowW > 0 and self._scaledWindowH > 0:
+                self.canvas2d_offset[0] += dx * 2.0 / self._scaledWindowW / self.canvas2d_scale
+                self.canvas2d_offset[1] -= dy * 2.0 / self._scaledWindowH / self.canvas2d_scale
+            self.setCameraMaskEnabled(False)
+            self._lastPos = event.pos()
+            self.update()
+            # print(f'Canvas 2D offset updated: {self.canvas2d_offset}')
+            return
+        elif self.canvas2d_enabled and event.buttons() & Qt.RightButton:
+            if abs(dx) > 1 or abs(dy) > 1:
+                self._setCanvas2DEnabled(False)
+                self.setCameraMaskEnabled(False)
+                # print('Canvas 2D mode disabled due to large mouse movement')
+                self.infoSignal.emit('Canvas 2D Mode', 'Canvas 2D mode disabled', 'warning')
 
         if event.buttons() & Qt.LeftButton:
             if self.camera.controltype == self.camera.controlType.arcball:
@@ -1619,7 +1912,7 @@ class GLWidget(QOpenGLWidget):
                 # Fix up rotation
                 self.camera.rotate(dx, dy)
 
-        if event.buttons() & Qt.RightButton: 
+        if event.buttons() & Qt.RightButton:
             self.camera.translate(dx, dy)
 
         self._lastPos = event.pos()
@@ -1627,39 +1920,61 @@ class GLWidget(QOpenGLWidget):
         self.update()
 
     def wheelEvent(self, event:QWheelEvent):
-        
+
         angle = event.angleDelta()
+
+        if self.canvas2d_enabled:
+            if self._scaledWindowW <= 0 or self._scaledWindowH <= 0:
+                return
+
+            zoom_factor = 1.1 if angle.y() > 0 else 0.9
+
+            # mouse pos in NDC
+            mx = (event.position().x() / self._scaledWindowW) * 2.0 - 1.0
+            my = 1.0 - (event.position().y() / self._scaledWindowH) * 2.0
+
+            # Adjust offset to zoom towards mouse cursor
+            self.canvas2d_offset[0] += mx / self.canvas2d_scale * (1.0/zoom_factor - 1.0)
+            self.canvas2d_offset[1] += my / self.canvas2d_scale * (1.0/zoom_factor - 1.0)
+
+            self.canvas2d_scale *= zoom_factor
+            self.setCameraMaskEnabled(False)
+            self.update()
+            # print(f'Canvas 2D zoom updated: scale={self.canvas2d_scale}, offset={self.canvas2d_offset}')
+            return
+
         self.camera.zoom(angle.y()/200.)
+        self._updateCameraIntrinsicPixelOffset()
         self.camera.updateIntr(self._rawWindowH, self._rawWindowW)
         self.update()
 
     def mouseDoubleClickEvent(self, event:QMouseEvent) -> None:
-        
+
         super().mouseDoubleClickEvent(event)
-        
+
         if event.buttons() & Qt.LeftButton:
             self.resetCamera()
 
         self.update()
-        
+
     def mouseReleaseEvent(self, event:QMouseEvent):
-        
+
         self.mouseReleaseSignal.emit(self.mouseClickPointinUV, self.mouseClickPointinWorldCoordinate)
         return super().mouseReleaseEvent(event)
-    
-    
+
+
     def getDepthMap(self, ) -> np.ndarray:
         '''
         Get the depth map from the framebuffer. Depth map is converted from NDC to linear space.
         Returns:
             linerDepth (np.ndarray): The linear depth map.
         '''
-        
+
         self.makeCurrent()
         self.SSAOGeoFBO.bindForWriting()
         rawDepth = glReadPixels(0, 0, self._rawWindowW, self._rawWindowH,
                                 GL_DEPTH_COMPONENT, GL_FLOAT)
-        
+
         NDCDepth = np.frombuffer(rawDepth, dtype=np.float32).reshape((self._rawWindowH, self._rawWindowW))[::-1, :]
         linerDepth = DepthReader.convertNDC2Liner(NDCDepth, self.camera)
 
@@ -1675,13 +1990,13 @@ class GLWidget(QOpenGLWidget):
         Returns:
             linerDepth (np.ndarray): The linear depth value.
         '''
-        
+
         self.makeCurrent()
         self.SSAOGeoFBO.bindForWriting()
-        
+
         rawDepth = glReadPixels(x, y, 1, 1,
                                 GL_DEPTH_COMPONENT, GL_FLOAT)
-        
+
         NDCDepth = np.frombuffer(rawDepth, dtype=np.float32)
         NDCDepth = NDCDepth.flatten()
 
@@ -1702,9 +2017,9 @@ class GLWidget(QOpenGLWidget):
             depth_image_pil = Image.fromarray(depth_image, mode='I;16')
 
             if path is None:
-                path, _ = QFileDialog.getSaveFileName(self, 
-                                                      'Save Depth Map', 
-                                                      os.path.join(self._lastSavePath, 'depth.png') if os.path.exists(self._lastSavePath) else './depth.png', 
+                path, _ = QFileDialog.getSaveFileName(self,
+                                                      'Save Depth Map',
+                                                      os.path.join(self._lastSavePath, 'depth.png') if os.path.exists(self._lastSavePath) else './depth.png',
                                                       'PNG Files (*.png);;All Files (*)')
 
             if path:
@@ -1719,6 +2034,29 @@ class GLWidget(QOpenGLWidget):
             print(f'Error saving depth map: {e}')
             self.infoSignal.emit('Save Depth Map', f'Error saving depth map: {e}', 'error')
 
+    def _grabRGBAMapImage(self):
+        image = self.grabFramebuffer()
+        crop_rect = self._calcCameraMaskImageCropRect(image.width(), image.height())
+        if crop_rect is not None:
+            image = image.copy(*crop_rect)
+        image = image.convertToFormat(QImage.Format_RGBA8888)
+        image.setDevicePixelRatio(1.0)
+        return image
+
+    @staticmethod
+    def _imageToPngData(image):
+        png_data = QByteArray()
+        buffer = QBuffer(png_data)
+        if not buffer.open(QIODevice.WriteOnly):
+            raise RuntimeError('Failed to open clipboard PNG buffer')
+
+        if not image.save(buffer, 'PNG'):
+            buffer.close()
+            raise RuntimeError('Failed to encode RGBA image as PNG')
+
+        buffer.close()
+        return png_data
+
     def saveRGBAMap(self, path:Optional[str]=None):
         '''
         Save the RGBA image to a file to the specified path.
@@ -1727,26 +2065,48 @@ class GLWidget(QOpenGLWidget):
         '''
         try:
             if path is None:
-                path, _ = QFileDialog.getSaveFileName(self, 
+                path, _ = QFileDialog.getSaveFileName(self,
                                                       'Save RGBA Image',
-                                                      os.path.join(self._lastSavePath, 'image.png') if os.path.exists(self._lastSavePath) else './image.png',
+                                                      self._lastSavePath if os.path.exists(os.path.dirname(self._lastSavePath)) else './image.png',
                                                       'PNG Files (*.png);;All Files (*)')
-            
+
             if path:
-                self._lastSavePath = os.path.dirname(path)
-                image = self.grabFramebuffer()
+                self._lastSavePath = path
+                image = self._grabRGBAMapImage()
                 image.save(path)
                 print(f'RGBA image saved to {path}')
                 self.infoSignal.emit('RGBA Image Saved', f'RGBA image saved to {path}', 'complete')
             else:
                 print('No path specified to save RGBA image.')
                 self.infoSignal.emit('Save RGBA Image', 'No path specified to save RGBA image.', 'warning')
-                
+
         except Exception as e:
             print(f'Error saving RGBA image: {e}')
             self.infoSignal.emit('Save RGBA Image', f'Error saving RGBA image: {e}', 'error')
-            
-            
+
+    def copyRGBAMapToClipboard(self):
+        '''
+        Copy the RGBA image to the system clipboard.
+        '''
+        try:
+            image = self._grabRGBAMapImage()
+            png_data = self._imageToPngData(image)
+            mime_data = QMimeData()
+            mime_data.setData('image/png', png_data)
+            mime_data.setData('application/x-qt-windows-mime;value="PNG"', png_data)
+            mime_data.setData('PNG', png_data)
+            mime_data.setImageData(image)
+            QApplication.clipboard().setMimeData(mime_data)
+            print('RGBA image copied to clipboard')
+            self.infoSignal.emit(
+                'RGBA Image Copied',
+                f'RGBA image copied to clipboard ({image.width()}x{image.height()})',
+                'complete')
+        except Exception as e:
+            print(f'Error copying RGBA image to clipboard: {e}')
+            self.infoSignal.emit('Copy RGBA Image', f'Error copying RGBA image to clipboard: {e}', 'error')
+
+
     def __del__(self, ):
         try:
             self.reset()

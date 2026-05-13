@@ -158,12 +158,14 @@ class GLCamera(QObject):
         """
         pass
     
-    def setCameraTransform(self, transform: np.ndarray) -> np.ndarray:
+    def setCameraTransform(self, transform: np.ndarray, isEmit: bool = True, isAnimated: bool = True) -> np.ndarray:
         """
         Set the camera transformation matrix directly.
         
         Args:
             transform (np.ndarray): 4x4 transformation matrix
+            isEmit (bool): Whether to emit update signal. Defaults to True
+            isAnimated (bool): Whether to animate the transition. Defaults to True
             
         Returns:
             np.ndarray: Updated camera transformation matrix (4x4)
@@ -180,6 +182,20 @@ class GLCamera(QObject):
             
         Returns:
             np.ndarray: Camera intrinsic matrix (3x3)
+        """
+        pass
+
+    def setIntrinsicMatrix(self, K: np.ndarray, isAnimated: bool = True, isEmit: bool = True) -> None:
+        """
+        Set a standard 3x3 camera intrinsic matrix in perspective mode.
+
+        Args:
+            K (np.ndarray): Intrinsic matrix [[fx, 0, cx], [0, fy, cy], [0, 0, 1]]
+            isAnimated (bool): Whether to animate projection transition. Defaults to True
+            isEmit (bool): Whether to emit update signal. Defaults to True
+
+        Returns:
+            None
         """
         pass
     
@@ -423,6 +439,21 @@ class GLWidget(QOpenGLWidget):
              - 0: Perspective
              - 1: Orthographic
         '''
+        ...
+
+    def setCameraMaskEnabled(self, enabled: bool = False):
+        ...
+
+    def setCameraMaskOpacity(self, opacity: float = 0.5):
+        ...
+
+    def setCameraOutputResolution(self, width: int, height: int):
+        ...
+
+    def clearCameraOutputResolution(self):
+        ...
+
+    def getCameraMaskSettings(self) -> dict:
         ...
         
     def setAxisVisibility(self, isVisible:bool=True):

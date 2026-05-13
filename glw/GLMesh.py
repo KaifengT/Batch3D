@@ -488,7 +488,19 @@ class BaseObject:
             ...
 
     @staticmethod
-    def createTexture2d(texture_file:Image.Image):
+    def _normalizeTextureFilter(texture_filter):
+        if isinstance(texture_filter, str):
+            texture_filter = texture_filter.strip().lower()
+            if texture_filter == 'nearest':
+                return GL_NEAREST
+            if texture_filter == 'linear':
+                return GL_LINEAR
+        elif texture_filter in (GL_NEAREST, GL_LINEAR):
+            return texture_filter
+        return GL_LINEAR
+
+    @staticmethod
+    def createTexture2d(texture_file:Image.Image, texture_filter=GL_LINEAR):
         
         internalformatMap = {
             GL_RGB: GL_RGB8,
@@ -530,6 +542,8 @@ class BaseObject:
         _format = formatMap[_dim]
         _iformat = internalformatMap[_format]
 
+        texture_filter = BaseObject._normalizeTextureFilter(texture_filter)
+
         tid = glGenTextures(1)
         glBindTexture(GL_TEXTURE_2D, tid)
 
@@ -539,8 +553,8 @@ class BaseObject:
             glPixelStorei(GL_UNPACK_ALIGNMENT, 1)
         
         glTexImage2D(GL_TEXTURE_2D, 0, _iformat, im_w, im_h, 0, _format, _type, im)
-        glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR)
-        glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR)
+        glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, texture_filter)
+        glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, texture_filter)
         glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT)
         glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT)
         glGenerateMipmap(GL_TEXTURE_2D)
@@ -648,7 +662,7 @@ class BaseObject:
         return BaseObject.checkData(shape, color, lastdim=4, fill=1.0)
 
     @staticmethod
-    def _parseMaterial(material:SimpleMaterial|PBRMaterial, texcoord=None):
+    def _parseMaterial(material:SimpleMaterial|PBRMaterial, texcoord=None, texture_filter=GL_LINEAR):
         
         '''
         trimesh.visual.material.PBRMaterial:
@@ -720,7 +734,7 @@ class BaseObject:
         if isinstance(material, SimpleMaterial):
 
             if isinstance(material.image, im.Image):
-                tid = BaseObject.createTexture2d(material.image)
+                tid = BaseObject.createTexture2d(material.image, texture_filter=texture_filter)
 
                 texcolor = colorManager.get_color_from_tex(material.image, texcoord)
                 main_colors, per = colorManager.extract_dominant_colors(texcolor, n_colors=3)
@@ -738,7 +752,7 @@ class BaseObject:
             
             if isinstance(material.baseColorTexture, im.Image):
                 
-                tid = BaseObject.createTexture2d(material.baseColorTexture)
+                tid = BaseObject.createTexture2d(material.baseColorTexture, texture_filter=texture_filter)
                 
                 texcolor = colorManager.get_color_from_tex(material.baseColorTexture, texcoord)
                 main_colors, per = colorManager.extract_dominant_colors(texcolor, n_colors=3)
@@ -753,7 +767,7 @@ class BaseObject:
                 
                 
             if isinstance(material.metallicRoughnessTexture, im.Image):
-                tid = BaseObject.createTexture2d(material.metallicRoughnessTexture)
+                tid = BaseObject.createTexture2d(material.metallicRoughnessTexture, texture_filter=texture_filter)
                 materialParameter.update({'u_MetallicRoughnessTexture': {'data': tid, 'type': 'texture'},
                                          'u_EnableMetallicRoughnessTexture': {'data': 1, 'type': 'int'}})
             else:
@@ -782,7 +796,7 @@ class BaseObject:
         
         
         
-        if self.isShow:
+        if self.isShow and not self.getProp('canvas2dAutoHidden', False):
             
             # model_matrix_loc = locMap.get('u_ModelMatrix', -1)
             # if model_matrix_loc != -1:
@@ -1228,6 +1242,112 @@ class Lines(BaseObject):
         
         self.setContextfromCurrent()
 
+class CameraFrustum(Lines):
+    @staticmethod
+    def _unproject_pixel_to_camera(u, v, depth, intrinsic):
+        fx = float(intrinsic[0, 0])
+        fy = float(intrinsic[1, 1])
+        cx = float(intrinsic[0, 2])
+        cy = float(intrinsic[1, 2])
+
+        x = (float(u) - cx) * float(depth) / fx
+        y = -(float(v) - cy) * float(depth) / fy
+        z = -float(depth)
+        return np.array([x, y, z], dtype=np.float32)
+
+    @staticmethod
+    def buildFrustumLines(intrinsic, width, height, depth):
+        width = max(int(width), 1)
+        height = max(int(height), 1)
+        intrinsic = np.asarray(intrinsic, dtype=np.float32)
+        origin = np.array([0.0, 0.0, 0.0], dtype=np.float32)
+        corners = [
+            CameraFrustum._unproject_pixel_to_camera(0, 0, depth, intrinsic),
+            CameraFrustum._unproject_pixel_to_camera(width, 0, depth, intrinsic),
+            CameraFrustum._unproject_pixel_to_camera(width, height, depth, intrinsic),
+            CameraFrustum._unproject_pixel_to_camera(0, height, depth, intrinsic),
+        ]
+        top_vec = corners[1] - corners[0]
+        up_vec = corners[0] - corners[3]
+        top_len = float(np.linalg.norm(top_vec))
+        up_len = float(np.linalg.norm(up_vec))
+        right_dir = top_vec / top_len if top_len > 1e-8 else np.array([1.0, 0.0, 0.0], dtype=np.float32)
+        up_dir = up_vec / up_len if up_len > 1e-8 else np.array([0.0, 1.0, 0.0], dtype=np.float32)
+        frame_size = min(top_len, up_len) if top_len > 1e-8 and up_len > 1e-8 else max(float(depth) * 0.2, 1e-3)
+        tri_base_half = right_dir * frame_size * 0.18
+        tri_height = up_dir * frame_size * 0.24
+        tri_base_center = (corners[0] + corners[1]) * 0.5
+        tri_base_center[1] += frame_size * 0.1
+        tri_left = tri_base_center - tri_base_half
+        tri_right = tri_base_center + tri_base_half
+        tri_apex = tri_base_center + tri_height
+
+        length = frame_size * 0.3
+
+        line_vertices = [
+            origin, corners[0],
+            origin, corners[1],
+            origin, corners[2],
+            origin, corners[3],
+            corners[0], corners[1],
+            corners[1], corners[2],
+            corners[2], corners[3],
+            corners[3], corners[0],
+            tri_left, tri_right,
+            tri_right, tri_apex,
+            tri_apex, tri_left,
+        ]
+        
+        axis = np.array(
+            [
+            [0.000,0,0],
+            [length,0,0],
+            [0,0.000,0],
+            [0,length, 0],
+            [0,0,0.000],
+            [0,0,length],
+            ], dtype=np.float32
+        )
+        # axis[:, 2] -= (depth +length) / 2
+            
+        # self.color = np.array(
+        #     [
+        #         [176, 48, 82, 255],
+        #         [176, 48, 82, 255],
+        #         [136, 194, 115, 255],
+        #         [136, 194, 115, 255],
+        #         [2, 76, 170, 255],
+        #         [2, 76, 170, 255],
+        #     ]
+        # ) / 255.
+
+        
+        return np.concatenate([np.stack(line_vertices, axis=0).astype(np.float32), axis], axis=0)
+
+    def __init__(self,
+                 intrinsic: np.ndarray,
+                 width: int,
+                 height: int,
+                 depth: float = 2.0,
+                 color: Optional[np.ndarray|list|tuple] = np.array([0.0, 0.75, 1.0, 1.0], dtype=np.float32),
+                 size: int = 3,
+                 transform: Optional[np.ndarray] = None) -> None:
+        vertex = self.buildFrustumLines(intrinsic, width, height, depth)
+        color = self.checkColor(vertex.shape, color)
+        color[-6:, :] = np.array(
+            [
+                [176, 48, 82, 255],
+                [176, 48, 82, 255],
+                [136, 194, 115, 255],
+                [136, 194, 115, 255],
+                [2, 76, 170, 255],
+                [2, 76, 170, 255],
+            ]
+        ) / 255.
+        
+        super().__init__(vertex=vertex, color=color, size=size, transform=transform)
+        self.setProp('hideInCanvas2D', True)
+
 class Mesh(BaseObject):
 
     def __init__(self, vertex:np.ndarray, 
@@ -1236,6 +1356,7 @@ class Mesh(BaseObject):
                  norm:Optional[np.ndarray]=None, 
                  texture:Optional[SimpleMaterial|PBRMaterial]=None, 
                  texcoord:Optional[np.ndarray]=None, 
+                 texture_filter=None,
                  faceNorm:Optional[np.ndarray]=False, 
                  transform:Optional[np.ndarray]=None) -> None:
         super().__init__()
@@ -1256,6 +1377,7 @@ class Mesh(BaseObject):
         self.color = self.checkColor(vertex.shape, color)
         self.norm = norm.reshape(-1, 3)
         self.material = texture
+        self.texture_filter = texture_filter
         self.renderType = GL_TRIANGLES
         self.transform = transform
 
@@ -1273,7 +1395,10 @@ class Mesh(BaseObject):
     def load(self):
         
         if self.material is not None:
-            self.materialParameter, miscParamter = BaseObject._parseMaterial(self.material, texcoord=self.texcoord)
+            self.materialParameter, miscParamter = BaseObject._parseMaterial(
+                self.material,
+                texcoord=self.texcoord,
+                texture_filter=self.texture_filter)
 
             if 'u_AlbedoTexture' in self.materialParameter.keys():
                 

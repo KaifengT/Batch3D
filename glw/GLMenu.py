@@ -8,7 +8,13 @@ from qfluentwidgets import (Action, BodyLabel, DropDownToolButton, SegmentedWidg
 from qfluentwidgets import FluentIcon as FIF
 
 
-
+def getCameraComboBox(parent):
+    box = ComboBox(parent)
+    box.setMinimumWidth(120)
+    box.setSizePolicy(QSizePolicy.MinimumExpanding, QSizePolicy.Minimum)
+    box.adjustSize()
+    # box.setIcon(FIF.CAMERA)
+    return box
 
 
 class GLSettingWidget(QObject):
@@ -29,6 +35,7 @@ class GLSettingWidget(QObject):
                  axis_length_callback=None,
                  save_depth_callback=None,
                  save_rgba_callback=None,
+                 copy_rgba_callback=None,
                  enable_ssao_callback=None,
                  ssao_kernel_size_callback=None,
                  ssao_strength_callback=None):
@@ -49,6 +56,7 @@ class GLSettingWidget(QObject):
         self.axis_length_callback = axis_length_callback
         self.save_depth_callback = save_depth_callback
         self.save_rgba_callback = save_rgba_callback
+        self.copy_rgba_callback = copy_rgba_callback
         self.enable_ssao_callback = enable_ssao_callback
         self.ssao_kernel_size_callback = ssao_kernel_size_callback
         self.ssao_strength_callback = ssao_strength_callback
@@ -289,9 +297,13 @@ class GLSettingWidget(QObject):
         action_saveRGBA = Action(FIF.SAVE, 'Save RGBA Maps')
         action_saveRGBA.triggered.connect(self._on_save_rgba)
 
+        action_copyRGBA = Action(FIF.COPY, 'Copy RGBA Image')
+        action_copyRGBA.triggered.connect(self._on_copy_rgba)
+
         self.gl_setting_Menu.addActions([
             action_saveDepth,
-            action_saveRGBA
+            action_saveRGBA,
+            action_copyRGBA,
         ])
         
         self.gl_setting_Menu.addSeparator()
@@ -361,6 +373,10 @@ class GLSettingWidget(QObject):
     def _on_save_rgba(self):
         if self.save_rgba_callback:
             self.save_rgba_callback()
+
+    def _on_copy_rgba(self):
+        if self.copy_rgba_callback:
+            self.copy_rgba_callback()
             
     def _on_ssao_visibility_changed(self, state):
         if self.enable_ssao_callback:

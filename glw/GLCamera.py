@@ -45,7 +45,10 @@ class GLCamera(QObject):
         self.viewPortDistance = 10
         self.CameraTransformMat = np.identity(4)
         self.lookatPoint = np.array([0., 0., 0.,])
+        self.fx = 1
         self.fy = 1
+        self.cx = 0.0
+        self.cy = 0.0
         self.intr = np.eye(3)
         
         self.viewAngle = 60.0
@@ -74,14 +77,25 @@ class GLCamera(QObject):
         self.filterViewAngle = kalmanFilter(1, R=0.1)
         self.filterNear = kalmanFilter(1, R=0.1)
         self.filterFar = kalmanFilter(1, R=0.1)
+        self.filterIntr = kalmanFilter(4, R=0.2, Q=0.02)
         
         
         self.currentProjMatrix = None
         self.targetProjMatrix = None
+
+        self.useCustomIntrinsic = False
+        self.customIntrinsicAnimated = True
+        self.customIntrinsicCurrent = None
+        self.customIntrinsicTarget = None
+        self.lastWindowH = 1
+        self.lastWindowW = 1
+        self.intrinsicPixelOffsetX = 0.0
+        self.intrinsicPixelOffsetY = 0.0
         
         self.projection_mode = self.projectionMode.perspective
         
         self.filterAEV.stable(np.array([self.azimuth, self.elevation, self.viewPortDistance]))
+        self.filterViewAngle.stable(np.array([self.viewAngle]))
         self.updateTransform(False, False)
         
         self.timer = QTimer()
@@ -102,6 +116,13 @@ class GLCamera(QObject):
         
     def setLockRotate(self, isLock:bool):
         self.lockRotate = isLock
+
+    def setIntrinsicPixelOffset(self, offset_x: float = 0.0, offset_y: float = 0.0):
+        self.intrinsicPixelOffsetX = float(offset_x)
+        self.intrinsicPixelOffsetY = float(offset_y)
+        
+    def getIntrinsicPixelOffset(self) -> tuple[float, float]:
+        return self.intrinsicPixelOffsetX, self.intrinsicPixelOffsetY
         
 
     def setCamera(self, azimuth=135, elevation=-55, distance=10, lookatPoint=np.array([0., 0., 0.,])) -> np.ndarray:
@@ -123,9 +144,147 @@ class GLCamera(QObject):
             
         return self.updateTransform()
     
-    def setCameraTransform(self, transform: np.ndarray) -> np.ndarray:
-        self.arcball_quat = quaternion_from_matrix(transform)
-        return self.updateTransform()
+    @staticmethod
+    def _decomposeCameraTransform(transform: np.ndarray):
+        mat = np.asarray(transform, dtype=np.float64)
+        if mat.shape != (4, 4):
+            raise ValueError(f'Camera transform must be 4x4, got {mat.shape}')
+
+        rmat = mat[:3, :3]
+        tvec = mat[:3, 3]
+        cam_center = -rmat.T @ tvec
+
+        distance = float(np.linalg.norm(cam_center))
+        if distance < 1e-6:
+            distance = 1.0
+
+        # camera looks toward -z in camera space, map to world forward direction
+        forward = rmat.T @ np.array([0.0, 0.0, -1.0], dtype=np.float64)
+        lookat = cam_center + forward * distance
+
+        quat = quaternion_from_matrix(mat)
+        return distance, lookat.astype(np.float64), quat
+
+    def setCameraTransform(self, transform: np.ndarray, isEmit=True, isAnimated=True) -> np.ndarray:
+
+        mat = np.asarray(transform, dtype=np.float64)
+        if mat.shape != (4, 4):
+            raise ValueError(f'Camera transform must be 4x4, got {mat.shape}')
+
+        target_distance, target_lookat, target_quat = self._decomposeCameraTransform(mat)
+        current_distance, current_lookat, current_quat = self._decomposeCameraTransform(self.CameraTransformMat)
+
+        if np.dot(target_quat, current_quat) < 0:
+            target_quat = -target_quat
+
+        self.controltype = self.controlType.arcball
+
+        self.viewPortDistance = target_distance
+        self.lookatPoint = target_lookat
+        self.arcboall_quat = target_quat
+        self.last_arcboall_quat = current_quat.copy()
+
+        self.filterlookatPoint.stable(current_lookat)
+        self.filterAEV.stable(np.array([self.azimuth, self.elevation, current_distance]))
+        self.filterRotaion.stable(current_quat)
+
+        if isAnimated:
+            if not self.timer.isActive():
+                self.timer.start()
+        else:
+            self.filterlookatPoint.stable(self.lookatPoint)
+            self.filterAEV.stable(np.array([self.azimuth, self.elevation, self.viewPortDistance]))
+            self.filterRotaion.stable(self.arcboall_quat)
+            self.CameraTransformMat = mat.copy()
+            if self.timer.isActive():
+                self.timer.stop()
+        if isEmit:
+            self.updateSignal.emit()
+        return self.CameraTransformMat
+
+    def _calcFovFromFy(self, fy: float) -> float:
+        if fy <= 0:
+            raise ValueError('fy must be positive when converting intrinsic to FOV')
+
+        if self.lastWindowH > 1:
+            window_h = float(self.lastWindowH)
+        elif self.cy > 0:
+            window_h = float(self.cy * 2.0)
+        else:
+            window_h = 1.0
+
+        return 2.0 * math.degrees(math.atan(window_h / (2.0 * float(fy))))
+
+    def _updateCustomIntrinsicState(self, isAnimated=True):
+        if not self.useCustomIntrinsic:
+            return
+
+        if self.customIntrinsicCurrent is None or self.customIntrinsicTarget is None:
+            return
+
+        if isAnimated and self.customIntrinsicAnimated:
+            self.customIntrinsicCurrent = self.filterIntr.forward(self.customIntrinsicTarget)
+        else:
+            self.customIntrinsicCurrent = self.customIntrinsicTarget.copy()
+            self.filterIntr.stable(self.customIntrinsicTarget)
+
+        self.fx = float(self.customIntrinsicCurrent[0])
+        self.fy = float(self.customIntrinsicCurrent[1])
+        self.cx = float(self.customIntrinsicCurrent[2])
+        self.cy = float(self.customIntrinsicCurrent[3])
+
+        target_fov = self._calcFovFromFy(self.fy)
+        if isAnimated and self.customIntrinsicAnimated:
+            self.viewAngle = float(self.filterViewAngle.forward(np.array([target_fov]))[0])
+        else:
+            self.viewAngle = float(target_fov)
+            self.filterViewAngle.stable(np.array([self.viewAngle]))
+
+    def setIntrinsicMatrix(self, K: np.ndarray, isAnimated=True, isEmit=True):
+        if self.projection_mode != self.projectionMode.perspective:
+            raise ValueError('setIntrinsicMatrix only supports perspective projection mode')
+
+        mat = np.asarray(K, dtype=np.float64)
+        if mat.shape != (3, 3):
+            raise ValueError(f'Intrinsic matrix must be 3x3, got shape {mat.shape}')
+
+        if not np.isclose(mat[2, 2], 1.0, atol=1e-6):
+            raise ValueError('Intrinsic matrix K[2,2] must be 1.0')
+
+        if abs(float(mat[1, 0])) > 1e-8 or abs(float(mat[2, 0])) > 1e-8 or abs(float(mat[2, 1])) > 1e-8:
+            raise ValueError('Intrinsic matrix must use the standard upper-triangular form')
+
+        fx = float(mat[0, 0])
+        fy = float(mat[1, 1])
+        cx = float(mat[0, 2])
+        cy = float(mat[1, 2])
+
+        if not np.isfinite([fx, fy, cx, cy]).all():
+            raise ValueError('Intrinsic matrix contains non-finite values')
+        if fx <= 0 or fy <= 0:
+            raise ValueError('fx and fy must be positive')
+
+        target = np.array([fx, fy, cx, cy], dtype=np.float64)
+        self.useCustomIntrinsic = True
+        self.customIntrinsicAnimated = bool(isAnimated)
+        self.customIntrinsicTarget = target
+
+        if self.customIntrinsicCurrent is None:
+            current_cx = self.lastWindowW / 2.0 if self.lastWindowW > 1 else cx
+            current_cy = self.lastWindowH / 2.0 if self.lastWindowH > 1 else cy
+            self.customIntrinsicCurrent = np.array([self.fx, self.fy, current_cx, current_cy], dtype=np.float64)
+
+        self.filterIntr.stable(self.customIntrinsicTarget)
+
+        if isAnimated:
+            if not self.timer_proj.isActive():
+                self.timer_proj.start()
+        else:
+            self._updateCustomIntrinsicState(isAnimated=False)
+            self.updateProjTransform(isAnimated=False, isEmit=False)
+
+        if isEmit:
+            self.updateSignal.emit()
 
     def updateIntr(self, window_h, window_w):
         """
@@ -137,22 +296,33 @@ class GLCamera(QObject):
             intr (np.ndarray): camera intrinsic matrix
         """
 
+        self.lastWindowH = int(window_h)
+        self.lastWindowW = int(window_w)
+
+        self._updateCustomIntrinsicState(isAnimated=self.timer_proj.isActive())
+
         fov_half_rad = math.radians(self.viewAngle / 2)
         cx = window_w / 2.0
         cy = window_h / 2.0
         # calculate focal length based on the window height and FOV
         
         if self.projection_mode == self.projectionMode.perspective:
-            self.fy = (window_h / 2.0) / math.tan(fov_half_rad)
-            self.fx = self.fy
+            if not self.useCustomIntrinsic:
+                self.fy = (window_h / 2.0) / math.tan(fov_half_rad)
+                self.fx = self.fy
+                self.cx = cx
+                self.cy = cy
             
             
         elif self.projection_mode == self.projectionMode.orthographic:
+            self.useCustomIntrinsic = False
             ortho_height = self.viewPortDistance * 0.5
             ortho_width = ortho_height * self.aspect
             
             self.fy = window_h / (2.0 * ortho_height)
             self.fx = window_w / (2.0 * ortho_width)
+            self.cx = cx
+            self.cy = cy
             
         else:
             raise ValueError(f'Unknown projection mode: {self.projection_mode}')
@@ -160,8 +330,8 @@ class GLCamera(QObject):
 
 
         self.intr = np.array([
-            [self.fx, 0,      cx],
-            [0,       self.fy, cy],
+            [self.fx, 0,      self.cx + (self.intrinsicPixelOffsetX if self.useCustomIntrinsic else 0.0)],
+            [0,       self.fy, self.cy + (self.intrinsicPixelOffsetY if self.useCustomIntrinsic else 0.0)],
             [0,       0,       1.0]
         ], dtype=np.float32)
         
@@ -388,7 +558,13 @@ class GLCamera(QObject):
                 if np.allclose(aev, aev_in, atol=1e-3) and \
                     np.allclose(lookatPoint, self.lookatPoint, atol=1e-3) and \
                         np.allclose(self.arcboall_quat, quat, atol=1e-5):
-                    
+
+                    aev = aev_in
+                    lookatPoint = self.lookatPoint
+                    quat = self.arcboall_quat
+                    self.filterAEV.stable(aev_in)
+                    self.filterlookatPoint.stable(self.lookatPoint)
+                    self.filterRotaion.stable(self.arcboall_quat)
                     self.timer.stop()
                                 
                 
@@ -497,14 +673,32 @@ class GLCamera(QObject):
         return world_point
 
     def updateProjTransform(self, isAnimated=True, isEmit=True) -> np.ndarray:
+        self._updateCustomIntrinsicState(isAnimated=isAnimated)
         
         if self.projection_mode == self.projectionMode.perspective:
-            
-            fov_half_rad = np.radians(self.viewAngle / 2)
-            top = np.tan(fov_half_rad) * self.near
-            bottom = -top
-            right = top * self.aspect
-            left = -right
+            if self.useCustomIntrinsic and self.lastWindowW > 0 and self.lastWindowH > 0:
+                # Use off-axis frustum from intrinsic matrix so principal point shifts
+                # are respected in the actual GL projection.
+                width = float(self.lastWindowW)
+                height = float(self.lastWindowH)
+                fx = float(self.fx)
+                fy = float(self.fy)
+                cx = float(self.cx + self.intrinsicPixelOffsetX)
+                cy = float(self.cy + self.intrinsicPixelOffsetY)
+
+                if fx <= 1e-8 or fy <= 1e-8:
+                    raise ValueError(f'Invalid focal length for projection: fx={fx}, fy={fy}')
+
+                top = cy * self.near / fy
+                bottom = -(height - cy) * self.near / fy
+                right = (width - cx) * self.near / fx
+                left = -cx * self.near / fx
+            else:
+                fov_half_rad = np.radians(self.viewAngle / 2)
+                top = np.tan(fov_half_rad) * self.near
+                bottom = -top
+                right = top * self.aspect
+                left = -right
             
             rw, rh, rd = 1/(right-left), 1/(top-bottom), 1/(self.far-self.near)
     
@@ -588,15 +782,19 @@ class GLCamera(QObject):
         
 
     def setFOV(self, fov=60.0):
+        self.useCustomIntrinsic = False
         self.viewAngle = fov
-        # if not self.timer_proj.isActive():
-        #     self.timer_proj.start()
+        self.filterViewAngle.stable(np.array([self.viewAngle]))
+        if not self.timer_proj.isActive():
+            self.timer_proj.start()
         self.updateSignal.emit()
         
     def setNear(self, near=0.1):
         if near <= 0.0001:
             near = 0.0001
         self.near = near
+        if not self.timer_proj.isActive():
+            self.timer_proj.start()
         self.updateSignal.emit()
         
     def setFar(self, far=4000.0):
@@ -605,6 +803,8 @@ class GLCamera(QObject):
         if far <= self.near + 0.0001:
             far = self.near + 0.0001
         self.far = far
+        if not self.timer_proj.isActive():
+            self.timer_proj.start()
         self.updateSignal.emit()
 
     def setAspectRatio(self, aspect_ratio):
@@ -636,4 +836,3 @@ class GLCamera(QObject):
             azimuth, elevation, distance = presets[preset]
             self.setCamera(azimuth=azimuth, elevation=elevation, 
                          distance=distance, lookatPoint=np.array([0., 0., 0.,]))
-

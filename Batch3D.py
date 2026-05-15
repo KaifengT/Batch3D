@@ -62,9 +62,9 @@ CONSOLE_HEIGHT = 250
 
 DEFAULT_SIZE = 3
 
-B3D_VERSION = '1.10.0'
-B3D_VERSION_SUFFIX = ' Beta'
-B3D_BUILD = '2603'
+B3D_VERSION = '1.10.1'
+B3D_VERSION_SUFFIX = ''
+B3D_BUILD = '2604'
 
 DEFAULT_LIGHT_BG = (0.9, 0.9, 0.9, 1.0)
 DEFAULT_DARK_BG = (0.1, 0.1, 0.1, 1.0)
@@ -358,7 +358,7 @@ class fileDetailInfoUI(QDialog):
         super().__init__(parent,)
         if sys.platform == 'win32':
             self.setAttribute(Qt.WA_TranslucentBackground)
-        self.resize(500, 700)
+        self.resize(720, 800)
         self.setWindowTitle('File Contents')
 
         self.verticalLayout = QVBoxLayout(self)
@@ -2178,15 +2178,18 @@ class App(QMainWindow):
                 extrinsic = self._normalizeCalibrationMatrix(extrinsic, 'extrinsic')
             if resolution is not None:
                 resolution = self._normalizeCalibrationMatrix(resolution, 'resolution')
+            else:
+                if image is not None and hasattr(image, 'shape') and len(image.shape) >= 2:
+                    resolution = np.asarray(image.shape[:2], dtype=np.float64)
+                else:
+                    width, height = self._resolve_camera_model_size(intrinsic)
+                    resolution = np.asarray([height, width], dtype=np.float64)
+                resolution = self._normalizeCalibrationMatrix(resolution, 'resolution')
         except (TypeError, ValueError) as exc:
             self.popMessage(f'Invalid camera calibration in {name}', f'{exc}. Camera skipped.', 'warning')
             return None
 
-        config = {'intrinsic': intrinsic, 'extrinsic': extrinsic}
-        if resolution is not None:
-            config['resolution'] = resolution
-        elif image is not None and hasattr(image, 'shape') and len(image.shape) >= 2:
-            config['resolution'] = np.asarray(image.shape[:2], dtype=np.float64)
+        config = {'intrinsic': intrinsic, 'extrinsic': extrinsic, 'resolution': resolution}
 
         return {
             'intrinsic': intrinsic,
@@ -2269,6 +2272,9 @@ class App(QMainWindow):
         try:
             if 'resolution' in config and config['resolution'] is not None:
                 self._applyCameraCalibrationEntry('resolution', config['resolution'], isAnimated=True)
+            elif 'intrinsic' in config and config['intrinsic'] is not None:
+                width, height = self._resolve_camera_model_size(config['intrinsic'])
+                self._applyCameraCalibrationEntry('resolution', np.asarray([height, width], dtype=np.float64), isAnimated=True)
             if 'intrinsic' in config and config['intrinsic'] is not None:
                 self._applyCameraCalibrationEntry('intrinsic', config['intrinsic'], isAnimated=True)
             if 'extrinsic' in config and config['extrinsic'] is not None:
@@ -2318,7 +2324,7 @@ class App(QMainWindow):
                                 *camera*:
                                     |--intrinsic: 3x3 matrix, required.
                                     |--extrinsic: 4x4 matrix, optional, default to identity matrix if not provided.
-                                    |--resolution: (height, width) array, optional, default to current window resolution if not provided.
+                                    |--resolution: (height, width) array, optional; inferred from image shape or 2*cy, 2*cx when omitted.
                                     |--image: (H, W, 3) array, will be used as camera background with low priority than resolution+intrinsic+extrinsic.
                                 If calibration is invalid, pop message and skip the camera.
                                 '''
@@ -3152,11 +3158,12 @@ def enableNvidiaGPU():
 
 
 
-def setOpenglFormat(major, minor, profile=QSurfaceFormat.CoreProfile):
+def setOpenglFormat(major, minor, profile=QSurfaceFormat.CoreProfile, samples=4):
     fmt = QSurfaceFormat()
     fmt.setAlphaBufferSize(8)
     fmt.setDepthBufferSize(24)
     fmt.setStencilBufferSize(8)
+    fmt.setSamples(max(0, int(samples)))
     fmt.setVersion(major, minor)
     fmt.setProfile(profile)
     QSurfaceFormat.setDefaultFormat(fmt)
@@ -3181,7 +3188,9 @@ if __name__ == "__main__":
 
         glMajorVersion = settings.get('gl_major_version', 4)
         glMinorVersion = settings.get('gl_minor_version', 6)
-        setOpenglFormat(glMajorVersion, glMinorVersion)
+        glSettings = settings.get('gl_settings', {})
+        glSamples = glSettings.get('msaa_samples', 4) if glSettings.get('msaa_enabled', True) else 0
+        setOpenglFormat(glMajorVersion, glMinorVersion, samples=glSamples)
     except:
         glMajorVersion = 4
         glMinorVersion = 6

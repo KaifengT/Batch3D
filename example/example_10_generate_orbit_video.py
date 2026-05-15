@@ -83,7 +83,6 @@ def capture_frame(keep_alpha=False):
     process_events()
     glw.repaint()
     process_events()
-
     if hasattr(glw, "_grabRGBAMapImage"):
         qimage = glw._grabRGBAMapImage()
     else:
@@ -171,7 +170,7 @@ def save_frames(frames, output_format, output_path):
             loop=0,
             lossless=True,
             quality=100,
-            method=6,
+            method=0,
         )
     else:
         raise ValueError(f'Unsupported OUTPUT_FORMAT: {output_format}. Use "gif" or "webp".')

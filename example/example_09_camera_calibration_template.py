@@ -73,7 +73,7 @@ template_data = {
         'extrinsic': T, # Optional, can be identity if not provided. OpenGL-style world-to-camera matrix.
         'image': image, # Optional, can be used for visualization or ignored for calibration.
         # 'resolution': np.array([height, width], dtype=np.float32), # Optional, can be inferred from image shape.
-        # 'depth': 10, # Optional.
+        # 'depth': 10, # Optional. Default is 2.0.
 
     }
 }

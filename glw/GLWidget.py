@@ -43,11 +43,17 @@ class FBOManager:
         self._height = 0
 
         self._attachments_id = []
+        self._has_depth = False
+        self._is_multisample = False
+        self._samples = 1
+        self._colors = tuple()
 
     @staticmethod
     def getFormat(internalType):
         if internalType == GL_RGBA32F:
             return GL_RGBA, GL_FLOAT
+        elif internalType == GL_RGBA8 or internalType == GL_RGBA:
+            return GL_RGBA, GL_UNSIGNED_BYTE
         elif internalType == GL_RGB32F:
             return GL_RGB, GL_FLOAT
         elif internalType == GL_R32F:
@@ -59,7 +65,7 @@ class FBOManager:
         else:
             raise ValueError(f"Unsupported internal type: {internalType}")
 
-    def getFBO(self, width:int, height:int, depth:bool=False, ms:bool=False, samples:int=1, colors:Iterable[int]=[]) -> Tuple[int, int]:
+    def getFBO(self, width:int, height:int, depth:bool=False, ms:bool=False, samples:int=1, colors:Optional[Iterable[int]]=None) -> Tuple[int, int]:
         '''
         Get or create a Frame Buffer Object (FBO) with a depth texture.
         If the FBO already exists and the dimensions match, it will return the existing FBO.
@@ -70,9 +76,19 @@ class FBOManager:
             tuple (int, int): A tuple containing the FBO and the depth texture.
         '''
 
+        colors = tuple(colors or [])
+        samples = max(1, int(samples))
+        ms = bool(ms and samples > 1)
+        if not ms:
+            samples = 1
+
         if (self._fbo is None or
             self._width != width or
-            self._height != height):
+            self._height != height or
+            self._has_depth != bool(depth) or
+            self._is_multisample != ms or
+            self._samples != samples or
+            self._colors != colors):
             # print(f"Creating FBO: {width}x{height}")
             self._createFBO(width, height, depth, ms, samples, colors)
         # self._create_fbo(width, height)
@@ -96,6 +112,7 @@ class FBOManager:
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST)
         glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT,
                                 GL_TEXTURE_2D, depth_texture, 0)
+        self._depth_texture = depth_texture
         self._attachments_id.append(depth_texture)
 
     def _addDepthAttachmentMultisample(self, width:int, height:int, samples:int=1):
@@ -114,6 +131,7 @@ class FBOManager:
         glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT,
                                 GL_TEXTURE_2D_MULTISAMPLE, depth_texture, 0)
         glBindTexture(GL_TEXTURE_2D_MULTISAMPLE, 0)
+        self._depth_texture = depth_texture
         self._attachments_id.append(depth_texture)
 
 
@@ -148,6 +166,8 @@ class FBOManager:
         glFramebufferTexture2D(GL_FRAMEBUFFER, attachment,
                             GL_TEXTURE_2D, texID, 0)
 
+        if attachment == GL_COLOR_ATTACHMENT0:
+            self._color_texture = texID
         self._attachments_id.append(texID)
 
 
@@ -182,9 +202,11 @@ class FBOManager:
 
         glBindTexture(GL_TEXTURE_2D_MULTISAMPLE, 0)
 
+        if attachment == GL_COLOR_ATTACHMENT0:
+            self._color_texture = texID
         self._attachments_id.append(texID)
 
-    def _createFBO(self, width:int, height:int, depth:bool=False, ms:bool=False, samples:int=1, colors:Iterable[int]=[]):
+    def _createFBO(self, width:int, height:int, depth:bool=False, ms:bool=False, samples:int=1, colors:Iterable[int]=()):
 
         # print(f"FBOManager: Creating FBO: {width}x{height}")
 
@@ -192,6 +214,12 @@ class FBOManager:
             # print(f"FBOManager: Cleaning up existing FBO and attachments: {self._fbo}")
             self.cleanUp()
 
+
+        colors = tuple(colors or [])
+        samples = max(1, int(samples))
+        ms = bool(ms and samples > 1)
+        if not ms:
+            samples = 1
 
         self._fbo = glGenFramebuffers(1)
         # print(f"FBOManager: Generated FBO ID: {self._fbo}")
@@ -210,17 +238,34 @@ class FBOManager:
             else:
                 self._addAttachment(width, height, iType, attachment=GL_COLOR_ATTACHMENT0 + i, filter=GL_LINEAR)
 
-        glDrawBuffers(len(colors), [GL_COLOR_ATTACHMENT0 + i for i in range(len(colors))])
+        if len(colors):
+            glDrawBuffers(len(colors), [GL_COLOR_ATTACHMENT0 + i for i in range(len(colors))])
+        else:
+            glDrawBuffer(GL_NONE)
+            glReadBuffer(GL_NONE)
 
 
         # check if the framebuffer is complete
-        if glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE:
-            print(f'FBOManager: FBO creation failed: {glCheckFramebufferStatus(GL_FRAMEBUFFER)}')
+        status = glCheckFramebufferStatus(GL_FRAMEBUFFER)
+        if status != GL_FRAMEBUFFER_COMPLETE:
+            print(f'FBOManager: FBO creation failed: {status}')
             exit(0)
 
         glBindFramebuffer(GL_FRAMEBUFFER, 0)
         self._width = width
         self._height = height
+        self._has_depth = bool(depth)
+        self._is_multisample = ms
+        self._samples = samples
+        self._colors = colors
+
+    def textureIndexForColorAttachment(self, colorIndex:int=0) -> int:
+        '''
+        Return the texture index in _attachments_id for a color attachment.
+        '''
+        if colorIndex < 0 or colorIndex >= len(self._colors):
+            raise ValueError(f'FBOManager: Invalid color attachment index: {colorIndex}, max: {len(self._colors)}.')
+        return (1 if self._has_depth else 0) + colorIndex
 
     def bindForWriting(self, ):
         '''
@@ -254,6 +299,9 @@ class FBOManager:
         if self._fbo is None:
             raise RuntimeError('FBOManager: FBO is not created yet. Call getFBO() first.')
 
+        if self._is_multisample:
+            raise RuntimeError('FBOManager: Multisample textures must be resolved before sampler2D reading.')
+
         if attachmentIndex >= len(self._attachments_id):
             raise ValueError(f'FBOManager: Invalid attachment index: {attachmentIndex}, max: {len(self._attachments_id)}.')
 
@@ -279,6 +327,16 @@ class FBOManager:
                 self._fbo = None
         except Exception as e:
             print(f"FBOManager: error occurred while cleaning FBO resources: {e}")
+
+        self._depth_texture = None
+        self._color_texture = None
+        self._geometry_texture = None
+        self._width = 0
+        self._height = 0
+        self._has_depth = False
+        self._is_multisample = False
+        self._samples = 1
+        self._colors = tuple()
 
 
     # def __del__(self):
@@ -380,10 +438,34 @@ class GLWidget(QOpenGLWidget):
         self._SSAOStrength = 60.0
 
 
+        defaultFormat = QSurfaceFormat.defaultFormat()
+        defaultSamples = int(defaultFormat.samples())
+        requestedSamples = 4 if defaultSamples < 0 else defaultSamples
+
         GLFormat = self.format()
+        formatChanged = False
         if GLFormat.alphaBufferSize() < 8:
             GLFormat.setAlphaBufferSize(8)
+            formatChanged = True
+        if GLFormat.depthBufferSize() < 24:
+            GLFormat.setDepthBufferSize(24)
+            formatChanged = True
+        if GLFormat.stencilBufferSize() < 8:
+            GLFormat.setStencilBufferSize(8)
+            formatChanged = True
+        if GLFormat.samples() != requestedSamples:
+            GLFormat.setSamples(max(0, requestedSamples))
+            formatChanged = True
+        if formatChanged:
             self.setFormat(GLFormat)
+
+        self._requestedMSAASamples = max(0, requestedSamples)
+        self._enableMSAA = self._requestedMSAASamples > 1
+        self._msaaSamples = 0
+        self._contextMSAASamples = 0
+        self._defaultFramebufferSamples = 0
+        self._maxMSAASamples = 0
+        self._useOffscreenMSAA = False
         # GLFormat = self.format()
         # GLFormat.setVersion(majorVersion, minorVersion)
         # GLFormat.setProfile(QSurfaceFormat.CoreProfile)
@@ -450,6 +532,8 @@ class GLWidget(QOpenGLWidget):
             enable_ssao_callback=self.setEnableSSAO,
             ssao_kernel_size_callback=self.setSSAOKernelSize,
             ssao_strength_callback=self.setSSAOStrength,
+            enable_msaa_callback=self.setEnableMSAA,
+            msaa_samples_callback=self.setMSAASamples,
         )
 
         self.glSettingButton = self.glSettings.get_button()
@@ -481,6 +565,7 @@ class GLWidget(QOpenGLWidget):
         self.canvas2d_scale = 1.0
         self.canvas2d_offset = np.array([0.0, 0.0], dtype=np.float32)
         self.canvas2d_enabled = False
+        self._directRightDragAfterCanvas2DExit = False
 
     @staticmethod
     def _normalizeRGBAColor(color) -> np.ndarray:
@@ -535,7 +620,36 @@ class GLWidget(QOpenGLWidget):
     def reset2DCanvas(self):
         self.canvas2d_scale = 1.0
         self.canvas2d_offset = np.array([0.0, 0.0], dtype=np.float32)
+        self._directRightDragAfterCanvas2DExit = False
         self._setCanvas2DEnabled(False)
+
+    def _restoreDefaultCameraIntrinsics(self, isAnimated: bool = True):
+        if self.camera.projection_mode != GLCamera.projectionMode.perspective:
+            self.camera.setProjectionMode(GLCamera.projectionMode.perspective)
+            self.glCameraPerpCombobox.setCurrentItem('0')
+
+        self.camera.setFOV(60)
+        self.camera.setIntrinsicPixelOffset(0.0, 0.0)
+        self._updateCameraIntrinsicPixelOffset()
+        self.camera.updateIntr(self._rawWindowH, self._rawWindowW)
+        self.camera.updateProjTransform(isAnimated=isAnimated, isEmit=False)
+
+    def _exitCanvas2DModeToDefaultIntrinsics(self):
+        self._setCanvas2DEnabled(False)
+        self.setCameraComboBoxtoDefault()
+        self.setCameraMaskEnabled(False)
+        self._restoreDefaultCameraIntrinsics(isAnimated=True)
+
+    def _syncCameraMotionToCurrentState(self):
+        self.camera.filterAEV.stable(np.array([
+            self.camera.azimuth,
+            self.camera.elevation,
+            self.camera.viewPortDistance,
+        ]))
+        self.camera.filterlookatPoint.stable(self.camera.lookatPoint)
+        if self.camera.controltype == self.camera.controlType.arcball:
+            self.camera.filterRotaion.stable(self.camera.arcboall_quat)
+        self.camera.updateTransform(isAnimated=True, isEmit=False)
 
     def _syncCanvas2DObjectVisibility(self):
         for obj in self._objectList.values():
@@ -577,6 +691,8 @@ class GLWidget(QOpenGLWidget):
         self.cameraComboBox.blockSignals(False)
         self.addCameraConfig("Default", {}, callback=False)
         self.cameraComboBox.hide()
+        self.setCameraMaskEnabled(False)
+        self.clearCameraOutputResolution()
         self.reset2DCanvas()
 
     def _onCameraComboBoxChanged(self, text: str):
@@ -648,6 +764,7 @@ class GLWidget(QOpenGLWidget):
 
     def setCameraMaskEnabled(self, enabled: bool = False):
         self._cameraMaskEnabled = bool(enabled)
+        self._updateCameraIntrinsicPixelOffset()
         self.update()
 
     def setCameraMaskOpacity(self, opacity: float = 0.7):
@@ -660,10 +777,12 @@ class GLWidget(QOpenGLWidget):
         if width <= 0 or height <= 0:
             raise ValueError(f'Camera output resolution must be positive, got {width}x{height}')
         self._cameraOutputResolution = (width, height)
+        self._updateCameraIntrinsicPixelOffset()
         self.update()
 
     def clearCameraOutputResolution(self):
         self._cameraOutputResolution = None
+        self._updateCameraIntrinsicPixelOffset()
         self.update()
 
     def getCameraMaskSettings(self) -> dict:
@@ -694,6 +813,7 @@ class GLWidget(QOpenGLWidget):
 
     def _calcCameraMaskPixelMargin(self) -> tuple[float, float]:
         if (
+            (not self._cameraMaskEnabled and not self.canvas2d_enabled) or
             self._cameraOutputResolution is None or
             self._rawWindowW <= 0 or
             self._rawWindowH <= 0):
@@ -786,6 +906,7 @@ class GLWidget(QOpenGLWidget):
             self.smallGrid.setMode(5)
 
         self.setCameraMaskEnabled(False)
+        self.clearCameraOutputResolution()
 
     def setCameraViewPreset(self, preset:int=0):
         """
@@ -1068,6 +1189,58 @@ class GLWidget(QOpenGLWidget):
 
             self.update()
 
+    def _configureMSAA(self, log:bool=False):
+        requestedSamples = self._normalizeMSAASamples(self._requestedMSAASamples) if self._enableMSAA else 0
+
+        if requestedSamples <= 1:
+            self._msaaSamples = 0
+            self._useOffscreenMSAA = False
+        elif self._defaultFramebufferSamples > 1:
+            self._msaaSamples = self._defaultFramebufferSamples
+            self._useOffscreenMSAA = False
+        else:
+            self._msaaSamples = requestedSamples
+            self._useOffscreenMSAA = True
+
+        if isinstance(self.context(), QOpenGLContext) and self.context().isValid():
+            if self._msaaSamples > 1:
+                glEnable(GL_MULTISAMPLE)
+            else:
+                glDisable(GL_MULTISAMPLE)
+
+        if log:
+            msaaMode = 'offscreen' if self._useOffscreenMSAA else 'default-fbo'
+            print(
+                f'OpenGL MSAA samples: requested={self._requestedMSAASamples}, '
+                f'enabled={self._enableMSAA}, '
+                f'context={self._contextMSAASamples}, '
+                f'defaultFBO={self._defaultFramebufferSamples}, '
+                f'effective={self._msaaSamples}, mode={msaaMode}, max={self._maxMSAASamples}'
+            )
+
+    def _normalizeMSAASamples(self, samples:int) -> int:
+        samples = int(samples)
+        if samples <= 1:
+            return 0
+
+        if self._maxMSAASamples > 0:
+            return min(samples, self._maxMSAASamples)
+        return samples
+
+    def setEnableMSAA(self, enable:bool=True):
+        self._enableMSAA = bool(enable)
+        if isinstance(self.context(), QOpenGLContext) and self.context().isValid():
+            self.makeCurrent()
+            self._configureMSAA(log=True)
+        self.update()
+
+    def setMSAASamples(self, samples:int=4):
+        self._requestedMSAASamples = max(0, int(samples))
+        if isinstance(self.context(), QOpenGLContext) and self.context().isValid():
+            self.makeCurrent()
+            self._configureMSAA(log=True)
+        self.update()
+
     def setLights(self, program, locmap, lights:Optional[list[PointLight]]=None):
         """
         Set the point lights for the scene.
@@ -1126,6 +1299,18 @@ class GLWidget(QOpenGLWidget):
             print(f'OpenGL profile: {self.context().format().profile().name}')
             print(f'OpenGL renderer: {renderer}')
             print(f'OpenGL vendor: {vendor}')
+
+            maxSampleValues = [max(0, int(glGetIntegerv(GL_MAX_SAMPLES)))]
+            for pname in (GL_MAX_COLOR_TEXTURE_SAMPLES, GL_MAX_DEPTH_TEXTURE_SAMPLES):
+                try:
+                    maxSampleValues.append(max(0, int(glGetIntegerv(pname))))
+                except Exception:
+                    pass
+            self._maxMSAASamples = min([v for v in maxSampleValues if v > 0], default=0)
+            self._contextMSAASamples = max(0, int(self.context().format().samples()))
+            glBindFramebuffer(GL_FRAMEBUFFER, self.defaultFramebufferObject())
+            self._defaultFramebufferSamples = max(0, int(glGetIntegerv(GL_SAMPLES)))
+            self._configureMSAA(log=True)
 
             glEnable(GL_DEPTH_TEST)
             glEnable(GL_BLEND)
@@ -1203,6 +1388,13 @@ class GLWidget(QOpenGLWidget):
                 validate=not sys.platform == 'darwin'
             )
 
+            self.ScreenCopyProg = self.buildShader(
+                vshader_path=f'./glw/shaders/{self.shaderFolder}/oit_composite_vs.glsl',
+                fshader_path=f'./glw/shaders/{self.shaderFolder}/screen_copy_fs.glsl',
+                manualVersion=shaderVersion,
+                validate=not sys.platform == 'darwin'
+            )
+
             self.textProg = self.buildShader(
                 vshader_path=f'./glw/shaders/{self.shaderFolder}/text_vs.glsl',
                 gshader_path=f'./glw/shaders/{self.shaderFolder}/text_gs.glsl',
@@ -1257,6 +1449,7 @@ class GLWidget(QOpenGLWidget):
             self.OITAccumProgLocMap = self._cacheShaderLocMap(self.OITAccumProg, self.lightProgAttribList, self.lightProgUniformList)
             self.OITAccumLineProgLocMap = self._cacheShaderLocMap(self.OITAccumLineProg, self.lightProgAttribList, self.lightProgUniformList)
             self.OITCompositeProgLocMap = self._cacheShaderLocMap(self.OITCompositeProg, [], ['u_AccumTexture', 'u_RevealTexture'])
+            self.ScreenCopyProgLocMap = self._cacheShaderLocMap(self.ScreenCopyProg, [], ['u_Texture'])
 
             self.textProgLocMap = self._cacheShaderLocMap(self.textProg, [], self.textProgUniformList)
 
@@ -1272,7 +1465,10 @@ class GLWidget(QOpenGLWidget):
             self.SSAOCoreFBO = FBOManager()
             self.SSAOBlurFBO = FBOManager()
 
+            self.SceneFBO = FBOManager()
+            self.SceneResolveFBO = FBOManager()
             self.OITFBO = FBOManager()
+            self.OITResolveFBO = FBOManager()
 
             self.SSAONoiseTexture = self.generateNoiseTexture(4, 4)
 
@@ -1409,6 +1605,54 @@ class GLWidget(QOpenGLWidget):
             GL_NEAREST
         )
 
+    def _prepareSceneRenderTarget(self) -> int:
+        '''
+        Return the framebuffer used by the final scene passes.
+        '''
+        if self._useOffscreenMSAA and self._msaaSamples > 1:
+            self.SceneFBO.getFBO(
+                self._rawWindowW,
+                self._rawWindowH,
+                depth=True,
+                ms=True,
+                samples=self._msaaSamples,
+                colors=[GL_RGBA8]
+            )
+            return self.SceneFBO._fbo
+
+        return self.defaultFramebufferObject()
+
+    def _resolveSceneRenderTarget(self):
+        '''
+        Resolve the offscreen multisample scene target into the Qt widget FBO.
+        '''
+        if not self._useOffscreenMSAA or self.SceneFBO._fbo is None:
+            return
+
+        self.SceneResolveFBO.getFBO(
+            self._rawWindowW,
+            self._rawWindowH,
+            depth=False,
+            ms=False,
+            colors=[GL_RGBA8]
+        )
+
+        self._copyBuffer(self.SceneFBO, self.SceneResolveFBO, GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT0)
+
+        glBindFramebuffer(GL_FRAMEBUFFER, self.defaultFramebufferObject())
+        glDisable(GL_DEPTH_TEST)
+        glDisable(GL_BLEND)
+        glUseProgram(self.ScreenCopyProg)
+        self.SceneResolveFBO.bindTextureForReading(
+            GL_TEXTURE24,
+            self.SceneResolveFBO.textureIndexForColorAttachment(0)
+        )
+        glUniform1i(self.ScreenCopyProgLocMap['u_Texture'], 24)
+        self.quad.render()
+        glUseProgram(0)
+        glEnable(GL_BLEND)
+        glEnable(GL_DEPTH_TEST)
+
     def paintGL(self):
 
 
@@ -1498,7 +1742,9 @@ class GLWidget(QOpenGLWidget):
 
         ''' stage 4: SSAO Lighting Pass '''
 
-        glBindFramebuffer(GL_FRAMEBUFFER, self.defaultFramebufferObject())
+        sceneFramebuffer = self._prepareSceneRenderTarget()
+
+        glBindFramebuffer(GL_FRAMEBUFFER, sceneFramebuffer)
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
 
 
@@ -1637,9 +1883,18 @@ class GLWidget(QOpenGLWidget):
         ''' stage 5: OIT Pass '''
         if len(transparent_render_list) > 0:
 
-            self.OITFBO.getFBO(self._rawWindowW, self._rawWindowH, depth=True, colors=[GL_RGBA32F, GL_R32F])
+            oitMSAA = self._msaaSamples > 1
+            oitSamples = self._msaaSamples if oitMSAA else 1
+            self.OITFBO.getFBO(
+                self._rawWindowW,
+                self._rawWindowH,
+                depth=True,
+                ms=oitMSAA,
+                samples=oitSamples,
+                colors=[GL_RGBA32F, GL_R32F]
+            )
 
-            glBindFramebuffer(GL_READ_FRAMEBUFFER, self.defaultFramebufferObject())
+            glBindFramebuffer(GL_READ_FRAMEBUFFER, sceneFramebuffer)
             glBindFramebuffer(GL_DRAW_FRAMEBUFFER, self.OITFBO._fbo)
             glBlitFramebuffer(0, 0, self._rawWindowW, self._rawWindowH, 0, 0, self._rawWindowW, self._rawWindowH, GL_DEPTH_BUFFER_BIT, GL_NEAREST)
 
@@ -1703,13 +1958,25 @@ class GLWidget(QOpenGLWidget):
             glDepthMask(GL_TRUE)
             glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
 
-            glBindFramebuffer(GL_FRAMEBUFFER, self.defaultFramebufferObject())
+            oitCompositeFBO = self.OITFBO
+            if oitMSAA:
+                self.OITResolveFBO.getFBO(
+                    self._rawWindowW,
+                    self._rawWindowH,
+                    depth=False,
+                    ms=False,
+                    colors=[GL_RGBA32F, GL_R32F]
+                )
+                self._copyBuffer(self.OITFBO, self.OITResolveFBO, GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT0)
+                self._copyBuffer(self.OITFBO, self.OITResolveFBO, GL_COLOR_ATTACHMENT1, GL_COLOR_ATTACHMENT1)
+                oitCompositeFBO = self.OITResolveFBO
+
+            glBindFramebuffer(GL_FRAMEBUFFER, sceneFramebuffer)
             glUseProgram(self.OITCompositeProg)
 
-            # Note: attachment index in FBOManager: 0 is depth, 1 is color0 (Accum), 2 is color1 (Reveal)
-            self.OITFBO.bindTextureForReading(GL_TEXTURE22, 1)
+            oitCompositeFBO.bindTextureForReading(GL_TEXTURE22, oitCompositeFBO.textureIndexForColorAttachment(0))
             glUniform1i(self.OITCompositeProgLocMap['u_AccumTexture'], 22)
-            self.OITFBO.bindTextureForReading(GL_TEXTURE23, 2)
+            oitCompositeFBO.bindTextureForReading(GL_TEXTURE23, oitCompositeFBO.textureIndexForColorAttachment(1))
             glUniform1i(self.OITCompositeProgLocMap['u_RevealTexture'], 23)
 
             glEnable(GL_BLEND)
@@ -1756,6 +2023,8 @@ class GLWidget(QOpenGLWidget):
 
 
         glDepthMask(GL_TRUE)
+
+        self._resolveSceneRenderTarget()
 
         self._fps += 1
 
@@ -1852,6 +2121,7 @@ class GLWidget(QOpenGLWidget):
     def mousePressEvent(self, event:QMouseEvent):
 
         self._lastPos = event.pos()
+        self._directRightDragAfterCanvas2DExit = False
         self.camera.updateTransform(isAnimated=True, isEmit=False)
         self.update()
 
@@ -1893,11 +2163,14 @@ class GLWidget(QOpenGLWidget):
             # print(f'Canvas 2D offset updated: {self.canvas2d_offset}')
             return
         elif self.canvas2d_enabled and event.buttons() & Qt.RightButton:
-            if abs(dx) > 1 or abs(dy) > 1:
-                self._setCanvas2DEnabled(False)
-                self.setCameraMaskEnabled(False)
-                # print('Canvas 2D mode disabled due to large mouse movement')
-                self.infoSignal.emit('Canvas 2D Mode', 'Canvas 2D mode disabled', 'warning')
+            if abs(dx) <= 1 and abs(dy) <= 1:
+                self._lastPos = event.pos()
+                self.update()
+                return
+            self._exitCanvas2DModeToDefaultIntrinsics()
+            self._directRightDragAfterCanvas2DExit = True
+            # print('Canvas 2D mode disabled due to large mouse movement')
+            self.infoSignal.emit('Canvas 2D Mode', 'Canvas 2D mode disabled', 'warning')
 
         if event.buttons() & Qt.LeftButton:
             if self.camera.controltype == self.camera.controlType.arcball:
@@ -1914,6 +2187,8 @@ class GLWidget(QOpenGLWidget):
 
         if event.buttons() & Qt.RightButton:
             self.camera.translate(dx, dy)
+            if self._directRightDragAfterCanvas2DExit:
+                self._syncCameraMotionToCurrentState()
 
         self._lastPos = event.pos()
         self.mouseMoveSignal.emit(self.mouseClickPointinUV, self.mouseClickPointinWorldCoordinate)
@@ -1959,6 +2234,7 @@ class GLWidget(QOpenGLWidget):
 
     def mouseReleaseEvent(self, event:QMouseEvent):
 
+        self._directRightDragAfterCanvas2DExit = False
         self.mouseReleaseSignal.emit(self.mouseClickPointinUV, self.mouseClickPointinWorldCoordinate)
         return super().mouseReleaseEvent(event)
 

@@ -612,6 +612,18 @@ class GLWidget(QOpenGLWidget):
         """
         ...
 
+    def setEnableMSAA(self, enable:bool=True):
+        """
+        Enable or disable MSAA anti-aliasing.
+        """
+        ...
+
+    def setMSAASamples(self, samples:int=4):
+        """
+        Set the requested MSAA sample count.
+        """
+        ...
+
     def setLights(self, lights:Optional[list[PointLight]]=None):
         """
         Set the point lights for the scene.

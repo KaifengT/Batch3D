@@ -2,10 +2,11 @@
 copyright: (c) 2025 by KaifengTang, TingruiGuo
 '''
 import sys, os
+import struct
 import traceback
 import numpy as np
 from PySide6.QtCore import (Qt, Signal, QPoint, QTimer, QByteArray, QBuffer, QIODevice, QMimeData)
-from PySide6.QtGui import (QColor, QWheelEvent, QMouseEvent, QSurfaceFormat, QFont, QOpenGLContext, QImage)
+from PySide6.QtGui import (QColor, QWheelEvent, QMouseEvent, QSurfaceFormat, QFont, QOpenGLContext, QImage, QPalette)
 from PySide6.QtWidgets import (QWidget, QFileDialog, QApplication)
 from OpenGL.GL import *
 from OpenGL.GLU import *
@@ -25,7 +26,7 @@ except ImportError:
 
 from PIL import Image
 from .GLCamera import GLCamera
-from .GLMenu import GLSettingWidget, getCameraComboBox
+from .GLMenu import GLSettingWidget, GLViewContextMenu, getCameraComboBox
 
 # from memory_profiler import profile
 class FBOManager:
@@ -47,6 +48,7 @@ class FBOManager:
         self._is_multisample = False
         self._samples = 1
         self._colors = tuple()
+        self._color_filters = tuple()
 
     @staticmethod
     def getFormat(internalType):
@@ -65,7 +67,7 @@ class FBOManager:
         else:
             raise ValueError(f"Unsupported internal type: {internalType}")
 
-    def getFBO(self, width:int, height:int, depth:bool=False, ms:bool=False, samples:int=1, colors:Optional[Iterable[int]]=None) -> Tuple[int, int]:
+    def getFBO(self, width:int, height:int, depth:bool=False, ms:bool=False, samples:int=1, colors:Optional[Iterable[int]]=None, colorFilters:Optional[Iterable[int]]=None) -> Tuple[int, int]:
         '''
         Get or create a Frame Buffer Object (FBO) with a depth texture.
         If the FBO already exists and the dimensions match, it will return the existing FBO.
@@ -77,6 +79,11 @@ class FBOManager:
         '''
 
         colors = tuple(colors or [])
+        colorFilters = tuple(colorFilters or [GL_LINEAR] * len(colors))
+        if len(colorFilters) < len(colors):
+            colorFilters = colorFilters + tuple([GL_LINEAR] * (len(colors) - len(colorFilters)))
+        elif len(colorFilters) > len(colors):
+            colorFilters = colorFilters[:len(colors)]
         samples = max(1, int(samples))
         ms = bool(ms and samples > 1)
         if not ms:
@@ -88,9 +95,10 @@ class FBOManager:
             self._has_depth != bool(depth) or
             self._is_multisample != ms or
             self._samples != samples or
-            self._colors != colors):
+            self._colors != colors or
+            self._color_filters != colorFilters):
             # print(f"Creating FBO: {width}x{height}")
-            self._createFBO(width, height, depth, ms, samples, colors)
+            self._createFBO(width, height, depth, ms, samples, colors, colorFilters)
         # self._create_fbo(width, height)
         return self._fbo, self._depth_texture
 
@@ -206,7 +214,7 @@ class FBOManager:
             self._color_texture = texID
         self._attachments_id.append(texID)
 
-    def _createFBO(self, width:int, height:int, depth:bool=False, ms:bool=False, samples:int=1, colors:Iterable[int]=()):
+    def _createFBO(self, width:int, height:int, depth:bool=False, ms:bool=False, samples:int=1, colors:Iterable[int]=(), colorFilters:Iterable[int]=()):
 
         # print(f"FBOManager: Creating FBO: {width}x{height}")
 
@@ -216,6 +224,11 @@ class FBOManager:
 
 
         colors = tuple(colors or [])
+        colorFilters = tuple(colorFilters or [GL_LINEAR] * len(colors))
+        if len(colorFilters) < len(colors):
+            colorFilters = colorFilters + tuple([GL_LINEAR] * (len(colors) - len(colorFilters)))
+        elif len(colorFilters) > len(colors):
+            colorFilters = colorFilters[:len(colors)]
         samples = max(1, int(samples))
         ms = bool(ms and samples > 1)
         if not ms:
@@ -233,10 +246,11 @@ class FBOManager:
                 self._addDepthAttachment(width, height)
 
         for i, iType in enumerate(colors):
+            colorFilter = colorFilters[i] if i < len(colorFilters) else GL_LINEAR
             if ms:
-                self._addAttachmentMultisample(width, height, iType, attachment=GL_COLOR_ATTACHMENT0 + i, filter=GL_NEAREST, samples=samples)
+                self._addAttachmentMultisample(width, height, iType, attachment=GL_COLOR_ATTACHMENT0 + i, filter=colorFilter, samples=samples)
             else:
-                self._addAttachment(width, height, iType, attachment=GL_COLOR_ATTACHMENT0 + i, filter=GL_LINEAR)
+                self._addAttachment(width, height, iType, attachment=GL_COLOR_ATTACHMENT0 + i, filter=colorFilter)
 
         if len(colors):
             glDrawBuffers(len(colors), [GL_COLOR_ATTACHMENT0 + i for i in range(len(colors))])
@@ -258,6 +272,7 @@ class FBOManager:
         self._is_multisample = ms
         self._samples = samples
         self._colors = colors
+        self._color_filters = colorFilters
 
     def textureIndexForColorAttachment(self, colorIndex:int=0) -> int:
         '''
@@ -337,6 +352,7 @@ class FBOManager:
         self._is_multisample = False
         self._samples = 1
         self._colors = tuple()
+        self._color_filters = tuple()
 
 
     # def __del__(self):
@@ -424,7 +440,9 @@ class GLWidget(QOpenGLWidget):
         self._rawWindowW = 0
         self._rawWindowH = 0
 
-        self._bgColor = backgroundColor
+        self._solidBgColor = list(backgroundColor)
+        self._systemBackdropEnabled = sys.platform == 'win32'
+        self._bgColor = [0., 0., 0., 0.] if self._systemBackdropEnabled else list(backgroundColor)
         self._objectList: dict[str, BaseObject] = {}
         self._lastPos = QPoint(0, 0)
 
@@ -555,6 +573,7 @@ class GLWidget(QOpenGLWidget):
         self._cameraMaskProg = None
         self._cameraMaskProgLocMap = {}
         self._themeColor = np.array([1.0, 1.0, 1.0, 1.0], dtype=np.float32)
+        self._fallbackTexture2D = 0
 
         self._cameraConfigs = {}
         self.cameraComboBox = getCameraComboBox(self)
@@ -566,6 +585,9 @@ class GLWidget(QOpenGLWidget):
         self.canvas2d_offset = np.array([0.0, 0.0], dtype=np.float32)
         self.canvas2d_enabled = False
         self._directRightDragAfterCanvas2DExit = False
+        self._rightClickLookAtPressPos: Optional[QPoint] = None
+        self._rightClickLookAtPoint: Optional[np.ndarray] = None
+        self._viewContextMenu = GLViewContextMenu(parent=self, look_at_callback=self._lookAtRightClickPoint)
 
     @staticmethod
     def _normalizeRGBAColor(color) -> np.ndarray:
@@ -736,6 +758,28 @@ class GLWidget(QOpenGLWidget):
                 self.update()
         else:
             raise ValueError("Color values must be in the range 0-1.")
+
+    def setSystemBackdropEnabled(self, enabled: bool, fallbackColor: Tuple[float, float, float, float]=None):
+        self._systemBackdropEnabled = bool(enabled)
+        if fallbackColor is not None:
+            assert len(fallbackColor) == 4, "Color must be a tuple of 4 floats (R, G, B, A) in range 0-1."
+            self._solidBgColor = list(fallbackColor)
+
+        if self._systemBackdropEnabled:
+            self.setBackgroundColor((0., 0., 0., 0.))
+        else:
+            self.setBackgroundColor(tuple(self._solidBgColor))
+
+    def _requestBackdropPresentationSync(self):
+        if sys.platform not in ('win32', 'darwin'):
+            return
+
+        window = self.window()
+        sync = getattr(window, 'scheduleBackdropPresentationSync', None)
+        if not callable(sync):
+            sync = getattr(window, '_syncBackdropPresentation', None)
+        if callable(sync):
+            QTimer.singleShot(0, sync)
 
 
     def setCameraControl(self, index:int):
@@ -1137,8 +1181,21 @@ class GLWidget(QOpenGLWidget):
 
         return tid
 
-
-
+    def _createFallbackTexture2D(self) -> int:
+        '''
+        Create a 1x1 white texture used as a safe default for sampler unit 0.
+        '''
+        tid = glGenTextures(1)
+        glBindTexture(GL_TEXTURE_2D, tid)
+        glPixelStorei(GL_UNPACK_ALIGNMENT, 1)
+        white = np.array([255, 255, 255, 255], dtype=np.uint8)
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, 1, 1, 0, GL_RGBA, GL_UNSIGNED_BYTE, white)
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR)
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR)
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE)
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE)
+        glBindTexture(GL_TEXTURE_2D, 0)
+        return tid
 
     def setEnableSSAO(self, enable=True):
         """
@@ -1275,14 +1332,30 @@ class GLWidget(QOpenGLWidget):
         Returns:
             None
         """
-        color = color if color is not None else self.defaultAmbient
-        if hasattr(self, 'SSAOLightProg') and self.SSAOLightProg is not None:
+        color = np.asarray(color if color is not None else self.defaultAmbient, dtype=np.float32)
+        shaderTargets = (
+            (getattr(self, 'SSAOLightProg', None), getattr(self, 'SSAOLightProgLocMap', None)),
+            (getattr(self, 'OITAccumProg', None), getattr(self, 'OITAccumProgLocMap', None)),
+        )
+
+        if any(program is not None for program, locMap in shaderTargets):
             self.makeCurrent()
-            glUseProgram(self.SSAOLightProg)
-            glUniform3f(self.SSAOLightProgLocMap['u_AmbientColor'], *color)
+
+            updated = False
+            for program, locMap in shaderTargets:
+                if program is None or not isinstance(locMap, dict):
+                    continue
+
+                loc = locMap.get('u_AmbientColor', -1)
+                if loc != -1:
+                    glUseProgram(program)
+                    glUniform3f(loc, *color)
+                    updated = True
+
             glUseProgram(0)
 
-            self.update()
+            if updated:
+                self.update()
 
     def initializeGL(self):
 
@@ -1321,6 +1394,9 @@ class GLWidget(QOpenGLWidget):
             # glCullFace(GL_BACK)
 
             glClearColor(*self._bgColor)
+            self._fallbackTexture2D = self._createFallbackTexture2D()
+            glActiveTexture(GL_TEXTURE0)
+            glBindTexture(GL_TEXTURE_2D, self._fallbackTexture2D)
 
             self.quad = FullScreenQuad()
             self.grid.load()
@@ -1411,7 +1487,7 @@ class GLWidget(QOpenGLWidget):
             )
 
             self.geoProgAttribList = ['a_Position', 'a_Normal']
-            self.geoProgUniformList = ['u_pointSize', 'u_mvpMatrix', 'u_mvMatrix', 'u_normalMatrix']
+            self.geoProgUniformList = ['u_pointSize', 'u_mvpMatrix', 'u_mvMatrix', 'u_normalMatrix', 'u_FlatShading']
 
             self.coreBlurProgAttribList = ['a_Position']
 
@@ -1471,6 +1547,8 @@ class GLWidget(QOpenGLWidget):
             self.OITResolveFBO = FBOManager()
 
             self.SSAONoiseTexture = self.generateNoiseTexture(4, 4)
+            glActiveTexture(GL_TEXTURE0)
+            glBindTexture(GL_TEXTURE_2D, self._fallbackTexture2D)
 
             # setup SSAO core shaders
 
@@ -1498,6 +1576,7 @@ class GLWidget(QOpenGLWidget):
 
 
             glUseProgram(0)
+            self._requestBackdropPresentationSync()
 
         except Exception as e:
             traceback.print_exc()
@@ -1512,6 +1591,10 @@ class GLWidget(QOpenGLWidget):
         for obj in self._objectList.values():
             if not isinstance(obj, Label):
                 self._setGeoProgMVPMatrix(locMap, obj.transform, viewMatrix, projMatrix)
+                flatShadingLoc = locMap.get('u_FlatShading', -1)
+                if flatShadingLoc != -1:
+                    useFlatNormal = self._flatShading == 1 and self._isPolygonRenderType(obj.renderType)
+                    glUniform1i(flatShadingLoc, 1 if useFlatNormal else 0)
                 obj.render(locMap=locMap)
 
     def _renderLabels(self, locMap:dict, viewMatrix:np.ndarray, projMatrix:np.ndarray):
@@ -1526,6 +1609,23 @@ class GLWidget(QOpenGLWidget):
                 glUniformMatrix4fv(locMap['u_mvpMatrix'], 1, GL_FALSE, mvpMatrix.T, None)
                 glUniform2f(locMap['u_screenSize'], float(self._rawWindowW), float(self._rawWindowH))
                 obj.render(locMap=locMap)
+
+
+    @staticmethod
+    def _isPolygonRenderType(renderType) -> bool:
+        return renderType in (GL_TRIANGLES, GL_QUADS, GL_TRIANGLE_STRIP, GL_TRIANGLE_FAN)
+
+    def _renderObjectWithRenderMode(self, obj:BaseObject, locMap:dict):
+        useWireframe = self._glRenderMode == 0 and self._isPolygonRenderType(obj.renderType)
+        if useWireframe:
+            glPolygonMode(GL_FRONT_AND_BACK, GL_LINE)
+            try:
+                obj.render(locMap=locMap)
+            finally:
+                glPolygonMode(GL_FRONT_AND_BACK, GL_FILL)
+        else:
+            glPolygonMode(GL_FRONT_AND_BACK, GL_FILL)
+            obj.render(locMap=locMap)
 
 
     def _setGeoProgMVPMatrix(self, locMap:dict, modelMatrix:np.ndarray, viewMatrix:np.ndarray, projMatrix:np.ndarray):
@@ -1609,24 +1709,21 @@ class GLWidget(QOpenGLWidget):
         '''
         Return the framebuffer used by the final scene passes.
         '''
-        if self._useOffscreenMSAA and self._msaaSamples > 1:
-            self.SceneFBO.getFBO(
-                self._rawWindowW,
-                self._rawWindowH,
-                depth=True,
-                ms=True,
-                samples=self._msaaSamples,
-                colors=[GL_RGBA8]
-            )
-            return self.SceneFBO._fbo
-
-        return self.defaultFramebufferObject()
+        self.SceneFBO.getFBO(
+            self._rawWindowW,
+            self._rawWindowH,
+            depth=True,
+            ms=self._useOffscreenMSAA and self._msaaSamples > 1,
+            samples=self._msaaSamples if self._useOffscreenMSAA and self._msaaSamples > 1 else 1,
+            colors=[GL_RGBA8]
+        )
+        return self.SceneFBO._fbo
 
     def _resolveSceneRenderTarget(self):
         '''
         Resolve the offscreen multisample scene target into the Qt widget FBO.
         '''
-        if not self._useOffscreenMSAA or self.SceneFBO._fbo is None:
+        if self.SceneFBO._fbo is None:
             return
 
         self.SceneResolveFBO.getFBO(
@@ -1648,6 +1745,7 @@ class GLWidget(QOpenGLWidget):
             self.SceneResolveFBO.textureIndexForColorAttachment(0)
         )
         glUniform1i(self.ScreenCopyProgLocMap['u_Texture'], 24)
+        glPolygonMode(GL_FRONT_AND_BACK, GL_FILL)
         self.quad.render()
         glUseProgram(0)
         glEnable(GL_BLEND)
@@ -1655,6 +1753,9 @@ class GLWidget(QOpenGLWidget):
 
     def paintGL(self):
 
+        if self._fallbackTexture2D:
+            glActiveTexture(GL_TEXTURE0)
+            glBindTexture(GL_TEXTURE_2D, self._fallbackTexture2D)
 
         self.camera.setAspectRatio(float(self._scaledWindowW) / float(self._scaledWindowH))
         # self._updateCameraIntrinsicPixelOffset()
@@ -1665,16 +1766,15 @@ class GLWidget(QOpenGLWidget):
 
         campos = np.linalg.inv(camtrans)[:3,3]
 
-        if self._glRenderMode != 0:
-            glPolygonMode(GL_FRONT_AND_BACK, GL_FILL)
-        else:
-            glPolygonMode(GL_FRONT_AND_BACK, GL_LINE)
+        glPolygonMode(GL_FRONT_AND_BACK, GL_FILL)
 
         ''' stage 1: SSAO Geometry Pass'''
 
-        self.SSAOGeoFBO.getFBO(self._rawWindowW, self._rawWindowH, depth=True, colors=[GL_RGB32F, GL_RGB32F])
+        self.SSAOGeoFBO.getFBO(self._rawWindowW, self._rawWindowH, depth=True, colors=[GL_RGB32F, GL_RGB32F], colorFilters=[GL_NEAREST, GL_NEAREST])
         self.SSAOGeoFBO.bindForWriting()
-        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
+        glClearBufferfv(GL_COLOR, 0, [0.0, 0.0, 0.0, 0.0])
+        glClearBufferfv(GL_COLOR, 1, [0.0, 0.0, 0.0, 0.0])
+        glClear(GL_DEPTH_BUFFER_BIT)
 
         glUseProgram(self.SSAOGeoProg)
 
@@ -1844,7 +1944,7 @@ class GLWidget(QOpenGLWidget):
                     if obj.renderType != GL_LINES:
                         glUseProgram(self.SSAOLightProg)
                         self._setLightProgMVPMatrix(self.SSAOLightProgLocMap, obj.transform, camtrans, projMatrix.T)
-                        obj.render(locMap=self.SSAOLightProgLocMap)
+                        self._renderObjectWithRenderMode(obj, self.SSAOLightProgLocMap)
                     else:
                         glUseProgram(self.SSAOLightLineProg)
                         self._setLightProgMVPMatrix(self.SSAOLightLineProgLocMap, obj.transform, camtrans, projMatrix.T)
@@ -1858,7 +1958,7 @@ class GLWidget(QOpenGLWidget):
                         else:
                             glUseProgram(self.SSAOLightProg)
                             self._setLightProgMVPMatrix(self.SSAOLightProgLocMap, _obj.transform, camtrans, projMatrix.T)
-                            _obj.render(locMap=self.SSAOLightProgLocMap)
+                            self._renderObjectWithRenderMode(_obj, self.SSAOLightProgLocMap)
 
 
         glUseProgram(self.SSAOLightLineProg)
@@ -1938,7 +2038,7 @@ class GLWidget(QOpenGLWidget):
                     if obj.renderType != GL_LINES:
                         glUseProgram(self.OITAccumProg)
                         self._setLightProgMVPMatrix(self.OITAccumProgLocMap, obj.transform, camtrans, projMatrix.T)
-                        obj.render(locMap=self.OITAccumProgLocMap)
+                        self._renderObjectWithRenderMode(obj, self.OITAccumProgLocMap)
                     else:
                         glUseProgram(self.OITAccumLineProg)
                         self._setLightProgMVPMatrix(self.OITAccumLineProgLocMap, obj.transform, camtrans, projMatrix.T)
@@ -1952,7 +2052,7 @@ class GLWidget(QOpenGLWidget):
                         else:
                             glUseProgram(self.OITAccumProg)
                             self._setLightProgMVPMatrix(self.OITAccumProgLocMap, _obj.transform, camtrans, projMatrix.T)
-                            _obj.render(locMap=self.OITAccumProgLocMap)
+                            self._renderObjectWithRenderMode(_obj, self.OITAccumProgLocMap)
 
 
             glDepthMask(GL_TRUE)
@@ -1981,6 +2081,7 @@ class GLWidget(QOpenGLWidget):
 
             glEnable(GL_BLEND)
             glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
+            glPolygonMode(GL_FRONT_AND_BACK, GL_FILL)
             self.quad.render()
 
 
@@ -2012,6 +2113,7 @@ class GLWidget(QOpenGLWidget):
                 float(content_rect[3]),
             )
             glUniform1f(self._cameraMaskProgLocMap['u_maskAlpha'], float(self._cameraMaskOpacity))
+            glPolygonMode(GL_FRONT_AND_BACK, GL_FILL)
             self.quad.render(locMap=self._cameraMaskProgLocMap)
 
             glEnable(GL_DEPTH_TEST)
@@ -2117,11 +2219,62 @@ class GLWidget(QOpenGLWidget):
         # print(f'UV to 3D: {u}, {v} -> {p}')
         return p
 
+    def _isValidRightClickLookAtDepth(self, x:int, y:int, depth:float) -> bool:
+        if self.canvas2d_enabled:
+            return False
+        if self._rawWindowW <= 0 or self._rawWindowH <= 0:
+            return False
+        if x < 0 or y < 0 or x >= self._rawWindowW or y >= self._rawWindowH:
+            return False
+
+        depth = float(depth)
+        return np.isfinite(depth) and depth > 0.0 and depth < float(self.camera.far) * 0.999
+
+    def _setRightClickLookAtCandidate(self, pos:QPoint, x:int, y:int, depth:float, worldPoint:np.ndarray):
+        self._rightClickLookAtPressPos = QPoint(pos)
+        self._rightClickLookAtPoint = None
+
+        if not self._isValidRightClickLookAtDepth(x, y, depth):
+            return
+
+        point = np.asarray(worldPoint, dtype=np.float64).flatten()
+        if point.size < 3 or not np.all(np.isfinite(point[:3])):
+            return
+
+        self._rightClickLookAtPoint = point[:3].astype(np.float32)
+
+    def _shouldShowRightClickLookAtMenu(self, releasePos:QPoint) -> bool:
+        if self._rightClickLookAtPressPos is None or self._rightClickLookAtPoint is None:
+            return False
+        if self.canvas2d_enabled:
+            return False
+
+        dragDistance = QApplication.startDragDistance()
+        return (releasePos - self._rightClickLookAtPressPos).manhattanLength() <= dragDistance
+
+    def _showRightClickLookAtMenu(self, globalPos:QPoint):
+        if self._rightClickLookAtPoint is None:
+            return
+
+        self._viewContextMenu.popupLookAtPoint(globalPos, self._rightClickLookAtPoint)
+
+    def _lookAtRightClickPoint(self, point):
+        if point is None:
+            return
+
+        self.camera.translateTo(float(point[0]), float(point[1]), float(point[2]), isAnimated=True, isEmit=True)
+        self._rightClickLookAtPressPos = None
+        self._rightClickLookAtPoint = None
+        self.update()
+
 
     def mousePressEvent(self, event:QMouseEvent):
 
         self._lastPos = event.pos()
         self._directRightDragAfterCanvas2DExit = False
+        self._rightClickLookAtPressPos = None
+        self._rightClickLookAtPoint = None
+        self._viewContextMenu.clearLookAtPoint()
         self.camera.updateTransform(isAnimated=True, isEmit=False)
         self.update()
 
@@ -2132,6 +2285,14 @@ class GLWidget(QOpenGLWidget):
         self.mouseClickPointinUV = np.array([mouseCoordinateinViewPortX, mouseCoordinateinViewPortY])
         linerDepthValue = self.getDepthPoint(mouseCoordinateinViewPortX, mouseCoordinateinViewPortY)[0]
         self.mouseClickPointinWorldCoordinate = self.camera.rayVector(mouseCoordinateinViewPortX, mouseCoordinateinViewPortY, dis=linerDepthValue)
+        if event.buttons() & Qt.RightButton:
+            self._setRightClickLookAtCandidate(
+                self._lastPos,
+                mouseCoordinateinViewPortX,
+                mouseCoordinateinViewPortY,
+                linerDepthValue,
+                self.mouseClickPointinWorldCoordinate,
+            )
 
         # if event.buttons() & Qt.RightButton:
             # transform = np.identity(4, dtype=np.float32)
@@ -2234,6 +2395,9 @@ class GLWidget(QOpenGLWidget):
 
     def mouseReleaseEvent(self, event:QMouseEvent):
 
+        if event.button() == Qt.RightButton and self._shouldShowRightClickLookAtMenu(event.pos()):
+            self._showRightClickLookAtMenu(event.globalPosition().toPoint())
+
         self._directRightDragAfterCanvas2DExit = False
         self.mouseReleaseSignal.emit(self.mouseClickPointinUV, self.mouseClickPointinWorldCoordinate)
         return super().mouseReleaseEvent(event)
@@ -2333,6 +2497,117 @@ class GLWidget(QOpenGLWidget):
         buffer.close()
         return png_data
 
+    @staticmethod
+    def _imageToClipboardDibData(image, background_rgb=(255, 255, 255)):
+        image = image.convertToFormat(QImage.Format_RGBA8888)
+        width = image.width()
+        height = image.height()
+        if width <= 0 or height <= 0:
+            raise RuntimeError('Cannot copy an empty image to clipboard')
+
+        bytes_per_line = image.bytesPerLine()
+        row_rgba_bytes = width * 4
+        rgba = np.frombuffer(image.constBits(), dtype=np.uint8)
+        rgba = rgba.reshape((height, bytes_per_line))[:, :row_rgba_bytes]
+        rgba = rgba.reshape((height, width, 4))
+
+        bg = np.asarray(background_rgb, dtype=np.int32).reshape(1, 1, 3)
+        bg = np.clip(bg, 0, 255).astype(np.uint16)
+        rgb = rgba[:, :, :3].astype(np.uint16)
+        alpha = rgba[:, :, 3:4].astype(np.uint16)
+        opaque_rgb = ((rgb * alpha + bg * (255 - alpha) + 127) // 255).astype(np.uint8)
+        bgr = np.ascontiguousarray(opaque_rgb[:, :, ::-1])
+
+        row_bgr_bytes = width * 3
+        dib_stride = ((row_bgr_bytes + 3) // 4) * 4
+        pixel_rows = np.zeros((height, dib_stride), dtype=np.uint8)
+        pixel_rows[:, :row_bgr_bytes] = bgr.reshape(height, row_bgr_bytes)
+        pixel_data = np.flipud(pixel_rows).tobytes()
+
+        header = struct.pack(
+            '<IiiHHIIiiII',
+            40,               # biSize: BITMAPINFOHEADER
+            width,
+            height,           # positive height means bottom-up DIB
+            1,                # biPlanes
+            24,               # biBitCount
+            0,                # biCompression: BI_RGB
+            len(pixel_data),   # biSizeImage
+            2835,             # biXPelsPerMeter: 72 DPI
+            2835,             # biYPelsPerMeter: 72 DPI
+            0,                # biClrUsed
+            0,                # biClrImportant
+        )
+        return header + pixel_data
+
+    def _clipboardOpaqueBackgroundRgb(self):
+        def coerce_color(candidate):
+            if candidate is None:
+                return None
+
+            try:
+                color = self._normalizeRGBAColor(candidate)
+            except Exception:
+                return None
+
+            if float(color[3]) <= 0.001:
+                return None
+
+            alpha = float(color[3])
+            rgb = color[:3].astype(np.float32)
+            if alpha < 1.0:
+                rgb = rgb * alpha + np.ones(3, dtype=np.float32) * (1.0 - alpha)
+            rgb = np.clip(np.rint(rgb * 255.0), 0, 255).astype(np.uint8)
+            return tuple(int(v) for v in rgb)
+
+        rgb = coerce_color(getattr(self, '_solidBgColor', None))
+        if rgb is not None:
+            return rgb
+
+        app = QApplication.instance()
+        if app is not None:
+            rgb = coerce_color(app.palette().color(QPalette.Window))
+            if rgb is not None:
+                return rgb
+
+        rgb = coerce_color(self.palette().color(QPalette.Window))
+        if rgb is not None:
+            return rgb
+
+        return (255, 255, 255)
+
+    def _copyImageToQtClipboard(self, image, png_data):
+        mime_data = QMimeData()
+        mime_data.setData('image/png', png_data)
+        mime_data.setData('application/x-qt-windows-mime;value="PNG"', png_data)
+        mime_data.setData('PNG', png_data)
+        mime_data.setImageData(image)
+        QApplication.clipboard().setMimeData(mime_data)
+
+    def _copyImageToNativeWindowsClipboard(self, image, png_data):
+        try:
+            import win32clipboard
+            import win32con
+        except ImportError:
+            return False
+
+        dib_data = self._imageToClipboardDibData(
+            image,
+            self._clipboardOpaqueBackgroundRgb()
+        )
+        png_bytes = bytes(png_data)
+        png_format = win32clipboard.RegisterClipboardFormat('PNG')
+
+        win32clipboard.OpenClipboard()
+        try:
+            win32clipboard.EmptyClipboard()
+            win32clipboard.SetClipboardData(win32con.CF_DIB, dib_data)
+            win32clipboard.SetClipboardData(png_format, png_bytes)
+        finally:
+            win32clipboard.CloseClipboard()
+
+        return True
+
     def saveRGBAMap(self, path:Optional[str]=None):
         '''
         Save the RGBA image to a file to the specified path.
@@ -2367,12 +2642,13 @@ class GLWidget(QOpenGLWidget):
         try:
             image = self._grabRGBAMapImage()
             png_data = self._imageToPngData(image)
-            mime_data = QMimeData()
-            mime_data.setData('image/png', png_data)
-            mime_data.setData('application/x-qt-windows-mime;value="PNG"', png_data)
-            mime_data.setData('PNG', png_data)
-            mime_data.setImageData(image)
-            QApplication.clipboard().setMimeData(mime_data)
+
+            copied_native = False
+            if sys.platform == 'win32':
+                copied_native = self._copyImageToNativeWindowsClipboard(image, png_data)
+            if not copied_native:
+                self._copyImageToQtClipboard(image, png_data)
+
             print('RGBA image copied to clipboard')
             self.infoSignal.emit(
                 'RGBA Image Copied',

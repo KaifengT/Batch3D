@@ -39,10 +39,12 @@ from tools.getTime import humanTimeDiff
 import importlib
 # This is to avoid the error: "ImportError: numpy.core.multiarray failed to import"
 import numpy.core.multiarray
-
-if sys.platform == 'win32':
-
-    from ui.mica import ApplyMica, MicaTheme, DWM_SYSTEMBACKDROP_TYPE
+from ui.backdrop import (
+    BackdropController,
+    DWM_SYSTEMBACKDROP_TYPE,
+    configure_translucent_window,
+    supports_backdrop_styles,
+)
 
 
 import warnings
@@ -51,7 +53,7 @@ import gc
 
 from qfluentwidgets import (setTheme, Theme, setThemeColor, themeColor, qconfig, RoundMenu, widgets, ToggleToolButton, CheckableMenu, MenuIndicatorType,
                             Slider, BodyLabel, PushButton, FluentIconBase, LineEdit, Flyout, InfoBarIcon, InfoBar, Action, IndeterminateProgressRing, InfoBarPosition)
-from qfluentwidgets import FluentIcon as FIF
+from qfluentwidgets import FluentIcon as FIF, isDarkTheme
 
 ########################################################################
 
@@ -62,12 +64,9 @@ CONSOLE_HEIGHT = 250
 
 DEFAULT_SIZE = 3
 
-B3D_VERSION = '1.10.1'
+B3D_VERSION = '1.10.2'
 B3D_VERSION_SUFFIX = ''
-B3D_BUILD = '2604'
-
-DEFAULT_LIGHT_BG = (0.9, 0.9, 0.9, 1.0)
-DEFAULT_DARK_BG = (0.1, 0.1, 0.1, 1.0)
+B3D_BUILD = '2605'
 
 
 class MyFluentIcon(FluentIconBase, Enum):
@@ -140,8 +139,7 @@ class RemoteUI(QDialog):
         super().__init__(parent,)
         self.ui = Ui_RemoteWidget()
         self.ui.setupUi(self)
-        if sys.platform == 'win32':
-            self.setAttribute(Qt.WA_TranslucentBackground)
+        configure_translucent_window(self)
         # self.setWindowFlags(Qt.FramelessWindowHint)
 
         self.ui.pushButton_go.setIcon(FIF.RIGHT_ARROW)
@@ -356,8 +354,7 @@ class fileDetailInfoUI(QDialog):
 
     def __init__(self, parent:QWidget=None) -> None:
         super().__init__(parent,)
-        if sys.platform == 'win32':
-            self.setAttribute(Qt.WA_TranslucentBackground)
+        configure_translucent_window(self)
         self.resize(720, 800)
         self.setWindowTitle('File Contents')
 
@@ -442,10 +439,10 @@ class consoleUI(QWidget):
         self.flush_timer = QTimer(self)
         self.flush_timer.timeout.connect(self.flush)
 
+        configure_translucent_window(self)
         font = self.textbox.font()
 
         if sys.platform == 'win32':
-            self.setAttribute(Qt.WA_TranslucentBackground)
             font = QFont(['Consolas', 'Microsoft Yahei UI'], 10, QFont.Weight.Medium)
 
         elif sys.platform == 'darwin':
@@ -613,6 +610,8 @@ class dataParser:
 
 
     SUPPORT_EXT = ('.npz', '.npy', '.obj', '.ply', '.stl', '.pcd', '.glb', '.xyz', '.gltf', '.pkl')
+    DEFAULT_ARROW_SIZE_BIND_LINE_LENGTH = True
+    DEFAULT_ARROW_SIZE = 0.05
 
     @staticmethod
     def _isHexColorinName(name) -> str:
@@ -674,14 +673,23 @@ class dataParser:
         return r
 
     @staticmethod
-    def _getArrowfromLine(v:np.ndarray, color:np.ndarray):
+    def _getArrowfromLine(
+            v:np.ndarray,
+            color:np.ndarray,
+            arrow_size_bind_line_length:bool=DEFAULT_ARROW_SIZE_BIND_LINE_LENGTH,
+            arrow_size:float=DEFAULT_ARROW_SIZE):
 
 
 
         verctor_line = v[:, 1] - v[:, 0]
 
         nline = np.linalg.norm(verctor_line, axis=-1, keepdims=True)
-        arrowSize = 0.05
+        try:
+            arrowSize = float(arrow_size)
+        except:
+            arrowSize = dataParser.DEFAULT_ARROW_SIZE
+        if not np.isfinite(arrowSize) or arrowSize <= 0:
+            arrowSize = dataParser.DEFAULT_ARROW_SIZE
         B = len(verctor_line)
         BR = dataParser._get_R_between_two_vec(np.array([[0, 0, 1]]).repeat(len(verctor_line), axis=0), verctor_line) # (B, 3, 3)
         temp, normal, indices = Arrow.getTemplate(size=arrowSize) # (12, 3)
@@ -689,7 +697,8 @@ class dataParser:
         numI = indices.shape[0]
         temp = temp[None, ...].repeat(len(verctor_line), axis=0) # (B, 12, 3)
         normal = normal[None, ...].repeat(len(verctor_line), axis=0) # (B, 12, 3)
-        temp *= nline[:, None]
+        if arrow_size_bind_line_length:
+            temp *= nline[:, None]
 
         BR = BR[:, None, ...].repeat(numV, axis=1)
         BR = BR.reshape(-1, 3, 3) # (B*12, 3, 3)
@@ -708,7 +717,10 @@ class dataParser:
         offsets = np.arange(0, len(verctor_line), 1, dtype=np.uint32).repeat(numI, axis=0)
         offsets *= numV
 
-        arrowHeight = arrowSize * nline
+        if arrow_size_bind_line_length:
+            arrowHeight = arrowSize * nline
+        else:
+            arrowHeight = np.full_like(nline, arrowSize)
 
         if hasattr(color, 'ndim') and color.ndim > 1:
             color = color[..., 1, :]
@@ -725,7 +737,13 @@ class dataParser:
         return v[indices]
 
     @staticmethod
-    def parseArray(k:str, v:np.ndarray, cm:colorManager, arrow=False):
+    def parseArray(
+            k:str,
+            v:np.ndarray,
+            cm:colorManager,
+            arrow=False,
+            arrow_size_bind_line_length:bool=DEFAULT_ARROW_SIZE_BIND_LINE_LENGTH,
+            arrow_size:float=DEFAULT_ARROW_SIZE):
 
         v = np.nan_to_num(v)
         v = np.float32(v)
@@ -750,7 +768,12 @@ class dataParser:
 
             #-----# Arrow
             if arrow:
-                arrow, height = dataParser._getArrowfromLine(v, user_color)
+                arrow, height = dataParser._getArrowfromLine(
+                    v,
+                    user_color,
+                    arrow_size_bind_line_length=arrow_size_bind_line_length,
+                    arrow_size=arrow_size,
+                )
                 lineNormal = np.linalg.norm(v[:, 1] - v[:, 0], axis=-1, keepdims=True)
                 lineNormal = (v[:, 1] - v[:, 0]) / (lineNormal + 1e-7)
                 vSubArrow = v[:, 1] - lineNormal * height
@@ -1023,10 +1046,25 @@ class App(QMainWindow):
 
         self.ui = Ui_MainWindow()
         self.ui.setupUi(self)
-        self.ui.openGLWidget.setThemeColor(themeColor())
         self.tgtTheme = Theme.AUTO
-        self.tgtMicaStyle = 4
+        self.tgtMicaStyle = DWM_SYSTEMBACKDROP_TYPE.DWMSBT_TABBEDWINDOW
+        self.backdropController = BackdropController(
+            theme=self.tgtTheme,
+            style=self.tgtMicaStyle,
+            auto_is_dark=isDarkTheme,
+        )
+        configure_translucent_window(self)
+        configure_translucent_window(self.ui.centralwidget)
+        self.backdropController.bind(
+            windows=(self,),
+            background_widgets=(self.ui.centralwidget,),
+            opengl_widgets=(self.ui.openGLWidget,),
+        )
+        self._systemBackdropActive = self.backdropController.active
+        self.ui.openGLWidget.setThemeColor(themeColor())
         self.checkUpdateOnStartup = True
+        self.arrowSizeBindLineLength = dataParser.DEFAULT_ARROW_SIZE_BIND_LINE_LENGTH
+        self.arrowSize = dataParser.DEFAULT_ARROW_SIZE
 
         self.ui.tool.setFixedWidth(TOOL_UI_WIDTH)
         self.ui.tool.setMinimumHeight(TOOL_UI_WIDTH)
@@ -1156,6 +1194,11 @@ class App(QMainWindow):
         self.ui.label_info.setFont(QFont(['Segoe UI', 'Microsoft YaHei UI', 'Arial'], 10, QFont.Weight.Medium))
         self.ui.pushButton_opendetail.clicked.connect(self.openDetailUI)
         self.ui.pushButton_opendetail.setIcon(FIF.INFO)
+        self.backdropController.bind(
+            windows=(self, self.remoteUI, self.fileDetailUI),
+            background_widgets=(self.ui.centralwidget, self.remoteUI, self.fileDetailUI),
+            opengl_widgets=(self.ui.openGLWidget,),
+        )
 
         self.backendSFTPThread.start()
 
@@ -1203,7 +1246,7 @@ class App(QMainWindow):
         self.themeDARKAction.triggered.connect(lambda:self.changeTheme(Theme.DARK))
         self.themeAUTOAction.triggered.connect(lambda:self.changeTheme(Theme.AUTO))
 
-        if sys.platform == 'win32':
+        if supports_backdrop_styles():
             self.themeMicaStyleNONEAction.triggered.connect(lambda:self.changeMicaStyle(DWM_SYSTEMBACKDROP_TYPE.DWMSBT_NONE))
             self.themeMicaStyleMAINWINDOWAction.triggered.connect(lambda:self.changeMicaStyle(DWM_SYSTEMBACKDROP_TYPE.DWMSBT_MAINWINDOW))
             self.themeMicaStyleTRANSIENTWINDOWAction.triggered.connect(lambda:self.changeMicaStyle(DWM_SYSTEMBACKDROP_TYPE.DWMSBT_TRANSIENTWINDOW))
@@ -2338,7 +2381,13 @@ class App(QMainWindow):
                             _v, _k, _c, _isadj = dataParser.parseTrimesh(k, v, cm=self.colormanager)
 
                         elif hasattr(v, 'shape'):
-                            _v, _k, _c, _isadj = dataParser.parseArray(k, v, cm=self.colormanager, arrow=self.ui.checkBox_arrow.isChecked())
+                            _v, _k, _c, _isadj = dataParser.parseArray(
+                                k,
+                                v,
+                                cm=self.colormanager,
+                                arrow=self.ui.checkBox_arrow.isChecked(),
+                                **self._getArrowParseSettings(),
+                            )
 
 
                         if _v:
@@ -2428,7 +2477,13 @@ class App(QMainWindow):
                         _v, _k, _c, _isadj = dataParser.parseTrimesh(k, v, cm=self.colormanager)
 
                     elif hasattr(v, 'shape'):
-                        _v, _k, _c, _isadj = dataParser.parseArray(k, v, cm=self.colormanager, arrow=self.ui.checkBox_arrow.isChecked())
+                        _v, _k, _c, _isadj = dataParser.parseArray(
+                            k,
+                            v,
+                            cm=self.colormanager,
+                            arrow=self.ui.checkBox_arrow.isChecked(),
+                            **self._getArrowParseSettings(),
+                        )
 
                     if _v:
                         results.append((_k, _v, _v.mainColors, _isadj))
@@ -2521,7 +2576,13 @@ class App(QMainWindow):
                             _v, _k, _c, _isadj = dataParser.parseTrimesh(k, v, cm=self.colormanager)
 
                         elif hasattr(v, 'shape'):
-                            _v, _k, _c, _isadj = dataParser.parseArray(k, v, cm=self.colormanager, arrow=self.ui.checkBox_arrow.isChecked())
+                            _v, _k, _c, _isadj = dataParser.parseArray(
+                                k,
+                                v,
+                                cm=self.colormanager,
+                                arrow=self.ui.checkBox_arrow.isChecked(),
+                                **self._getArrowParseSettings(),
+                            )
 
                         if _v:
                             self.ui.openGLWidget.updateObject(ID=_k, obj=_v)
@@ -2672,15 +2733,7 @@ class App(QMainWindow):
 
                 for item_name, item_instance in self.script_namespace.items():
                     if isinstance(item_instance, QWidget) and item_instance.isWindow():
-                        if sys.platform == 'win32':
-                            hwnd = item_instance.winId()
-                            if hwnd != 0:
-                                self.applyMicaTheme(hwnd, self.tgtMicaStyle)
-
-                            item_instance.setStyleSheet("background-color: #00000000;")
-                        else:
-                            color = DEFAULT_LIGHT_BG if qconfig.theme == Theme.LIGHT else DEFAULT_DARK_BG
-                            item_instance.setStyleSheet("background-color: rgb({}, {}, {});".format(int(color[0]*255), int(color[1]*255), int(color[2]*255)))
+                        self.backdropController.style_window(item_instance, style=self.tgtMicaStyle)
 
             except Exception as e:
                 exc_type, exc_value, exc_tb = sys.exc_info()
@@ -2763,16 +2816,16 @@ class App(QMainWindow):
         return super().closeEvent(event)
 
     def openRemoteUI(self, ):
-        self.applyMicaTheme(self.remoteUI.winId(), mica=self.tgtMicaStyle)
         self.remoteUI.show()
+        self.scheduleBackdropPresentationSync()
 
     def openDetailUI(self, ):
 
         if self.fileDetailUI.isVisible():
             self.fileDetailUI.close()
         else:
-            self.applyMicaTheme(self.fileDetailUI.winId(), mica=self.tgtMicaStyle)
             self.fileDetailUI.show()
+            self.scheduleBackdropPresentationSync()
 
     def setDownloadProgress(self, dbytes:int, totalbytes:int, isBytes=True):
         self.statusbar.setProgress(dbytes, totalbytes, isBytes)
@@ -2803,20 +2856,39 @@ class App(QMainWindow):
     def serverConnected(self, ):
         self.remoteUI.serverConnected()
 
+    def showEvent(self, event):
+        result = super().showEvent(event)
+        self.scheduleBackdropPresentationSync()
+        return result
+
+    def _effectiveTheme(self):
+        if getattr(self, 'tgtTheme', qconfig.theme) == Theme.AUTO:
+            return Theme.DARK if isDarkTheme() else Theme.LIGHT
+        return self.tgtTheme
+
+    def applyWindowBackdrop(self, widget_or_win_id, mica=None):
+        if mica is None:
+            mica = self.tgtMicaStyle
+        return self.backdropController.apply_window(widget_or_win_id, mica)
+
+    def refreshWindowBackdrop(self):
+        return self.syncBackdropPresentation()
+
+    def scheduleBackdropPresentationSync(self):
+        self.backdropController.schedule_sync()
+
+    def syncBackdropPresentation(self):
+        self.backdropController.set_theme(self.tgtTheme)
+        self.backdropController.set_style(self.tgtMicaStyle)
+        applied = self.backdropController.sync()
+        self._systemBackdropActive = applied
+        return applied
+
+    def _syncBackdropPresentation(self):
+        return self.syncBackdropPresentation()
 
     def applyMicaTheme(self, winId, mica):
-
-        if sys.platform == 'win32':
-            try:
-                m = {
-                    Theme.LIGHT:MicaTheme.LIGHT,
-                    Theme.DARK:MicaTheme.DARK,
-                    Theme.AUTO:MicaTheme.AUTO,
-                }
-
-                ApplyMica(winId, m[qconfig.theme], mica)
-            except:
-                print(f'ApplyMica id {winId} failed')
+        return self.backdropController.apply_window(winId, mica)
 
     def changeTXTTheme(self, theme):
 
@@ -2824,18 +2896,14 @@ class App(QMainWindow):
             label_info_color = '#202020'
             tool_color = '#FEFEFE'
             shadow_color = '#808080'
-            if sys.platform == 'win32':
-                bg = '#00000000'
-            else:
-                bg = f'rgb({int(DEFAULT_LIGHT_BG[0]*255)}, {int(DEFAULT_LIGHT_BG[1]*255)}, {int(DEFAULT_LIGHT_BG[2]*255)})'
         else:
             label_info_color = '#FEFEFE'
             tool_color = '#201e1c'
             shadow_color = '#101010'
-            if sys.platform == 'win32':
-                bg = '#00000000'
-            else:
-                bg = f'rgb({int(DEFAULT_DARK_BG[0]*255)}, {int(DEFAULT_DARK_BG[1]*255)}, {int(DEFAULT_DARK_BG[2]*255)})'
+        bg = self.backdropController.background_css(
+            theme=theme,
+            transparent=self.backdropController.active,
+        )
 
         self.ui.label_info.setStyleSheet(
             '''
@@ -2891,26 +2959,17 @@ class App(QMainWindow):
 
         self.tgtTheme = theme
         qconfig.theme = theme
+        self.backdropController.set_theme(theme)
+        self.backdropController.set_style(self.tgtMicaStyle)
 
         if theme == Theme.AUTO:
-            theme = qconfig.theme
-
-
-        self.changeTXTTheme(theme)
-
-        setTheme(theme)
-
-        self.saveSettings()
-
-        if sys.platform == 'win32':
-            self.applyMicaTheme(self.remoteUI.winId(), self.tgtMicaStyle)
-            self.applyMicaTheme(self.fileDetailUI.winId(), self.tgtMicaStyle)
-            self.applyMicaTheme(self.winId(), self.tgtMicaStyle)
-
+            theme = self._effectiveTheme()
         else:
-            bg = DEFAULT_LIGHT_BG if theme == Theme.LIGHT else DEFAULT_DARK_BG
-            self.ui.openGLWidget.setBackgroundColor(bg)
-            self.remoteUI.setStyleSheet(f"background-color: rgb({int(bg[0]*255)}, {int(bg[1]*255)}, {int(bg[2]*255)});")
+            theme = self.tgtTheme
+        setTheme(theme)
+        self.syncBackdropPresentation()
+        self.changeTXTTheme(theme)
+        self.saveSettings()
 
 
 
@@ -2923,24 +2982,53 @@ class App(QMainWindow):
         for action in self.themeMicaStyleMenu.actions():
             action.setChecked(False)
 
-        if sys.platform == 'win32':
+        if micaStyle == DWM_SYSTEMBACKDROP_TYPE.DWMSBT_NONE:
+            self.themeMicaStyleNONEAction.setChecked(True)
+        elif micaStyle == DWM_SYSTEMBACKDROP_TYPE.DWMSBT_TABBEDWINDOW:
+            self.themeMicaStyleTABBEDWINDOWAction.setChecked(True)
+        elif micaStyle == DWM_SYSTEMBACKDROP_TYPE.DWMSBT_TRANSIENTWINDOW:
+            self.themeMicaStyleTRANSIENTWINDOWAction.setChecked(True)
+        elif micaStyle == DWM_SYSTEMBACKDROP_TYPE.DWMSBT_MAINWINDOW:
+            self.themeMicaStyleMAINWINDOWAction.setChecked(True)
 
-            if micaStyle == DWM_SYSTEMBACKDROP_TYPE.DWMSBT_NONE:
-                self.themeMicaStyleNONEAction.setChecked(True)
-            elif micaStyle == DWM_SYSTEMBACKDROP_TYPE.DWMSBT_TABBEDWINDOW:
-                self.themeMicaStyleTABBEDWINDOWAction.setChecked(True)
-            elif micaStyle == DWM_SYSTEMBACKDROP_TYPE.DWMSBT_TRANSIENTWINDOW:
-                self.themeMicaStyleTRANSIENTWINDOWAction.setChecked(True)
-            elif micaStyle == DWM_SYSTEMBACKDROP_TYPE.DWMSBT_MAINWINDOW:
-                self.themeMicaStyleMAINWINDOWAction.setChecked(True)
-            self.tgtMicaStyle = micaStyle
+        self.tgtMicaStyle = micaStyle
+        self.backdropController.set_style(micaStyle)
+        self.syncBackdropPresentation()
 
-            self.applyMicaTheme(self.remoteUI.winId(), self.tgtMicaStyle)
-            self.applyMicaTheme(self.fileDetailUI.winId(), self.tgtMicaStyle)
-            self.applyMicaTheme(self.winId(), self.tgtMicaStyle)
-
-        else:
+        if not supports_backdrop_styles():
             self.themeMicaStyleMenu.setDisabled(True)
+
+    @staticmethod
+    def _parseSettingsBool(value, default:bool) -> bool:
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, str):
+            value = value.strip().lower()
+            if value in ('1', 'true', 'yes', 'y', 'on'):
+                return True
+            if value in ('0', 'false', 'no', 'n', 'off'):
+                return False
+            return default
+        try:
+            return bool(value)
+        except:
+            return default
+
+    @staticmethod
+    def _parsePositiveFloat(value, default:float) -> float:
+        try:
+            value = float(value)
+        except:
+            return default
+        if not np.isfinite(value) or value <= 0:
+            return default
+        return value
+
+    def _getArrowParseSettings(self) -> dict:
+        return {
+            'arrow_size_bind_line_length': self.arrowSizeBindLineLength,
+            'arrow_size': self.arrowSize,
+        }
 
     def loadSettings(self, ):
 
@@ -2958,8 +3046,19 @@ class App(QMainWindow):
                     settings = {}
 
                 self.tgtTheme = m[settings.get('theme', 'Auto')]
-                self.tgtMicaStyle = settings.get('mica', 4)
+                self.tgtMicaStyle = settings.get(
+                    'mica',
+                    DWM_SYSTEMBACKDROP_TYPE.DWMSBT_TABBEDWINDOW,
+                )
                 self.ui.checkBox_arrow.setChecked(settings.get('arrow', False))
+                self.arrowSizeBindLineLength = self._parseSettingsBool(
+                    settings.get('arrow_size_bind_line_length', self.arrowSizeBindLineLength),
+                    self.arrowSizeBindLineLength,
+                )
+                self.arrowSize = self._parsePositiveFloat(
+                    settings.get('arrow_size', self.arrowSize),
+                    self.arrowSize,
+                )
                 self.ui.openGLWidget.glSettings.setSettings(settings.get('gl_settings', {}))
 
                 self.currentScriptPath = settings.get('lastScript', '')
@@ -2984,6 +3083,8 @@ class App(QMainWindow):
                 'lastScript':self.currentScriptPath,
                 'localPath': self.currentPath,
                 'arrow': self.ui.checkBox_arrow.isChecked(),
+                'arrow_size_bind_line_length': self.arrowSizeBindLineLength,
+                'arrow_size': self.arrowSize,
                 'checkUpdateOnStartup': self.checkUpdateOnStartup,
                 'gl_major_version': self.glMajorVersion,
                 'gl_minor_version': self.glMinorVersion,
@@ -3212,12 +3313,10 @@ if __name__ == "__main__":
     App.remoteUI.setWindowIcon(QIcon('icon.ico'))
     App.fileDetailUI.setWindowIcon(QIcon('icon.ico'))
 
-
     if sys.platform == 'win32':
         import ctypes
         ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("Batch3D.Batch3D.1.0")
         try:
-            App.setAttribute(Qt.WA_TranslucentBackground)
             font = QFont([u'Microsoft Yahei UI'], 10)
             app.setFont(font)
 

@@ -96,7 +96,7 @@ void main()
     float alpha = v_Color.a;
 
     float z = gl_FragCoord.z;
-    float weight = alpha * max(0.1, 3000.0 * pow(1.0 - z, 2.0));
+    float weightScale = max(0.1, 3000.0 * pow(1.0 - z, 2.0));
     // float weight = 1.0;
 
     if (v_simpleRender == 0){
@@ -110,6 +110,7 @@ void main()
         
         // Ensure alpha is sensible
         alpha = clamp(alpha, 0.0, 1.0);
+        float weight = alpha * weightScale;
 
         if (u_EnableMetallicRoughnessTexture == 1) {
             vec4 metallicRoughness = texture(u_MetallicRoughnessTexture, v_Texcoord);
@@ -220,6 +221,8 @@ void main()
     else{
         // Simple Render
         // FragColor = v_Color;
+        alpha = clamp(alpha, 0.0, 1.0);
+        float weight = alpha * weightScale;
         Accum = vec4(v_Color.rgb * alpha, alpha) * weight;
         Reveal = alpha;
     }

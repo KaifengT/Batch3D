@@ -697,15 +697,22 @@ class BaseObject:
 
         '''
         def _safeGetArray(color:np.ndarray):
-            if not isinstance(color, np.ndarray):
+            if color is None:
                 return None
-            color = color.astype(np.float32).flatten() / 255.
+
+            color = np.asarray(color, dtype=np.float32).flatten()
+            if len(color) < 3:
+                return None
+
+            if np.nanmax(color) > 1.0:
+                color = color / 255.0
+
             if len(color) == 3:
                 color = np.concatenate((color, [1.]), axis=0)
             if len(color) < 4:
                 return None
             
-            color = color[:4]
+            color = np.clip(color[:4], 0.0, 1.0)
             linear = colorManager.linear2Srgb(color[:3])
             color[:3] = linear
             return color

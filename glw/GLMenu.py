@@ -17,6 +17,34 @@ def getCameraComboBox(parent):
     return box
 
 
+class GLViewContextMenu(QObject):
+    def __init__(self, parent=None, look_at_callback=None):
+        super().__init__(parent)
+
+        self.look_at_callback = look_at_callback
+        self._lookAtPoint = None
+
+        self.menu = RoundMenu(parent=parent)
+        self.lookAtAction = Action(text='Focus', parent=self)
+        self.lookAtAction.triggered.connect(self._onLookAtTriggered)
+        self.menu.addAction(self.lookAtAction)
+
+    def popupLookAtPoint(self, globalPos, point):
+        self._lookAtPoint = point.copy() if hasattr(point, 'copy') else point
+        self.menu.popup(globalPos)
+
+    def clearLookAtPoint(self):
+        self._lookAtPoint = None
+
+    def _onLookAtTriggered(self):
+        if self._lookAtPoint is None or self.look_at_callback is None:
+            return
+
+        point = self._lookAtPoint
+        self._lookAtPoint = None
+        self.look_at_callback(point)
+
+
 class GLSettingWidget(QObject):
 
 
@@ -202,7 +230,7 @@ class GLSettingWidget(QObject):
         self.enable_msaa_toggle = SwitchButton(parent=self.gl_setting_Menu)
         self.enable_msaa_toggle.setChecked(True)
         self.enable_msaa_toggle.checkedChanged.connect(self._on_msaa_visibility_changed)
-        frame.layout().addWidget(BodyLabel("Anti-Aliasing (MSAA)", parent=self.gl_setting_Menu))
+        frame.layout().addWidget(BodyLabel("MSAA", parent=self.gl_setting_Menu))
         frame.layout().addItem(QSpacerItem(40, 20, QSizePolicy.Expanding, QSizePolicy.Minimum))
         frame.layout().addWidget(self.enable_msaa_toggle)
         frame.adjustSize()
@@ -231,7 +259,7 @@ class GLSettingWidget(QObject):
         self.enable_ssao_toggle = SwitchButton(parent=self.gl_setting_Menu)
         self.enable_ssao_toggle.setChecked(True)
         self.enable_ssao_toggle.checkedChanged.connect(self._on_ssao_visibility_changed)
-        enable_ssao_label = BodyLabel("Screen Space Ambient Occlusion", parent=self.gl_setting_Menu)
+        enable_ssao_label = BodyLabel("SSAO", parent=self.gl_setting_Menu)
         frame.layout().addWidget(enable_ssao_label)
         frame.layout().addItem(QSpacerItem(40, 20, QSizePolicy.Expanding, QSizePolicy.Minimum))
         frame.layout().addWidget(self.enable_ssao_toggle)
@@ -254,7 +282,7 @@ class GLSettingWidget(QObject):
         ssao_strength_label = BodyLabel("AO Mag.", parent=self.gl_setting_Menu)
         frame.layout().addWidget(ssao_strength_label)
         self.ssao_strength_spinbox = SpinBox(parent=self.gl_setting_Menu)
-        self.ssao_strength_spinbox.setRange(1, 300)
+        self.ssao_strength_spinbox.setRange(1, 1000)
         self.ssao_strength_spinbox.setValue(60)
         self.ssao_strength_spinbox.setSingleStep(1)
         self.ssao_strength_spinbox.valueChanged.connect(self._on_ssao_strength_changed)

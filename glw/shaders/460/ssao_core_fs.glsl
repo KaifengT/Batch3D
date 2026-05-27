@@ -17,7 +17,7 @@ uniform vec3 u_kernel[MAX_KERNEL_SIZE];
 uniform int u_kernelSize;
 uniform int u_projMode;
 
-const float bias = 0.025;
+const float bias = 0.050;
 
 uniform float u_radiusPixels; // radius in pixels, used to calculate view space radius
 
@@ -44,7 +44,7 @@ void main()
         z = 1.0;
     }
     
-    float viewRadius = (u_radiusPixels * 2.0 * z) / (u_screenSize.y * fy);
+    float viewRadius = (u_radiusPixels * 5.0 * z) / (u_screenSize.y * fy);
 
 
     float AO = 0.0;
@@ -69,7 +69,7 @@ void main()
 
     }
 
-    AO = 1.0 - ((AO/float(u_kernelSize)) / 4.0);
+    AO = 1.0 - ((AO/float(u_kernelSize)) / 6.0);
     // AO = 0.5;
     // vec3 A0_vec3 = vec3(pow(AO, 2.0));
 

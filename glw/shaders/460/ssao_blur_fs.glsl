@@ -18,17 +18,21 @@ float spatialWeight(int dx, int dy) {
     return exp(-r2 / denom);
 }
 
+bool validGeometry(vec3 pos, vec3 normal) {
+    return dot(pos, pos) > 1e-12 && dot(normal, normal) > 1e-12;
+}
+
 void main() {
     vec3 centerPos = texture(u_PositionMap, TexCoord).xyz;
-    vec3 centerN   = normalize(texture(u_NormalMap,   TexCoord).xyz);
+    vec3 centerNormal = texture(u_NormalMap, TexCoord).xyz;
     float centerAO = texture(u_AOMap, TexCoord).r;
 
-    // Optional: w==0
-    if (!all(greaterThanEqual(abs(centerPos), vec3(0.0)))) {
-        FragColor = vec4(centerAO, centerAO, centerAO, 1.0);
+    if (!validGeometry(centerPos, centerNormal)) {
+        FragColor = vec4(1.0);
         return;
     }
 
+    vec3 centerN = normalize(centerNormal);
     float sumW = 0.0;
     float aoAccum = 0.0;
 
@@ -39,14 +43,15 @@ void main() {
             vec2 tc = TexCoord + offset;
 
             vec3 samplePos = texture(u_PositionMap, tc).xyz;
-            vec3 sampleN   = normalize(texture(u_NormalMap, tc).xyz);
+            vec3 sampleNormal = texture(u_NormalMap, tc).xyz;
             float sampleAO = texture(u_AOMap, tc).r;
 
 
-            if (!all(greaterThanEqual(abs(samplePos), vec3(0.0)))) {
+            if (!validGeometry(samplePos, sampleNormal)) {
                 continue;
             }
 
+            vec3 sampleN = normalize(sampleNormal);
             float wSpatial = spatialWeight(x, y);
 
             float dz = samplePos.z - centerPos.z;

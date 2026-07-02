@@ -1,0 +1,4 @@
+interface:
+  display_name: "Batch3D"
+  short_description: "Create Batch3D files and scripts"
+  default_prompt: "Use $batch3d for explicit Batch3D/b3d preview requests, saved visualization files, or executable b3d API scripts."
